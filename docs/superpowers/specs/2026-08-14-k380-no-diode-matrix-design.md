@@ -1,82 +1,80 @@
-# K380 No-Diode Matrix Design
+# K380 无二极管矩阵设计
 
-**Status:** Approved
+**状态：** 已批准
 
-**Goal:** Add a ZMK board module for an nRF52840-QIAA K380 keyboard with a no-diode matrix scanner that suppresses only electrically ambiguous new key presses.
+**目标：** 为使用 nRF52840-QIAA 的 K380 键盘新增一个 ZMK board module，并实现仅抑制电气状态不确定的新按键的无二极管矩阵扫描器。
 
-## Scope
+## 范围
 
-The implementation is isolated in an external module named `zmk-keyboard-k380`.
-It must not modify ZMK's in-tree `zmk,kscan-gpio-matrix` binding, its Kconfig,
-or `app/module/drivers/kscan/kscan_gpio_matrix.c`.
+实现放在独立的外部 module `zmk-keyboard-k380` 中。
+不得修改 ZMK 树内的 `zmk,kscan-gpio-matrix` binding、其 Kconfig，或
+`app/module/drivers/kscan/kscan_gpio_matrix.c`。
 
-The module contains both the K380 board definition and the K380-only scanner.
-The scanner is selected only by a unique devicetree compatible:
+该 module 同时包含 K380 board 定义和仅供 K380 使用的扫描器。
+扫描器仅由唯一的 devicetree compatible 选择：
 
 ```text
 k380,kscan-no-diode-matrix
 ```
 
-No existing ZMK board or shield will reference this compatible.
+现有的 ZMK board 或 shield 都不会引用此 compatible。
 
-## Hardware Baseline
+## 硬件基线
 
-- SoC: nRF52840-QIAA
-- Matrix: 8 rows by 15 columns
-- Matrix topology: no diodes
-- Scan direction: row2col
-- Row electrical mode: active high, open source output
-- Column electrical mode: active high, pull-down input
-- Normal firmware update: Adafruit nRF52 Bootloader and UF2
-- First flash, debugging, and recovery: J-Link/SWD
+- SoC：nRF52840-QIAA
+- 矩阵：8 行 x 15 列
+- 矩阵拓扑：无二极管
+- 扫描方向：row2col
+- 行电气模式：高电平有效、开源输出
+- 列电气模式：高电平有效、下拉输入
+- 日常固件升级：Adafruit nRF52 Bootloader 和 UF2
+- 首次烧录、调试与救砖：J-Link/SWD
 
-The canonical signal assignments are in
-`docs/superpowers/specs/2026-08-14-k380-pinmap.md`.
+信号分配的唯一来源见
+`docs/superpowers/specs/2026-08-14-k380-pinmap.md`。
 
-## Architecture
+## 架构
 
 ```text
-GPIO scan frame
-    -> raw 8x15 matrix
-    -> rectangular ambiguity detection
-    -> filtered logical matrix
-    -> existing debounce rules
-    -> ZMK key position events
-    -> keymap and HID output
+GPIO 扫描帧
+    -> 原始 8x15 矩阵
+    -> 矩形歧义检测
+    -> 过滤后的逻辑矩阵
+    -> 现有 debounce 规则
+    -> ZMK 键位事件
+    -> keymap 和 HID 输出
 ```
 
-The scanner keeps the standard GPIO scan, wakeup, power-management, and
-debounce behavior from the ZMK matrix driver. The only functional change is
-between collection of one complete scan frame and debounce processing.
+扫描器保留 ZMK 标准矩阵驱动的 GPIO 扫描、唤醒、中断、电源管理和
+debounce 行为。唯一的功能变化发生在收集完一帧矩阵数据之后、交给
+debounce 之前。
 
-## Ambiguity Policy
+## 歧义处理策略
 
-For every complete scan frame, create one 15-bit active mask per row. For
-every pair of rows, calculate the intersection of their active masks.
+每完成一帧扫描，为每一行生成一个 15-bit 的 active 位图。对任意两个
+行位图计算交集。
 
-If an intersection contains two or more active columns, all intersections for
-those two rows and common columns belong to an ambiguous rectangle.
+若交集至少包含两个 active 列，这两行和这些公共列的交点即构成不确定的
+矩形区域。
 
-The output policy is:
+输出规则如下：
 
-1. A raw inactive cell is released normally.
-2. A previously debounced pressed cell remains pressed while its raw cell stays
-   active, even when it becomes ambiguous.
-3. A newly active ambiguous cell is withheld from debounce and produces no
-   press event.
-4. A newly active non-ambiguous cell is passed to debounce.
-5. A withheld physical key becomes eligible for debounce after the ambiguous
-   rectangle disappears and the key remains active.
+1. 原始状态为 inactive 的交点正常释放。
+2. 已经完成 debounce 的按下交点，只要原始状态仍为 active，即使进入
+   歧义区域也保持按下。
+3. 新出现且位于歧义区域的 active 交点不进入 debounce，也不产生按下事件。
+4. 新出现且不在歧义区域的 active 交点正常进入 debounce。
+5. 被暂缓的真实按键在矩形歧义消失后，若仍保持 active，则重新具备进入
+   debounce 的资格。
 
-This policy prevents a ghost corner from producing a HID press while avoiding
-a global limit on normal four-key and larger combinations.
+该策略避免鬼键角点产生 HID 按下事件，同时不对普通四键和更多按键组合施加
+全局数量上限。
 
-No software policy can distinguish three physical corners plus one ghost
-corner from four physical corners in the same 2x2 rectangle. The product
-behavior for a full physical rectangle is therefore deliberate: later,
-ambiguous presses are delayed until the rectangle is no longer ambiguous.
+软件无法区分同一 2x2 矩形中的“三个真实按键加一个鬼键”和“四个真实按键”。
+因此完整物理矩形的产品行为必须明确：后出现且处于歧义区域的按键会被延后，
+直至矩形不再歧义。
 
-## Module Layout
+## Module 目录结构
 
 ```text
 zmk-keyboard-k380/
@@ -107,90 +105,82 @@ zmk-keyboard-k380/
   tests/ghost-filter/
 ```
 
-`ghost_filter.c` is a pure frame-to-frame filter. It receives raw matrix state
-and prior accepted state and returns a filtered matrix plus an ambiguity mask.
-It does not read GPIO, schedule work, emit ZMK events, or access devicetree.
+`ghost_filter.c` 是纯粹的逐帧过滤逻辑。它接收原始矩阵状态和此前已接受的
+状态，输出过滤后的矩阵和歧义掩码。它不读取 GPIO、不调度工作项、不发送 ZMK
+事件，也不访问 devicetree。
 
-`kscan_k380_no_diode_matrix.c` owns GPIO scanning and debounce integration. It
-is a maintained derivative of the ZMK matrix scanner. Its file header must
-record the exact upstream ZMK commit from which it was derived.
+`kscan_k380_no_diode_matrix.c` 负责 GPIO 扫描和 debounce 集成。它是 ZMK
+矩阵扫描器的受控派生版本。文件头必须记录派生时对应的 ZMK 上游 commit。
 
-## Board Integration
+## Board 集成
 
-The board DTS must:
+board DTS 必须：
 
-- Include the nRF52840-QIAA SoC description.
-- Include the Bootloader-compatible UF2 boot-mode and partition configuration.
-- Include exactly one K380 pinmap revision file.
-- Instantiate `k380,kscan-no-diode-matrix`.
-- Define the 8 row GPIOs and 15 column GPIOs from the selected pinmap.
-- Define a matrix transform containing only physical K380 keys.
-- Select the K380 kscan and physical layout through the ZMK chosen node.
+- 包含 nRF52840-QIAA SoC 描述。
+- 包含与 Bootloader 兼容的 UF2 boot mode 和分区配置。
+- 仅包含一个 K380 pinmap revision 文件。
+- 实例化 `k380,kscan-no-diode-matrix`。
+- 使用选定 pinmap 中的 8 行和 15 列 GPIO。
+- 定义仅包含 K380 真实物理按键的 matrix transform。
+- 通过 ZMK chosen node 选择 K380 kscan 和 physical layout。
 
-The matrix transform and default keymap require a supplied table mapping every
-physical K380 key to its row and column coordinates. Unused electrical
-intersections are excluded from the transform.
+matrix transform 和默认 keymap 依赖一张完整的“物理 K380 按键到行列坐标”
+对照表。未连接的电气交点不应出现在 transform 中。
 
-## Pinmap Versioning
+## Pinmap 版本管理
 
-All board-level GPIO references must originate from a revisioned pinmap DTSI
-file. The pinmap DTSI owns the K380 kscan node and its `row-gpios` and
-`col-gpios` properties. The board DTS includes the selected pinmap, then
-references the labelled kscan node from its chosen node. The driver accepts
-GPIO arrays from devicetree and has no hard-coded nRF52840 pin numbers.
+所有 board 级 GPIO 引用必须来自带 revision 的 pinmap DTSI 文件。pinmap DTSI
+拥有 K380 kscan node 及其 `row-gpios` 和 `col-gpios` 属性。board DTS 包含选定
+pinmap 后，从 chosen node 引用带 label 的 kscan node。驱动只从 devicetree 接收
+GPIO 数组，不得硬编码 nRF52840 引脚号。
 
-Board revision changes use this sequence:
+board revision 变更遵循以下流程：
 
-1. Create `k380-pins-rev-b.dtsi` from the previous revision.
-2. Change only signal assignments and optional peripheral nodes in the new
-   revision file.
-3. Select the new revision from the board DTS or a revision-specific board
-   variant.
-4. Keep the previous revision file buildable for existing hardware.
-5. Update the pinmap document with a revision comparison and validation result.
+1. 从上一 revision 创建 `k380-pins-rev-b.dtsi`。
+2. 仅在新 revision 文件中调整信号分配和可选外设节点。
+3. 通过 board DTS 或 revision 专用 board variant 选择新 revision。
+4. 保持旧 revision 文件可构建，以支持既有硬件。
+5. 更新 pinmap 文档中的 revision 对比和验证结果。
 
-This permits matrix rerouting and later LED, battery, display, encoder, or
-power-control additions without modifying ghost-filter logic.
+该规则支持矩阵改线以及后续新增 LED、电池、显示屏、编码器和电源控制，而无需
+修改鬼键过滤逻辑。
 
-## Test Plan
+## 测试计划
 
-### Pure Filter Tests
+### 纯过滤逻辑测试
 
-The module test suite must cover:
+module 测试套件必须覆盖：
 
-- One key, same-row multi-key, and same-column multi-key frames.
-- Four or more active keys that do not form a rectangular ambiguity.
-- Three physical rectangle corners represented as four raw active corners.
-- Release of a known key while an ambiguity exists.
-- Resolution of an ambiguity while a real withheld key remains held.
-- Multiple independent ambiguous rectangles.
-- A full physical rectangle, with expected delayed presses documented.
+- 单键、同一行多键和同一列多键的扫描帧。
+- 不构成矩形歧义的四键及以上组合。
+- 三个真实矩形角点在电气上表现为四个 active 角点的情况。
+- 歧义存在时释放一个已确认按键。
+- 歧义解除时，一个此前被暂缓的真实键仍保持按下。
+- 多个相互独立的歧义矩形。
+- 完整物理矩形，并记录预期的延后按键行为。
 
-### Build Isolation Tests
+### 构建隔离测试
 
-- Build the K380 board and verify the K380 scanner configuration is enabled.
-- Build one existing ZMK nRF52840 board with the K380 module registered and
-  verify the K380 scanner configuration is disabled.
-- Verify that the only K380 driver object is absent from the existing-board
-  build.
-- Verify the in-tree ZMK worktree has no functional source modifications.
+- 构建 K380 board，并确认 K380 扫描器配置已启用。
+- 在注册 K380 module 的情况下构建一个现有 ZMK nRF52840 board，并确认
+  K380 扫描器配置未启用。
+- 确认现有 board 的构建产物中不存在 K380 驱动对象文件。
+- 确认 ZMK 树内工作区没有功能性源码修改。
 
-### Hardware Acceptance Tests
+### 硬件验收测试
 
-- First flash through J-Link/SWD.
-- Recovery through J-Link/SWD after an intentionally invalid application image.
-- Normal UF2 upgrade through the Adafruit nRF52 Bootloader.
-- Full matrix walk test.
-- Non-rectangular four-key and modifier combinations.
-- Known ambiguous rectangle sequences with no ghost HID event.
-- USB and BLE typing.
-- Idle, wakeup, and low-power current measurement.
+- 使用 J-Link/SWD 进行首次烧录。
+- 写入无效应用镜像后使用 J-Link/SWD 救砖。
+- 使用 Adafruit nRF52 Bootloader 进行正常 UF2 升级。
+- 完整矩阵逐键测试。
+- 非矩形四键和修饰键组合。
+- 已知矩形歧义序列，确认没有鬼键 HID 事件。
+- USB 和 BLE 输入。
+- 空闲、唤醒和低功耗电流测量。
 
-## Pre-Implementation Inputs
+## 实现前置输入
 
-Implementation starts only after these two inputs are supplied:
+仅在收到以下两项信息后开始实现：
 
-1. The physical-key to row-and-column matrix table for every K380 key.
-2. The exact Adafruit nRF52 Bootloader build and application partition start
-   address used by the target board.
-
+1. 每个 K380 物理按键对应行列坐标的完整矩阵表。
+2. 目标 board 使用的确切 Adafruit nRF52 Bootloader 构建版本和应用分区起始地址。
