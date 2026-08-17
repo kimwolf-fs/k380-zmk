@@ -65,7 +65,7 @@ app/boards/
 - 创建：`zmk-keyboard-k380/tests/driver-build/k380-driver.overlay`
 - 测试：`zmk-keyboard-k380/tests/driver-build/`
 
-- [ ] **步骤 1：创建轮询模式配置片段**
+- [x] **步骤 1：创建轮询模式配置片段**
 
 写入 `zmk-keyboard-k380/tests/driver-build/k380-driver.conf`：
 
@@ -76,7 +76,7 @@ CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
 
 轮询模式避免编译夹具要求 nRF52840DK 上所有输入 GPIO 都能安全注册中断；生产 K380 DTS 不强制此选项，仍沿用上游矩阵驱动的中断或轮询选择。
 
-- [ ] **步骤 2：创建固定 8x15 的 nRF52840DK overlay**
+- [x] **步骤 2：创建固定 8x15 的 nRF52840DK overlay**
 
 写入 `zmk-keyboard-k380/tests/driver-build/k380-driver.overlay`：
 
@@ -125,7 +125,7 @@ CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
 
 这里的 GPIO 只用于编译，不代表 K380 pinmap，也不能复制到后续 K380 board DTS。
 
-- [ ] **步骤 3：创建 K380 专用 GitHub Actions workflow**
+- [x] **步骤 3：创建 K380 专用 GitHub Actions workflow**
 
 写入 `.github/workflows/k380-ci.yml`：
 
@@ -272,7 +272,7 @@ jobs:
           if-no-files-found: ignore
 ```
 
-- [ ] **步骤 4：提交并推送 workflow 与夹具，确认 CI 预期失败**
+- [x] **步骤 4：提交并推送 workflow 与夹具，确认 CI 分阶段结果**
 
 ```bash
 git add .github/workflows/k380-ci.yml zmk-keyboard-k380/tests/driver-build

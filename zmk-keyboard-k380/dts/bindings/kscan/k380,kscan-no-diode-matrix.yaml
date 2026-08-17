@@ -1,0 +1,27 @@
+description: K380 fixed 8x15 row2col no-diode GPIO keyboard matrix controller
+
+compatible: "k380,kscan-no-diode-matrix"
+
+include: kscan.yaml
+
+properties:
+  row-gpios:
+    type: phandle-array
+    required: true
+    description: Eight active-high open-source row GPIOs.
+  col-gpios:
+    type: phandle-array
+    required: true
+    description: Fifteen active-high pull-down column GPIOs.
+  debounce-press-ms:
+    type: int
+    default: 5
+  debounce-release-ms:
+    type: int
+    default: 5
+  debounce-scan-period-ms:
+    type: int
+    default: 1
+  poll-period-ms:
+    type: int
+    default: 10

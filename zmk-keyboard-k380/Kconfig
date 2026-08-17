@@ -1,0 +1,5 @@
+menu "K380 keyboard module"
+
+rsource "drivers/kscan/Kconfig"
+
+endmenu
