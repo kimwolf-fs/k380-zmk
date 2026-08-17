@@ -23,6 +23,20 @@ permissions:
   contents: read
 
 jobs:
+  module-metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      module-registered: ${{ steps.module.outputs.registered }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: module
+        run: |
+          if test -f zmk-keyboard-k380/zephyr/module.yml; then
+            echo "registered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "registered=false" >> "$GITHUB_OUTPUT"
+          fi
+
   ghost-filter:
     runs-on: ubuntu-latest
     container:
@@ -43,6 +57,7 @@ jobs:
       - run: west init -l app
       - run: west update --fetch-opt=--filter=tree:0
       - run: west zephyr-export
+      - run: pip install --break-system-packages natsort
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
       - if: always()
         uses: actions/upload-artifact@v7
@@ -54,6 +69,8 @@ jobs:
           if-no-files-found: ignore
 
   driver-build:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
     runs-on: ubuntu-latest
     container:
       image: docker.io/zmkfirmware/zmk-build-arm:4.1
@@ -89,6 +106,8 @@ jobs:
           if-no-files-found: ignore
 
   module-isolation:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
     runs-on: ubuntu-latest
     container:
       image: docker.io/zmkfirmware/zmk-build-arm:4.1

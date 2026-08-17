@@ -155,6 +155,20 @@ permissions:
   contents: read
 
 jobs:
+  module-metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      module-registered: ${{ steps.module.outputs.registered }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: module
+        run: |
+          if test -f zmk-keyboard-k380/zephyr/module.yml; then
+            echo "registered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "registered=false" >> "$GITHUB_OUTPUT"
+          fi
+
   ghost-filter:
     runs-on: ubuntu-latest
     container:
@@ -175,6 +189,7 @@ jobs:
       - run: west init -l app
       - run: west update --fetch-opt=--filter=tree:0
       - run: west zephyr-export
+      - run: pip install --break-system-packages natsort
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
       - if: always()
         uses: actions/upload-artifact@v7
@@ -186,6 +201,8 @@ jobs:
           if-no-files-found: ignore
 
   driver-build:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
     runs-on: ubuntu-latest
     container:
       image: docker.io/zmkfirmware/zmk-build-arm:4.1
@@ -221,6 +238,8 @@ jobs:
           if-no-files-found: ignore
 
   module-isolation:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
     runs-on: ubuntu-latest
     container:
       image: docker.io/zmkfirmware/zmk-build-arm:4.1
@@ -262,10 +281,10 @@ git commit -m "test(k380): 添加 GitHub 驱动编译夹具"
 git push --set-upstream origin feat/k380-no-diode-matrix-driver
 ```
 
-预期：`K380 CI / ghost-filter` 和 `K380 CI / module-isolation` 通过；`K380 CI /
-driver-build` 失败，原因是 `zmk-keyboard-k380` 尚未拥有 `zephyr/module.yml` 和
-devicetree binding。通过 GitHub Actions 页面检查失败日志，不要求本地安装构建
-工具。
+预期：`K380 CI / module-metadata` 和 `K380 CI / ghost-filter` 通过。
+`driver-build` 和 `module-isolation` 因 `module-metadata` 检测到
+`zmk-keyboard-k380/zephyr/module.yml` 尚未创建而被跳过，不把尚未注册的目录传给
+`ZMK_EXTRA_MODULES`。通过 GitHub Actions 页面检查结果，不要求本地安装构建工具。
 
 ### Task 2: 注册独立 module、Kconfig 和 devicetree binding
 
@@ -383,7 +402,8 @@ git commit -m "feat(k380): 注册专用矩阵扫描模块"
 git push
 ```
 
-预期：`K380 CI / driver-build` 已识别 binding，失败原因变为
+预期：创建 `zephyr/module.yml` 后，`driver-build` 和 `module-isolation` 自动启用。
+`module-isolation` 通过；`driver-build` 已识别 binding，失败原因变为
 `kscan_k380_no_diode_matrix.c` 不存在。若仍显示 binding 未找到，检查 workflow
 日志中的 `ZMK_EXTRA_MODULES` 是否等于 `${GITHUB_WORKSPACE}/zmk-keyboard-k380`，
 以及 `module.yml` 中的 `dts_root`。
@@ -653,7 +673,7 @@ git commit -m "feat(k380): 添加无二极管矩阵扫描驱动"
 git push
 ```
 
-预期：`K380 CI` 的三个 job 全部通过。
+预期：`K380 CI / module-metadata` 和三个验证 job 全部通过。
 
 ### Task 4: 回归、隔离验证与阶段记录
 
@@ -667,12 +687,13 @@ git push
 在 GitHub 的 Actions 页面打开本分支最新一次 `K380 CI` 运行。预期：
 
 ```text
+module-metadata: success
 ghost-filter: success
 driver-build: success
 module-isolation: success
 ```
 
-下载并保留三个 job 上传的日志 artifact，作为本阶段的 CI 验证证据。
+下载并保留三个验证 job 上传的日志 artifact，作为本阶段的 CI 验证证据。
 
 - [ ] **步骤 2：验证共享 ZMK 源码完全未变**
 

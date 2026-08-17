@@ -43,18 +43,23 @@ docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md
 
 ## 验证作业
 
-工作流包含三个相互独立的 job。每个 job 都独立 checkout、初始化 West workspace
-并恢复以 `app/west.yml` 哈希为键的 West modules 缓存。
+工作流包含一个轻量 `module-metadata` job 和三个验证 job。`module-metadata` checkout
+后检查 `zmk-keyboard-k380/zephyr/module.yml`，并输出 module 是否已注册。每个验证
+job 都独立 checkout、初始化 West workspace 并恢复以 `app/west.yml` 哈希为键的 West
+modules 缓存。`driver-build` 和 `module-isolation` 依赖该输出，仅在 module 注册后
+启用；这样在 module 注册前不会把普通目录作为 `ZMK_EXTRA_MODULES` 传入 CMake。
 
 ### 过滤器单元测试
 
 运行：
 
 ```bash
+pip install --break-system-packages natsort
 ZEPHYR_TOOLCHAIN_VARIANT=host west twister \
   -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
 ```
 
+`zmk-build-arm:4.1` 不包含 Twister 运行时依赖 `natsort`，因此先安装该依赖。
 成功标准是 `k380.ghost_filter` 的所有测试通过。
 
 ### 专用驱动编译夹具
