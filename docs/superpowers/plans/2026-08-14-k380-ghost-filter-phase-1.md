@@ -46,7 +46,7 @@ zmk/app/boards/
 - 创建：`zmk-keyboard-k380/tests/ghost-filter/src/main.c`
 - 测试：`zmk-keyboard-k380/tests/ghost-filter/src/main.c`
 
-- [ ] **步骤 1：创建 Zephyr 测试构建文件**
+- [x] **步骤 1：创建 Zephyr 测试构建文件**
 
 ```cmake
 cmake_minimum_required(VERSION 3.20.0)
@@ -71,7 +71,7 @@ tests:
       - unit
 ```
 
-- [ ] **步骤 2：编写失败的行为测试**
+- [x] **步骤 2：编写失败的行为测试**
 
 ```c
 #include <zephyr/ztest.h>
@@ -159,20 +159,20 @@ ZTEST(k380_ghost_filter, test_bits_outside_the_15_column_matrix_are_ignored) {
 ZTEST_SUITE(k380_ghost_filter, NULL, NULL, NULL, NULL, NULL);
 ```
 
-- [ ] **步骤 3：运行测试并确认失败**
+- [x] **步骤 3：运行测试并确认失败**
 
-运行：
+从 West 工作区根目录运行。当前 WSL 环境使用 host 工具链：
 
 ```bash
-west twister -T tests/ghost-filter -p native_sim
+ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
 ```
 
 预期：失败，原因是 `zmk_keyboard_k380/ghost_filter.h` 和 `ghost_filter.c` 尚不存在。
 
-- [ ] **步骤 4：提交测试骨架**
+- [x] **步骤 4：提交测试骨架**
 
 ```bash
-git add tests/ghost-filter
+git add zmk-keyboard-k380/tests/ghost-filter
 git commit -m "test(k380): 添加矩形歧义过滤器测试"
 ```
 
@@ -250,10 +250,10 @@ void k380_ghost_filter_apply(const uint16_t raw[K380_GHOST_FILTER_ROWS],
 
 - [ ] **步骤 3：运行测试并确认通过**
 
-运行：
+从 West 工作区根目录运行。当前 WSL 环境使用 host 工具链：
 
 ```bash
-west twister -T tests/ghost-filter -p native_sim
+ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
 ```
 
 预期：`k380.ghost_filter` 通过，4 个测试均成功。
@@ -276,17 +276,17 @@ git commit -m "feat(k380): 添加矩形歧义过滤器"
 运行：
 
 ```bash
-git -C E:/project/k380-keyboard/zmk diff --exit-code -- app/module/drivers/kscan/kscan_gpio_matrix.c app/module/drivers/kscan/Kconfig app/module/drivers/kscan/CMakeLists.txt app/module/dts/bindings/kscan/zmk,kscan-gpio-matrix.yaml
+git diff --exit-code main...HEAD -- app/module/drivers/kscan/kscan_gpio_matrix.c app/module/drivers/kscan/Kconfig app/module/drivers/kscan/CMakeLists.txt app/module/dts/bindings/kscan/zmk,kscan-gpio-matrix.yaml
 ```
 
 预期：退出码为 `0`。
 
 - [ ] **步骤 2：运行完整的过滤器测试目录**
 
-运行：
+从 West 工作区根目录运行。当前 WSL 环境使用 host 工具链：
 
 ```bash
-west twister -T tests/ghost-filter -p native_sim
+ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
 ```
 
 预期：所有 `k380.ghost_filter` 测试通过。
