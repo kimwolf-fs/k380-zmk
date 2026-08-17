@@ -183,7 +183,7 @@ git commit -m "test(k380): 添加矩形歧义过滤器测试"
 - 创建：`zmk-keyboard-k380/src/ghost_filter.c`
 - 测试：`zmk-keyboard-k380/tests/ghost-filter/src/main.c`
 
-- [ ] **步骤 1：创建公开接口**
+- [x] **步骤 1：创建公开接口**
 
 ```c
 #ifndef ZMK_KEYBOARD_K380_GHOST_FILTER_H_
@@ -203,7 +203,7 @@ void k380_ghost_filter_apply(const uint16_t raw[K380_GHOST_FILTER_ROWS],
 #endif
 ```
 
-- [ ] **步骤 2：实现矩形检测和新按键抑制**
+- [x] **步骤 2：实现矩形检测和新按键抑制**
 
 ```c
 #include <stdbool.h>
@@ -248,7 +248,7 @@ void k380_ghost_filter_apply(const uint16_t raw[K380_GHOST_FILTER_ROWS],
 }
 ```
 
-- [ ] **步骤 3：运行测试并确认通过**
+- [x] **步骤 3：运行测试并确认通过**
 
 从 West 工作区根目录运行。当前 WSL 环境使用 host 工具链：
 
@@ -258,7 +258,7 @@ ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filt
 
 预期：`k380.ghost_filter` 通过，4 个测试均成功。
 
-- [ ] **步骤 4：提交过滤器实现**
+- [x] **步骤 4：提交过滤器实现**
 
 ```bash
 git add include/zmk_keyboard_k380/ghost_filter.h src/ghost_filter.c
@@ -271,7 +271,7 @@ git commit -m "feat(k380): 添加矩形歧义过滤器"
 - 修改：无
 - 测试：`zmk-keyboard-k380/tests/ghost-filter/`
 
-- [ ] **步骤 1：确认 ZMK 树内通用驱动未发生改动**
+- [x] **步骤 1：确认 ZMK 树内通用驱动未发生改动**
 
 运行：
 
@@ -281,7 +281,7 @@ git diff --exit-code main...HEAD -- app/module/drivers/kscan/kscan_gpio_matrix.c
 
 预期：退出码为 `0`。
 
-- [ ] **步骤 2：运行完整的过滤器测试目录**
+- [x] **步骤 2：运行完整的过滤器测试目录**
 
 从 West 工作区根目录运行。当前 WSL 环境使用 host 工具链：
 
@@ -291,11 +291,11 @@ ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filt
 
 预期：所有 `k380.ghost_filter` 测试通过。
 
-- [ ] **步骤 3：记录阶段边界**
+- [x] **步骤 3：记录阶段边界**
 
 第一阶段交付物只包含纯过滤器和测试。不得创建 kscan driver、DTS binding、board DTS、UF2 配置或默认 keymap；这些内容属于第二阶段或 board 集成阶段。
 
-- [ ] **步骤 4：确认验证任务不产生额外提交**
+- [x] **步骤 4：确认验证任务不产生额外提交**
 
 运行：
 
