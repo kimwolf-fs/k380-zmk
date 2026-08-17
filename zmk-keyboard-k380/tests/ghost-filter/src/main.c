@@ -51,20 +51,20 @@ ZTEST(k380_ghost_filter, test_new_rectangle_corners_are_withheld) {
 
 ZTEST(k380_ghost_filter, test_release_is_not_blocked_by_ambiguity) {
     const uint16_t raw[K380_GHOST_FILTER_ROWS] = {
-        BIT(1), BIT(0) | BIT(1), 0, 0, 0, 0, 0, 0,
+        BIT(0) | BIT(1), BIT(0) | BIT(1), 0, 0, 0, 0, 0, 0,
     };
     const uint16_t accepted[K380_GHOST_FILTER_ROWS] = {
-        BIT(0) | BIT(1), BIT(0), 0, 0, 0, 0, 0, 0,
+        BIT(2), 0, 0, 0, 0, 0, 0, 0,
     };
-    const uint16_t expected[K380_GHOST_FILTER_ROWS] = {
-        BIT(1), BIT(1), 0, 0, 0, 0, 0, 0,
-    };
+    const uint16_t expected[K380_GHOST_FILTER_ROWS] = {0};
     uint16_t filtered[K380_GHOST_FILTER_ROWS];
     uint16_t ambiguous[K380_GHOST_FILTER_ROWS];
 
     k380_ghost_filter_apply(raw, accepted, filtered, ambiguous);
 
     assert_rows_equal(filtered, expected);
+    zassert_equal(ambiguous[0], BIT(0) | BIT(1), "row 0 ambiguity");
+    zassert_equal(ambiguous[1], BIT(0) | BIT(1), "row 1 ambiguity");
 }
 
 ZTEST(k380_ghost_filter, test_bits_outside_the_15_column_matrix_are_ignored) {
