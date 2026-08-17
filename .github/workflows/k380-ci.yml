@@ -40,7 +40,7 @@ jobs:
   ghost-filter:
     runs-on: ubuntu-latest
     container:
-      image: docker.io/zmkfirmware/zmk-build-arm:4.1
+      image: docker.io/zmkfirmware/zmk-dev-arm:4.1
     steps:
       - uses: actions/checkout@v7
       - uses: actions/cache@v6
@@ -57,7 +57,6 @@ jobs:
       - run: west init -l app
       - run: west update --fetch-opt=--filter=tree:0
       - run: west zephyr-export
-      - run: pip install --break-system-packages natsort
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
       - if: always()
         uses: actions/upload-artifact@v7

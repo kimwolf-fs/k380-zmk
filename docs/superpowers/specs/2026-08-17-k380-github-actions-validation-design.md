@@ -54,12 +54,12 @@ modules 缓存。`driver-build` 和 `module-isolation` 依赖该输出，仅在 
 运行：
 
 ```bash
-pip install --break-system-packages natsort
 ZEPHYR_TOOLCHAIN_VARIANT=host west twister \
   -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
 ```
 
-`zmk-build-arm:4.1` 不包含 Twister 运行时依赖 `natsort`，因此先安装该依赖。
+过滤器 job 使用 `zmk-dev-arm:4.1`，该镜像提供 Twister 所需 Python 依赖；
+`driver-build` 和 `module-isolation` 继续使用较小的 `zmk-build-arm:4.1`。
 成功标准是 `k380.ghost_filter` 的所有测试通过。
 
 ### 专用驱动编译夹具
