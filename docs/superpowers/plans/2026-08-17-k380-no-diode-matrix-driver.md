@@ -296,7 +296,7 @@ git push --set-upstream origin feat/k380-no-diode-matrix-driver
 - 创建：`zmk-keyboard-k380/drivers/kscan/CMakeLists.txt`
 - 测试：`zmk-keyboard-k380/tests/driver-build/`
 
-- [ ] **步骤 1：编写 module 元数据和根构建入口**
+- [x] **步骤 1：编写 module 元数据和根构建入口**
 
 写入 `zmk-keyboard-k380/zephyr/module.yml`：
 
@@ -325,7 +325,7 @@ zephyr_include_directories(include)
 add_subdirectory(drivers/kscan)
 ```
 
-- [ ] **步骤 2：添加仅在 K380 compatible 存在时启用的 Kconfig**
+- [x] **步骤 2：添加仅在 K380 compatible 存在时启用的 Kconfig**
 
 写入 `zmk-keyboard-k380/drivers/kscan/Kconfig`：
 
@@ -345,7 +345,7 @@ endif # KSCAN
 `ZMK_KSCAN_GPIO_DRIVER` 只在 K380 compatible 被启用时被选择。这样复用 ZMK 全局
 debounce 配置和轮询开关，但不改变其共享源码或任何已有 board 的配置。
 
-- [ ] **步骤 3：添加 binding 和驱动 CMake 入口**
+- [x] **步骤 3：添加 binding 和驱动 CMake 入口**
 
 写入 `zmk-keyboard-k380/dts/bindings/kscan/k380,kscan-no-diode-matrix.yaml`：
 
@@ -389,7 +389,7 @@ zephyr_library_sources_ifdef(CONFIG_K380_KSCAN_NO_DIODE_MATRIX
 )
 ```
 
-- [ ] **步骤 4：推送 module 注册并确认 GitHub CI 失败原因前移**
+- [x] **步骤 4：推送 module 注册并确认 GitHub CI 失败原因前移**
 
 ```bash
 git add zmk-keyboard-k380/zephyr/module.yml zmk-keyboard-k380/Kconfig \
@@ -407,7 +407,7 @@ git push
 日志中的 `ZMK_EXTRA_MODULES` 是否等于 `${GITHUB_WORKSPACE}/zmk-keyboard-k380`，
 以及 `module.yml` 中的 `dts_root`。
 
-- [ ] **步骤 5：确认本任务不产生第二个提交**
+- [x] **步骤 5：确认本任务不产生第二个提交**
 
 步骤 4 已包含 module 注册的提交和推送。本步骤只确认 GitHub Actions 日志与预期
 失败原因一致，不额外创建提交。
@@ -420,7 +420,7 @@ git push
 - 依赖：`zmk-keyboard-k380/include/zmk_keyboard_k380/ghost_filter.h`
 - 测试：`zmk-keyboard-k380/tests/driver-build/`
 
-- [ ] **步骤 1：从锁定上游基线复制驱动并记录来源**
+- [x] **步骤 1：从锁定上游基线复制驱动并记录来源**
 
 确认基线提交和当前源文件 blob 哈希没有变化：
 
@@ -451,7 +451,7 @@ cp zmk/app/module/drivers/kscan/kscan_gpio_matrix.c \
  */
 ```
 
-- [ ] **步骤 2：把驱动身份改为 K380 固定 row2col 实现**
+- [x] **步骤 2：把驱动身份改为 K380 固定 row2col 实现**
 
 在新文件中完成以下确定性替换：
 
@@ -496,7 +496,7 @@ static int state_index_rc(const int row, const int col) {
 
 驱动不得包含 `diode-direction` 属性或支持 `col2row` 分支。
 
-- [ ] **步骤 3：把端口批量读取辅助逻辑放入 K380 驱动**
+- [x] **步骤 3：把端口批量读取辅助逻辑放入 K380 驱动**
 
 不得包含 ZMK 私有的 `"kscan_gpio.h"`，也不得引用
 `app/module/drivers/kscan/kscan_gpio.c`。在新驱动内定义下列私有类型和函数，
@@ -555,7 +555,7 @@ static int k380_kscan_pin_get(const struct k380_kscan_gpio *gpio,
 `struct kscan_gpio_list` 和 `struct kscan_gpio_port_state` 的所有引用改为上面的
 K380 私有类型。
 
-- [ ] **步骤 4：重写完整帧读取和 debounce 更新顺序**
+- [x] **步骤 4：重写完整帧读取和 debounce 更新顺序**
 
 在 `k380_kscan_read()` 中，保留行激活、可选等待、列读取、行失活、错误处理、
 后续事件上报和继续扫描决策。将每次列读取时的 `zmk_debounce_update()` 删除，
@@ -608,7 +608,7 @@ if (active) {
 回调上报、全局变量或新的 public API。其余 `continue_scan` 判断必须基于
 debounce state，保证已按下键、按下去抖和释放去抖继续快速扫描。
 
-- [ ] **步骤 5：在实例宏中强制 8x15，且只生成 row2col GPIO 数组**
+- [x] **步骤 5：在实例宏中强制 8x15，且只生成 row2col GPIO 数组**
 
 将实例宏改为 `K380_KSCAN_INIT(n)`，在开头加入：
 
@@ -650,7 +650,7 @@ static const struct k380_kscan_config k380_kscan_config_##n = {
 GPIO 就绪检查、GPIO 配置、工作队列和 PM suspend/resume 路径；只将其符号前缀
 替换为 `k380_kscan_`。
 
-- [ ] **步骤 6：在 workflow 中加入驱动编译后的精确断言**
+- [x] **步骤 6：在 workflow 中加入驱动编译后的精确断言**
 
 在 `.github/workflows/k380-ci.yml` 的 `driver-build` job 中，紧接 `west build`
 步骤后加入：
@@ -663,7 +663,7 @@ GPIO 就绪检查、GPIO 配置、工作队列和 PM suspend/resume 路径；只
             -print -quit | grep -q .
 ```
 
-- [ ] **步骤 7：提交驱动和 CI 断言并确认 K380 CI 全部通过**
+- [x] **步骤 7：提交驱动和 CI 断言并确认 K380 CI 全部通过**
 
 ```bash
 git add zmk-keyboard-k380/drivers/kscan/kscan_k380_no_diode_matrix.c \
@@ -681,7 +681,7 @@ git push
 - 测试：`zmk-keyboard-k380/tests/ghost-filter/`
 - 测试：`zmk-keyboard-k380/tests/driver-build/`
 
-- [ ] **步骤 1：确认最新 GitHub Actions 运行结果为全绿**
+- [x] **步骤 1：确认最新 GitHub Actions 运行结果为全绿**
 
 在 GitHub 的 Actions 页面打开本分支最新一次 `K380 CI` 运行。预期：
 
@@ -694,7 +694,7 @@ module-isolation: success
 
 下载并保留三个验证 job 上传的日志 artifact，作为本阶段的 CI 验证证据。
 
-- [ ] **步骤 2：验证共享 ZMK 源码完全未变**
+- [x] **步骤 2：验证共享 ZMK 源码完全未变**
 
 在 `zmk` 工作树执行：
 
@@ -707,7 +707,7 @@ git diff --exit-code main...HEAD -- \
 
 预期：退出码为 `0`。
 
-- [ ] **步骤 3：确认隔离断言已由 GitHub Actions 执行**
+- [x] **步骤 3：确认隔离断言已由 GitHub Actions 执行**
 
 检查 `module-isolation` job 日志。预期：
 
@@ -718,7 +718,7 @@ tests/matrix-input/kp-press-release: PASS
 并且执行 job 内的 `find` 断言成功，证明加载 module 但未实例化 compatible 时，
 K380 驱动对象不存在。
 
-- [ ] **步骤 4：标记计划完成并提交阶段记录**
+- [x] **步骤 4：标记计划完成并提交阶段记录**
 
 将本计划四个 Task 的复选框更新为 `[x]`，在文档末尾追加：
 
@@ -739,3 +739,14 @@ K380 驱动对象不存在。
 git add docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md
 git commit -m "docs(k380): 标记专用矩阵驱动阶段完成"
 ```
+
+## 计划自检
+
+- 规格覆盖：module 注册、独立 binding、固定 8x15 row2col 扫描、完整帧过滤、
+  debounce 前接入、标准 kscan 回调、构建验证和隔离验证均有对应实现和 CI 证据。
+- 范围控制：未创建 K380 board、matrix transform、keymap、UF2 配置或物理按键表。
+- 共享隔离：未修改 ZMK 树内共享 kscan、binding 和 board。
+- CI 证据：2026-08-18 的 GitHub Actions run `32096548614` 中，module-metadata、
+  ghost-filter、driver-build 和 module-isolation 全部成功。
+- 后续门禁：开始 board 集成前仍需完整物理按键行列坐标表与确切 Bootloader 应用
+  分区起始地址。
