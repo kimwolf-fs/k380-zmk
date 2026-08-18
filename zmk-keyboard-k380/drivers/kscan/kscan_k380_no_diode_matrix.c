@@ -491,9 +491,9 @@ static const struct kscan_driver_api k380_kscan_api = {
     BUILD_ASSERT(INST_DEBOUNCE_RELEASE_MS(n) <= DEBOUNCE_COUNTER_MAX,                              \
                  "ZMK_KSCAN_DEBOUNCE_RELEASE_MS or debounce-release-ms is too large");            \
     static struct k380_kscan_gpio k380_kscan_rows_##n[] = {                                        \
-        LISTIFY(K380_KSCAN_ROWS, K380_KSCAN_ROW_CFG_INIT, (, ), n)};                              \
+        LISTIFY(8, K380_KSCAN_ROW_CFG_INIT, (, ), n)};                                             \
     static struct k380_kscan_gpio k380_kscan_cols_##n[] = {                                        \
-        LISTIFY(K380_KSCAN_COLS, K380_KSCAN_COL_CFG_INIT, (, ), n)};                              \
+        LISTIFY(15, K380_KSCAN_COL_CFG_INIT, (, ), n)};                                           \
     static struct zmk_debounce_state k380_kscan_state_##n[K380_KSCAN_MATRIX_LEN];                 \
     COND_INTERRUPTS(                                                                               \
         (static struct k380_kscan_irq_callback k380_kscan_irqs_##n[K380_KSCAN_COLS];))             \
