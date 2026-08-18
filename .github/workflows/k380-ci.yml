@@ -94,6 +94,9 @@ jobs:
             -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
             -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/driver-build/k380-driver.conf" \
             -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/driver-build/k380-driver.overlay"
+      - if: failure()
+        run: |
+          find build/k380-driver -type f -name '*.log' -print -exec tail -n 200 {} \;
       - run: |
           grep -q '^CONFIG_K380_KSCAN_NO_DIODE_MATRIX=y$' \
             build/k380-driver/zephyr/.config
