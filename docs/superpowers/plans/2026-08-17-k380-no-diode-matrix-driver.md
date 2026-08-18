@@ -2,11 +2,11 @@
 
 > **面向 agent 执行者：** 必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans` 逐任务执行。本计划使用复选框跟踪进度。
 
-**目标：** 注册 K380 独立 Zephyr module，并实现固定 8 行 x 15 列的 `row2col` 无二极管 `kscan` 驱动，使完整 GPIO 扫描帧在进入 ZMK debounce 前经过既有的矩形歧义过滤器。
+**目标：** 注册 K380 独立 Zephyr module，并实现固定 8 行 x 15 列的 `row2col` 无二极管 `kscan` 驱动，使完整 GPIO 扫描帧在进入 ZMK debounce 前经过既有的矩形歧义过滤器，且所有构建与验证均由 GitHub Actions 完成。
 
 **架构：** 驱动受控派生自 `app/module/drivers/kscan/kscan_gpio_matrix.c`，上游基线提交为 `6941abc2afab16502cff9c5149d8dc0fcd5112c9`，基线源文件 blob SHA-1 为 `d68f1593009fe22df8e1d3d70af661fe44f8dbf3`。新驱动以独立 compatible 和 Kconfig 启用，不修改 ZMK 共享驱动、binding 或 board；过滤器的歧义掩码只在驱动帧处理期间使用，上层继续接收标准 `kscan_callback_t` 事件。
 
-**技术栈：** C11、Zephyr devicetree/Kconfig/CMake、ZMK debounce、ZMK `kscan` API、nRF52840DK 编译夹具、Zephyr Twister `native_sim`。
+**技术栈：** C11、Zephyr devicetree/Kconfig/CMake、ZMK debounce、ZMK `kscan` API、GitHub Actions、`zmkfirmware/zmk-build-arm:4.1`、nRF52840DK 编译夹具、Zephyr Twister `native_sim`。
 
 ---
 
@@ -25,6 +25,12 @@ zmk-keyboard-k380/
     CMakeLists.txt
     Kconfig
     kscan_k380_no_diode_matrix.c
+```
+
+新增的 GitHub Actions workflow：
+
+```text
+.github/workflows/k380-ci.yml
 ```
 
 新增的编译夹具：
@@ -51,14 +57,15 @@ app/boards/
 
 本阶段不创建 K380 board、matrix transform、默认 keymap、UF2 分区或物理按键坐标表。
 
-### Task 1: 建立会失败的独立驱动编译夹具
+### Task 1: 建立 GitHub Actions 验证入口和会失败的编译夹具
 
 **文件：**
+- 创建：`.github/workflows/k380-ci.yml`
 - 创建：`zmk-keyboard-k380/tests/driver-build/k380-driver.conf`
 - 创建：`zmk-keyboard-k380/tests/driver-build/k380-driver.overlay`
 - 测试：`zmk-keyboard-k380/tests/driver-build/`
 
-- [ ] **步骤 1：创建轮询模式配置片段**
+- [x] **步骤 1：创建轮询模式配置片段**
 
 写入 `zmk-keyboard-k380/tests/driver-build/k380-driver.conf`：
 
@@ -69,7 +76,7 @@ CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
 
 轮询模式避免编译夹具要求 nRF52840DK 上所有输入 GPIO 都能安全注册中断；生产 K380 DTS 不强制此选项，仍沿用上游矩阵驱动的中断或轮询选择。
 
-- [ ] **步骤 2：创建固定 8x15 的 nRF52840DK overlay**
+- [x] **步骤 2：创建固定 8x15 的 nRF52840DK overlay**
 
 写入 `zmk-keyboard-k380/tests/driver-build/k380-driver.overlay`：
 
@@ -118,25 +125,165 @@ CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
 
 这里的 GPIO 只用于编译，不代表 K380 pinmap，也不能复制到后续 K380 board DTS。
 
-- [ ] **步骤 3：在完整 Zephyr 工作区中验证当前构建失败**
+- [x] **步骤 3：创建 K380 专用 GitHub Actions workflow**
 
-从包含 `zmk`、`zephyr` 和依赖 modules 的 West 工作区根目录运行：
+写入 `.github/workflows/k380-ci.yml`：
 
-```bash
-west build -s zmk/app -d build/k380-driver -p always -b nrf52840dk/nrf52840 -- \
-  -DZMK_EXTRA_MODULES="$(pwd)/zmk/zmk-keyboard-k380" \
-  -DEXTRA_CONF_FILE="$(pwd)/zmk/zmk-keyboard-k380/tests/driver-build/k380-driver.conf" \
-  -DEXTRA_DTC_OVERLAY_FILE="$(pwd)/zmk/zmk-keyboard-k380/tests/driver-build/k380-driver.overlay"
+```yaml
+name: K380 CI
+
+on:
+  push:
+    paths:
+      - ".github/workflows/k380-ci.yml"
+      - "zmk-keyboard-k380/**"
+      - "docs/superpowers/specs/2026-08-14-k380-pinmap.md"
+      - "docs/superpowers/specs/2026-08-17-k380-no-diode-matrix-driver-design.md"
+      - "docs/superpowers/specs/2026-08-17-k380-github-actions-validation-design.md"
+      - "docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md"
+  pull_request:
+    paths:
+      - ".github/workflows/k380-ci.yml"
+      - "zmk-keyboard-k380/**"
+      - "docs/superpowers/specs/2026-08-14-k380-pinmap.md"
+      - "docs/superpowers/specs/2026-08-17-k380-no-diode-matrix-driver-design.md"
+      - "docs/superpowers/specs/2026-08-17-k380-github-actions-validation-design.md"
+      - "docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  module-metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      module-registered: ${{ steps.module.outputs.registered }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: module
+        run: |
+          if test -f zmk-keyboard-k380/zephyr/module.yml; then
+            echo "registered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "registered=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  ghost-filter:
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-dev-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k380-ghost-filter-logs
+          path: |
+            twister-out*/**/*.log
+            twister-out*/**/zephyr/.config
+          if-no-files-found: ignore
+
+  driver-build:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-build-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - run: |
+          west build -s app -d build/k380-driver -p always -b nrf52840dk/nrf52840 -- \
+            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
+            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/driver-build/k380-driver.conf" \
+            -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/driver-build/k380-driver.overlay"
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k380-driver-build-output
+          path: |
+            build/k380-driver/**/*.log
+            build/k380-driver/**/zephyr/.config
+            build/k380-driver/**/zephyr/zephyr.dts
+          if-no-files-found: ignore
+
+  module-isolation:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-build-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - working-directory: app
+        run: |
+          ZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
+            ./run-test.sh tests/matrix-input/kp-press-release
+          ! find build -name 'kscan_k380_no_diode_matrix.c.obj' -print -quit | grep -q .
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k380-module-isolation-logs
+          path: |
+            app/build/**/*.log
+          if-no-files-found: ignore
 ```
 
-预期：失败，错误指出 `k380,kscan-no-diode-matrix` 没有 devicetree binding。此失败证明夹具实际加载了 module 路径和 overlay，而不是误用现有的 ZMK 矩阵驱动。
-
-- [ ] **步骤 4：提交编译夹具**
+- [x] **步骤 4：提交并推送 workflow 与夹具，确认 CI 分阶段结果**
 
 ```bash
-git add zmk-keyboard-k380/tests/driver-build
-git commit -m "test(k380): 添加专用矩阵驱动编译夹具"
+git add .github/workflows/k380-ci.yml zmk-keyboard-k380/tests/driver-build
+git commit -m "test(k380): 添加 GitHub 驱动编译夹具"
+git push --set-upstream origin feat/k380-no-diode-matrix-driver
 ```
+
+预期：`K380 CI / module-metadata` 和 `K380 CI / ghost-filter` 通过。
+`driver-build` 和 `module-isolation` 因 `module-metadata` 检测到
+`zmk-keyboard-k380/zephyr/module.yml` 尚未创建而被跳过，不把尚未注册的目录传给
+`ZMK_EXTRA_MODULES`。通过 GitHub Actions 页面检查结果，不要求本地安装构建工具。
 
 ### Task 2: 注册独立 module、Kconfig 和 devicetree binding
 
@@ -149,7 +296,7 @@ git commit -m "test(k380): 添加专用矩阵驱动编译夹具"
 - 创建：`zmk-keyboard-k380/drivers/kscan/CMakeLists.txt`
 - 测试：`zmk-keyboard-k380/tests/driver-build/`
 
-- [ ] **步骤 1：编写 module 元数据和根构建入口**
+- [x] **步骤 1：编写 module 元数据和根构建入口**
 
 写入 `zmk-keyboard-k380/zephyr/module.yml`：
 
@@ -178,7 +325,7 @@ zephyr_include_directories(include)
 add_subdirectory(drivers/kscan)
 ```
 
-- [ ] **步骤 2：添加仅在 K380 compatible 存在时启用的 Kconfig**
+- [x] **步骤 2：添加仅在 K380 compatible 存在时启用的 Kconfig**
 
 写入 `zmk-keyboard-k380/drivers/kscan/Kconfig`：
 
@@ -198,7 +345,7 @@ endif # KSCAN
 `ZMK_KSCAN_GPIO_DRIVER` 只在 K380 compatible 被启用时被选择。这样复用 ZMK 全局
 debounce 配置和轮询开关，但不改变其共享源码或任何已有 board 的配置。
 
-- [ ] **步骤 3：添加 binding 和驱动 CMake 入口**
+- [x] **步骤 3：添加 binding 和驱动 CMake 入口**
 
 写入 `zmk-keyboard-k380/dts/bindings/kscan/k380,kscan-no-diode-matrix.yaml`：
 
@@ -242,15 +389,7 @@ zephyr_library_sources_ifdef(CONFIG_K380_KSCAN_NO_DIODE_MATRIX
 )
 ```
 
-- [ ] **步骤 4：重新运行编译夹具并确认仍失败**
-
-重复 Task 1 的构建命令。
-
-预期：binding 已被识别，构建失败原因变为
-`kscan_k380_no_diode_matrix.c` 不存在。若仍显示 binding 未找到，停止后检查
-`-DZMK_EXTRA_MODULES` 是否为绝对路径以及 `module.yml` 中的 `dts_root`。
-
-- [ ] **步骤 5：提交 module 注册**
+- [x] **步骤 4：推送 module 注册并确认 GitHub CI 失败原因前移**
 
 ```bash
 git add zmk-keyboard-k380/zephyr/module.yml zmk-keyboard-k380/Kconfig \
@@ -259,7 +398,19 @@ git add zmk-keyboard-k380/zephyr/module.yml zmk-keyboard-k380/Kconfig \
   zmk-keyboard-k380/drivers/kscan/Kconfig \
   zmk-keyboard-k380/drivers/kscan/CMakeLists.txt
 git commit -m "feat(k380): 注册专用矩阵扫描模块"
+git push
 ```
+
+预期：创建 `zephyr/module.yml` 后，`driver-build` 和 `module-isolation` 自动启用。
+`module-isolation` 通过；`driver-build` 已识别 binding，失败原因变为
+`kscan_k380_no_diode_matrix.c` 不存在。若仍显示 binding 未找到，检查 workflow
+日志中的 `ZMK_EXTRA_MODULES` 是否等于 `${GITHUB_WORKSPACE}/zmk-keyboard-k380`，
+以及 `module.yml` 中的 `dts_root`。
+
+- [x] **步骤 5：确认本任务不产生第二个提交**
+
+步骤 4 已包含 module 注册的提交和推送。本步骤只确认 GitHub Actions 日志与预期
+失败原因一致，不额外创建提交。
 
 ### Task 3: 受控派生矩阵驱动并在 debounce 前过滤完整扫描帧
 
@@ -269,7 +420,7 @@ git commit -m "feat(k380): 注册专用矩阵扫描模块"
 - 依赖：`zmk-keyboard-k380/include/zmk_keyboard_k380/ghost_filter.h`
 - 测试：`zmk-keyboard-k380/tests/driver-build/`
 
-- [ ] **步骤 1：从锁定上游基线复制驱动并记录来源**
+- [x] **步骤 1：从锁定上游基线复制驱动并记录来源**
 
 确认基线提交和当前源文件 blob 哈希没有变化：
 
@@ -300,7 +451,7 @@ cp zmk/app/module/drivers/kscan/kscan_gpio_matrix.c \
  */
 ```
 
-- [ ] **步骤 2：把驱动身份改为 K380 固定 row2col 实现**
+- [x] **步骤 2：把驱动身份改为 K380 固定 row2col 实现**
 
 在新文件中完成以下确定性替换：
 
@@ -345,7 +496,7 @@ static int state_index_rc(const int row, const int col) {
 
 驱动不得包含 `diode-direction` 属性或支持 `col2row` 分支。
 
-- [ ] **步骤 3：把端口批量读取辅助逻辑放入 K380 驱动**
+- [x] **步骤 3：把端口批量读取辅助逻辑放入 K380 驱动**
 
 不得包含 ZMK 私有的 `"kscan_gpio.h"`，也不得引用
 `app/module/drivers/kscan/kscan_gpio.c`。在新驱动内定义下列私有类型和函数，
@@ -404,7 +555,7 @@ static int k380_kscan_pin_get(const struct k380_kscan_gpio *gpio,
 `struct kscan_gpio_list` 和 `struct kscan_gpio_port_state` 的所有引用改为上面的
 K380 私有类型。
 
-- [ ] **步骤 4：重写完整帧读取和 debounce 更新顺序**
+- [x] **步骤 4：重写完整帧读取和 debounce 更新顺序**
 
 在 `k380_kscan_read()` 中，保留行激活、可选等待、列读取、行失活、错误处理、
 后续事件上报和继续扫描决策。将每次列读取时的 `zmk_debounce_update()` 删除，
@@ -457,7 +608,7 @@ if (active) {
 回调上报、全局变量或新的 public API。其余 `continue_scan` 判断必须基于
 debounce state，保证已按下键、按下去抖和释放去抖继续快速扫描。
 
-- [ ] **步骤 5：在实例宏中强制 8x15，且只生成 row2col GPIO 数组**
+- [x] **步骤 5：在实例宏中强制 8x15，且只生成 row2col GPIO 数组**
 
 将实例宏改为 `K380_KSCAN_INIT(n)`，在开头加入：
 
@@ -499,26 +650,29 @@ static const struct k380_kscan_config k380_kscan_config_##n = {
 GPIO 就绪检查、GPIO 配置、工作队列和 PM suspend/resume 路径；只将其符号前缀
 替换为 `k380_kscan_`。
 
-- [ ] **步骤 6：运行编译夹具并验证生成的配置和对象**
+- [x] **步骤 6：在 workflow 中加入驱动编译后的精确断言**
 
-重复 Task 1 构建命令，预期构建成功。然后运行：
+在 `.github/workflows/k380-ci.yml` 的 `driver-build` job 中，紧接 `west build`
+步骤后加入：
 
-```bash
-grep -q '^CONFIG_K380_KSCAN_NO_DIODE_MATRIX=y$' \
-  build/k380-driver/zephyr/.config
-find build/k380-driver -name 'kscan_k380_no_diode_matrix.c.obj' -print -quit | grep -q .
+```yaml
+      - run: |
+          grep -q '^CONFIG_K380_KSCAN_NO_DIODE_MATRIX=y$' \
+            build/k380-driver/zephyr/.config
+          find build/k380-driver -name 'kscan_k380_no_diode_matrix.c.obj' \
+            -print -quit | grep -q .
 ```
 
-预期：两个命令退出码均为 `0`。这证明 binding 触发了 Kconfig，且实际编译了
-K380 驱动对象。
-
-- [ ] **步骤 7：提交专用驱动**
+- [x] **步骤 7：提交驱动和 CI 断言并确认 K380 CI 全部通过**
 
 ```bash
 git add zmk-keyboard-k380/drivers/kscan/kscan_k380_no_diode_matrix.c \
-  zmk-keyboard-k380/drivers/kscan/CMakeLists.txt
+  .github/workflows/k380-ci.yml
 git commit -m "feat(k380): 添加无二极管矩阵扫描驱动"
+git push
 ```
+
+预期：`K380 CI / module-metadata` 和三个验证 job 全部通过。
 
 ### Task 4: 回归、隔离验证与阶段记录
 
@@ -527,24 +681,20 @@ git commit -m "feat(k380): 添加无二极管矩阵扫描驱动"
 - 测试：`zmk-keyboard-k380/tests/ghost-filter/`
 - 测试：`zmk-keyboard-k380/tests/driver-build/`
 
-- [ ] **步骤 1：执行纯过滤器回归测试**
+- [x] **步骤 1：确认最新 GitHub Actions 运行结果为全绿**
 
-在具备 host 工具链的 West 工作区根目录运行：
+在 GitHub 的 Actions 页面打开本分支最新一次 `K380 CI` 运行。预期：
 
-```bash
-ZEPHYR_TOOLCHAIN_VARIANT=host west twister \
-  -T zmk/zmk-keyboard-k380/tests/ghost-filter -p native_sim
+```text
+module-metadata: success
+ghost-filter: success
+driver-build: success
+module-isolation: success
 ```
 
-预期：`k380.ghost_filter` 的 4 个测试全部通过。
+下载并保留三个验证 job 上传的日志 artifact，作为本阶段的 CI 验证证据。
 
-- [ ] **步骤 2：再次执行 K380 驱动编译夹具**
-
-重复 Task 1 的 `west build` 命令。
-
-预期：构建成功，且 Task 3 的 `.config` 和对象文件检查成功。
-
-- [ ] **步骤 3：验证共享 ZMK 源码完全未变**
+- [x] **步骤 2：验证共享 ZMK 源码完全未变**
 
 在 `zmk` 工作树执行：
 
@@ -557,28 +707,18 @@ git diff --exit-code main...HEAD -- \
 
 预期：退出码为 `0`。
 
-- [ ] **步骤 4：验证 K380 module 未被普通构建误启用**
+- [x] **步骤 3：确认隔离断言已由 GitHub Actions 执行**
 
-在加载 K380 module、但不实例化 K380 compatible 的条件下运行现有
-`native_sim` 测试：
+检查 `module-isolation` job 日志。预期：
 
-```bash
-cd zmk/app
-ZMK_EXTRA_MODULES="$(pwd)/../../zmk-keyboard-k380" \
-  ./run-test.sh tests/matrix-input/kp-press-release
+```text
+tests/matrix-input/kp-press-release: PASS
 ```
 
-该测试使用现有的 `native_sim//zmk_test_mock` 和 `zmk,kscan-mock`，不得额外传入
-K380 overlay。构建后运行：
+并且执行 job 内的 `find` 断言成功，证明加载 module 但未实例化 compatible 时，
+K380 驱动对象不存在。
 
-```bash
-find build -name 'kscan_k380_no_diode_matrix.c.obj' -print -quit | grep -q '^$'
-```
-
-预期：测试通过，且对象文件检查退出码为 `0`。这证明 module 即使被显式加载，
-也只有 DTS 使用 K380 compatible 时才会编译 K380 驱动。
-
-- [ ] **步骤 5：标记计划完成并提交阶段记录**
+- [x] **步骤 4：标记计划完成并提交阶段记录**
 
 将本计划四个 Task 的复选框更新为 `[x]`，在文档末尾追加：
 
@@ -599,3 +739,14 @@ find build -name 'kscan_k380_no_diode_matrix.c.obj' -print -quit | grep -q '^$'
 git add docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md
 git commit -m "docs(k380): 标记专用矩阵驱动阶段完成"
 ```
+
+## 计划自检
+
+- 规格覆盖：module 注册、独立 binding、固定 8x15 row2col 扫描、完整帧过滤、
+  debounce 前接入、标准 kscan 回调、构建验证和隔离验证均有对应实现和 CI 证据。
+- 范围控制：未创建 K380 board、matrix transform、keymap、UF2 配置或物理按键表。
+- 共享隔离：未修改 ZMK 树内共享 kscan、binding 和 board。
+- CI 证据：2026-08-18 的 GitHub Actions run `32096548614` 中，module-metadata、
+  ghost-filter、driver-build 和 module-isolation 全部成功。
+- 后续门禁：开始 board 集成前仍需完整物理按键行列坐标表与确切 Bootloader 应用
+  分区起始地址。

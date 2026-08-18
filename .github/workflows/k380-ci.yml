@@ -1,0 +1,148 @@
+name: K380 CI
+
+on:
+  push:
+    paths:
+      - ".github/workflows/k380-ci.yml"
+      - "zmk-keyboard-k380/**"
+      - "docs/superpowers/specs/2026-08-14-k380-pinmap.md"
+      - "docs/superpowers/specs/2026-08-17-k380-no-diode-matrix-driver-design.md"
+      - "docs/superpowers/specs/2026-08-17-k380-github-actions-validation-design.md"
+      - "docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md"
+  pull_request:
+    paths:
+      - ".github/workflows/k380-ci.yml"
+      - "zmk-keyboard-k380/**"
+      - "docs/superpowers/specs/2026-08-14-k380-pinmap.md"
+      - "docs/superpowers/specs/2026-08-17-k380-no-diode-matrix-driver-design.md"
+      - "docs/superpowers/specs/2026-08-17-k380-github-actions-validation-design.md"
+      - "docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  module-metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      module-registered: ${{ steps.module.outputs.registered }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: module
+        run: |
+          if test -f zmk-keyboard-k380/zephyr/module.yml; then
+            echo "registered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "registered=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  ghost-filter:
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-dev-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k380-ghost-filter-logs
+          path: |
+            twister-out*/**/*.log
+            twister-out*/**/zephyr/.config
+          if-no-files-found: ignore
+
+  driver-build:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-build-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - run: |
+          west build -s app -d build/k380-driver -p always -b nrf52840dk/nrf52840 -- \
+            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
+            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/driver-build/k380-driver.conf" \
+            -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/driver-build/k380-driver.overlay"
+      - if: failure()
+        run: |
+          find build/k380-driver -type f -name '*.log' -print -exec tail -n 200 {} \;
+      - run: |
+          grep -q '^CONFIG_K380_KSCAN_NO_DIODE_MATRIX=y$' \
+            build/k380-driver/zephyr/.config
+          find build/k380-driver -name 'kscan_k380_no_diode_matrix.c.obj' \
+            -print -quit | grep -q .
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k380-driver-build-output
+          path: |
+            build/k380-driver/**/*.log
+            build/k380-driver/**/zephyr/.config
+            build/k380-driver/**/zephyr/zephyr.dts
+          if-no-files-found: ignore
+
+  module-isolation:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-build-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - working-directory: app
+        run: |
+          ZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
+            ./run-test.sh tests/matrix-input/kp-press-release
+          ! find build -name 'kscan_k380_no_diode_matrix.c.obj' -print -quit | grep -q .
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k380-module-isolation-logs
+          path: |
+            app/build/**/*.log
+          if-no-files-found: ignore
