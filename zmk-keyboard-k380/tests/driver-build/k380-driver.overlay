@@ -1,4 +1,5 @@
 #include <zephyr/dt-bindings/gpio/gpio.h>
+#include <behaviors.dtsi>
 
 / {
     chosen {
@@ -36,5 +37,13 @@
         debounce-release-ms = <1>;
         debounce-scan-period-ms = <1>;
         poll-period-ms = <10>;
+    };
+
+    keymap {
+        compatible = "zmk,keymap";
+
+        default_layer {
+            bindings = <&none>;
+        };
     };
 };
