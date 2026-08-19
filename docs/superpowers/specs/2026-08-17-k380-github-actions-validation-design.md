@@ -30,7 +30,7 @@ ZMK 树内通用 CI workflow。
 ```text
 .github/workflows/k380-ci.yml
 zmk-keyboard-k380/**
-docs/superpowers/specs/2026-08-14-k380-pinmap.md
+docs/k380/**
 docs/superpowers/specs/2026-08-17-k380-no-diode-matrix-driver-design.md
 docs/superpowers/specs/2026-08-17-k380-github-actions-validation-design.md
 docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md
