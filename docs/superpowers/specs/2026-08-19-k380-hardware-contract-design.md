@@ -30,10 +30,9 @@
 4. USB-C、SWD 与恢复路径。
 5. WS2812B 状态灯。
 6. 电池电压采样与低电量策略。
-7. Bootloader 配置契约。
-8. ZMK board 配置契约。
-9. 实板验证清单。
-10. 变更规则与授权记录。
+7. Bootloader 与 ZMK 配置门禁。
+8. 实板验证清单。
+9. 变更规则与授权记录。
 
 每个决策项使用以下固定格式：
 
@@ -58,9 +57,9 @@
 | VDDH | USB 5 V 与单节锂电池经自动切换电路供电 |
 | 电池截止 | 2.75 V |
 | REG0 | 内部 LDO |
-| VDD | `UICR.REGOUT0 = 2.7 V` |
+| VDD | `UICR.REGOUT0 = 2.7 V`；仅由 Bootloader/SWD 首次刷写配置 |
 | REG1 | 内部 DC/DC |
-| DC/DC 开关 | `DCDC0` 关闭，`DCDC1` 启用 |
+| DC/DC 开关 | REG0/DCDC0 保持 LDO 且关闭；REG1 使用 DC/DC |
 | 高频时钟 | 外接 32 MHz 晶振与匹配负载电容 |
 | 低频时钟 | 无外接 32.768 kHz 晶振，使用内部 RC |
 | USB | USB-C；CC1/CC2 分别经 5.1 kOhm 下拉至 GND；VBUS 有保护；D+/D- 有 ESD 保护 |
@@ -120,7 +119,7 @@ ZMK 应用显示。
 
 ## 配置契约
 
-Bootloader 部分必须定义：
+Bootloader 部分必须定义下列 Adafruit nRF52 Bootloader 宏；它们不是 ZMK 的共享配置：
 
 ```c
 UICR_REGOUT0_VALUE = UICR_REGOUT0_VOUT_2V7
@@ -128,18 +127,33 @@ ENABLE_DCDC_0 = 0
 ENABLE_DCDC_1 = 1
 ```
 
-K380 Bootloader board 必须使用 nRF52840、S140 v6.1.1、USB UF2 与 CDC，默认不进入
-BLE OTA，不启用固件签名或双 bank。
+K380 Bootloader board 使用 nRF52840、USB UF2 与 CDC，默认不进入 BLE OTA，不启用固件
+签名或双 bank。实际 SoftDevice/协议栈配置只能以后续 K380 Bootloader 仓库固定基线和首次
+成功构建为准；硬件契约不得猜测或固定版本。
 
-ZMK board 后续必须使用与 Bootloader 一致的应用分区边界、Bootloader 进入机制、电源
-模式、低频 RC 时钟和 USB 身份；其中 Flash 分区起始地址和长度只能在 K380 Bootloader
-生成 linker map 后填入，不能在本文档中猜测。
+后续 ZMK board 必须使用与 Bootloader 一致的应用分区边界、Bootloader 进入机制、低频 RC
+时钟和 USB 身份。基于本仓库 Zephyr v4.1.0，nRF52840 SoC DTS 的 `&reg1` 默认使用 LDO，
+board overlay 必须使用：
+
+```dts
+#include <zephyr/dt-bindings/regulator/nrf5x.h>
+
+&reg1 {
+    regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
+};
+```
+
+不得使用已废弃的 `CONFIG_SOC_DCDC_NRF52X`，不得为 REG0/DCDC0 增加 DC/DC 配置；
+REG0 保持 LDO，2.7 V UICR 只由 Bootloader/SWD 首次刷写配置。Flash 分区起始地址和长度
+只能在 K380 Bootloader 生成 linker map 后填入，不能在本文档中猜测。
 
 ## 验证与变更
 
 硬件契约的验证清单至少覆盖：
 
-- GitHub Actions 成功构建 K380 Bootloader 和 ZMK board。
+- 当前阶段 K380 CI 验证文档路径监听，以及既有 `module-metadata`、`ghost-filter`、
+  `driver-build`、`module-isolation` 四项；当前阶段不构建 K380 Bootloader 或 ZMK board。
+  仅在未来实现两种 board 后，新增对应构建任务作为后续门禁。
 - SWD 能够首次烧入、擦除和救砖。
 - USB-C 能枚举 UF2+CDC 和 CDC-only 两种描述符。
 - ZMK 的 `&bootloader` 能进入 UF2；RESET 测试点双击也能进入 UF2。
@@ -148,6 +162,7 @@ ZMK board 后续必须使用与 Bootloader 一致的应用分区边界、Bootloa
 - LED4 的 USB 接入、低电量阈值及恢复回差、Bootloader 和 UF2 状态灯效正确。
 - 低电量接近 2.75 V 时，VDD 仍符合 2.7 V 配置的实际工作要求。
 
-任何硬件改线、供电变更、USB 身份变更、时钟变化、增加外设或修改分区均必须先更新
-硬件契约，再创建新的功能分支和实施计划。GPIO 变化同时更新 `pinmap.md`；物理按键
-矩阵变化同时更新 `matrix-layout.md`。
+当前硬件版本的勘误或配置修正必须更新对应唯一来源：矩阵 GPIO 更新 `pinmap.md`，物理按键
+矩阵更新 `matrix-layout.md`，其他板级事实更新硬件契约。物理改线、新增外设或新 PCB
+revision 必须创建独立版本化的硬件契约、pinmap、matrix-layout 和对应 board 配置，旧文档
+不得为兼容新硬件而改动。

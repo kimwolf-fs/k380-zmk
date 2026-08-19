@@ -127,23 +127,20 @@ board DTS 必须：
 matrix transform 和默认 keymap 依赖一张完整的“物理 K380 按键到行列坐标”
 对照表。未连接的电气交点不应出现在 transform 中。
 
-## Pinmap 版本管理
+## 硬件版本与唯一来源
 
-所有 board 级 GPIO 引用必须来自带 revision 的 pinmap DTSI 文件。pinmap DTSI
-拥有 K380 kscan node 及其 `row-gpios` 和 `col-gpios` 属性。board DTS 包含选定
-pinmap 后，从 chosen node 引用带 label 的 kscan node。驱动只从 devicetree 接收
-GPIO 数组，不得硬编码 nRF52840 引脚号。
+当前硬件版本的矩阵 GPIO 唯一来源是 `docs/k380/pinmap.md`，物理按键 RC 映射唯一来源是
+`docs/k380/matrix-layout.md`，其他板级硬件事实唯一来源是
+`docs/k380/hardware-contract.md`。当前版本的勘误或配置修正必须更新对应唯一来源；驱动
+只从 devicetree 接收 GPIO 数组，不得硬编码 nRF52840 引脚号。
 
-board revision 变更遵循以下流程：
+物理改线、新增外设或新 PCB revision 不属于当前版本的勘误。此类变更必须创建独立版本化的
+hardware-contract、pinmap、matrix-layout 和对应 board 配置，旧文档不得为兼容新硬件而
+改动。不得采用从上一 revision 派生 `rev-b` DTSI 或在当前 pinmap 文档维护 revision
+对比的方式；新版本应拥有自己的文档和 board 配置。
 
-1. 从上一 revision 创建 `k380-pins-rev-b.dtsi`。
-2. 仅在新 revision 文件中调整信号分配和可选外设节点。
-3. 通过 board DTS 或 revision 专用 board variant 选择新 revision。
-4. 保持旧 revision 文件可构建，以支持既有硬件。
-5. 更新 pinmap 文档中的 revision 对比和验证结果。
-
-该规则支持矩阵改线以及后续新增 LED、电池、显示屏、编码器和电源控制，而无需
-修改鬼键过滤逻辑。
+该规则支持矩阵改线以及后续新增 LED、电池、显示屏、编码器和电源控制，而无需修改鬼键
+过滤逻辑。
 
 ## 测试计划
 

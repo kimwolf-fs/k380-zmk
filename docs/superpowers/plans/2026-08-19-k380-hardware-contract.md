@@ -67,7 +67,7 @@ zmk-keyboard-k380/drivers/
 - 参考：`docs/k380/matrix-layout.md`
 - 参考：`docs/superpowers/specs/2026-08-19-k380-hardware-contract-design.md`
 
-- [ ] **步骤 1：写入职责、来源和问答格式**
+- [x] **步骤 1：写入职责、来源和问答格式**
 
 创建文件并写入以下开头。该文件明确哪些内容由它负责，哪些内容仍由 pinmap 和矩阵布局
 文档负责，避免复制 23 个 GPIO 表或 80 个 RC 表。
@@ -91,7 +91,7 @@ zmk-keyboard-k380/drivers/
 - **验证方式：** 构建、实板或文件检查的可重复验证方法。
 ```
 
-- [ ] **步骤 2：写入已确认硬件总览**
+- [x] **步骤 2：写入已确认硬件总览**
 
 在 `## 已确认硬件总览` 中写入下表。不要写入授权文件位置、授权方联系人或其他私密
 信息；只记录项目所有者持有书面授权。
@@ -110,7 +110,7 @@ zmk-keyboard-k380/drivers/
 | 其他外设 | 除本文档和矩阵文档所列项目外，当前无其他 nRF52840 外设或控制信号 |
 ```
 
-- [ ] **步骤 3：写入电源、时钟和恢复契约**
+- [x] **步骤 3：写入电源、时钟和恢复契约**
 
 创建 `## 电源与时钟` 和 `## USB、SWD 与恢复路径`。每节必须使用“问题、已确认答案、
 实现影响、验证方式”四项。
@@ -150,7 +150,7 @@ zmk-keyboard-k380/drivers/
 - Bootloader 使用 USB UF2 与 CDC，不启用 BLE OTA、签名固件或双 bank 回滚。
 ```
 
-- [ ] **步骤 4：写入 WS2812B 硬件与灯效状态机**
+- [x] **步骤 4：写入 WS2812B 硬件与灯效状态机**
 
 创建 `## WS2812B 状态灯`，先写入硬件连接，再写入蓝牙和系统灯效。连接与索引必须
 完全一致，不能把 LED1-LED3 的蓝牙槽位顺序写为递增：
@@ -203,7 +203,7 @@ LED1、LED2、LED3 只表达蓝牙状态，三者互斥；LED4 不表达蓝牙�
 全局亮度上限。
 ```
 
-- [ ] **步骤 5：写入电池采样、Bootloader/ZMK 门禁和实板验证清单**
+- [x] **步骤 5：写入电池采样、Bootloader/ZMK 门禁和实板验证清单**
 
 创建 `## 电池电压采样`、`## Bootloader 与 ZMK 配置门禁`、`## 实板验证清单` 和
 `## 变更规则`。
@@ -242,7 +242,7 @@ K380 Bootloader 的应用 Flash 起始地址、长度和 ZMK `fixed-partitions` 
 - 修改：`docs/superpowers/specs/2026-08-17-k380-github-actions-validation-design.md`
 - 删除：`docs/superpowers/specs/2026-08-14-k380-pinmap.md`
 
-- [ ] **步骤 1：在 pinmap 文档添加相关文档链接**
+- [x] **步骤 1：在 pinmap 文档添加相关文档链接**
 
 在 `docs/k380/pinmap.md` 的用途段落后添加：
 
@@ -254,7 +254,7 @@ K380 Bootloader 的应用 Flash 起始地址、长度和 ZMK `fixed-partitions` 
   配置契约。
 ```
 
-- [ ] **步骤 2：在物理按键文档添加相关文档链接**
+- [x] **步骤 2：在物理按键文档添加相关文档链接**
 
 在 `docs/k380/matrix-layout.md` 的用途段落后添加：
 
@@ -265,7 +265,7 @@ K380 Bootloader 的应用 Flash 起始地址、长度和 ZMK `fixed-partitions` 
 - [`hardware-contract.md`](hardware-contract.md)：与矩阵共同构成 K380 的板级硬件契约。
 ```
 
-- [ ] **步骤 3：确认并保留已完成的 pinmap 路径迁移**
+- [x] **步骤 3：确认并保留已完成的 pinmap 路径迁移**
 
 确认以下条件全部成立：
 
@@ -292,7 +292,7 @@ rg -n -F "docs/superpowers/specs/2026-08-14-k380-pinmap.md" .github docs\k380 do
 - 测试：`docs/k380/`
 - 测试：`.github/workflows/k380-ci.yml`
 
-- [ ] **步骤 1：执行 Markdown 结构与关键值检查**
+- [x] **步骤 1：执行 Markdown 结构与关键值检查**
 
 在仓库根目录执行：
 
@@ -331,7 +331,7 @@ Write-Output "硬件契约关键章节和配置值完整。"
 硬件契约关键章节和配置值完整。
 ```
 
-- [ ] **步骤 2：执行 RC 对照、链接和补丁格式检查**
+- [x] **步骤 2：执行 RC 对照、链接和补丁格式检查**
 
 执行：
 
@@ -367,6 +367,7 @@ if (-not $matrixLayoutContent.Contains("](hardware-contract.md)")) {
   throw "matrix-layout 缺少 hardware-contract 相对链接"
 }
 git diff --check
+if ($LASTEXITCODE -ne 0) { throw '补丁格式检查失败' }
 rg -n -F "docs/superpowers/specs/2026-08-14-k380-pinmap.md" .github docs\k380 docs\superpowers\specs zmk-keyboard-k380
 if ($LASTEXITCODE -ne 1) { throw "旧 pinmap 路径仍存在引用" }
 Write-Output "RC 对照、链接、旧路径和补丁格式检查通过。"
@@ -378,7 +379,7 @@ Write-Output "RC 对照、链接、旧路径和补丁格式检查通过。"
 RC 对照、链接、旧路径和补丁格式检查通过。
 ```
 
-- [ ] **步骤 3：将设计规格标记为已完成**
+- [x] **步骤 3：将设计规格标记为已完成**
 
 将 `docs/superpowers/specs/2026-08-19-k380-hardware-contract-design.md` 的状态改为：
 
@@ -388,7 +389,7 @@ RC 对照、链接、旧路径和补丁格式检查通过。
 
 不修改其中已批准的设计内容。
 
-- [ ] **步骤 4：提交 K380 硬件文档集**
+- [x] **步骤 4：提交 K380 硬件文档集**
 
 仅暂存本计划列出的 K380 文档迁移、硬件契约、相关 workflow 路径变更和设计规格状态
 更新；不要暂存生产 C 代码或不相关的用户修改。
@@ -400,6 +401,7 @@ git add `
   docs/k380/matrix-layout.md `
   docs/k380/hardware-contract.md `
   docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md `
+  docs/superpowers/plans/2026-08-19-k380-hardware-contract.md `
   docs/superpowers/specs/2026-08-14-k380-no-diode-matrix-design.md `
   docs/superpowers/specs/2026-08-17-k380-github-actions-validation-design.md `
   docs/superpowers/specs/2026-08-19-k380-hardware-contract-design.md
@@ -409,7 +411,7 @@ git commit -m "docs(k380): 建立硬件契约"
 
 预期：提交仅包含 K380 硬件文档、相关历史引用迁移和 K380 CI 文档路径监听。
 
-- [ ] **步骤 5：推送并检查 GitHub Actions**
+- [x] **步骤 5：推送并检查 GitHub Actions**
 
 ```powershell
 git push origin feat/k380-board-integration

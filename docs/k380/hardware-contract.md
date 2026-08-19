@@ -41,7 +41,7 @@
 - DCCH 无电感，REG0 DCDC 不可启用。
 - 32 MHz 外部晶振接 XC1/XC2 并配置匹配负载电容；无 32.768 kHz 晶振，低速时钟使用内部 RC。
 
-**实现影响：** Bootloader 与 ZMK 的共享板级配置必须使用以下定义，且不得启用 REG0 DCDC。
+**实现影响：** 以下宏是 Adafruit nRF52 Bootloader 的配置，不是 ZMK 的共享配置：
 
 ```c
 #define UICR_REGOUT0_VALUE UICR_REGOUT0_VOUT_2V7
@@ -49,7 +49,26 @@
 #define ENABLE_DCDC_1 1
 ```
 
-**验证方式：** 分别在 USB 供电和接近 2.75 V 的电池模式下测量 VDDH/VDD，确认 VDD 为 2.7 V、DCDC0 未启用且 DCDC1 已启用；确认电池模式的 VDDH 低于 2.75 V 时断开；并实测 USB 插入/拔出时的自动切换，确认 USB 存在时由 USB 供电，拔出 USB 后无复位或异常并自动切换至电池供电。
+`UICR.REGOUT0 = 2.7 V` 也只能由 Bootloader 或 SWD 首次刷写配置。后续 ZMK board 基于本仓库
+Zephyr v4.1.0 的 nRF52840 SoC DTS，其中 `&reg1` 默认使用 LDO；board overlay 必须将其设为
+DC/DC：
+
+```dts
+#include <zephyr/dt-bindings/regulator/nrf5x.h>
+
+&reg1 {
+    regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
+};
+```
+
+不得使用已废弃的 `CONFIG_SOC_DCDC_NRF52X`，也不得为 REG0/DCDC0 增加任何 DC/DC 配置；
+REG0 保持 LDO。
+
+**验证方式：** 分别在 USB 供电和接近 2.75 V 的电池模式下测量 VDDH/VDD，确认 VDD 为 2.7 V、
+DCDC0 未启用且 DCDC1 已启用；确认电池模式的 VDDH 低于 2.75 V 时断开；并实测 USB
+插入/拔出时的自动切换，确认 USB 存在时由 USB 供电，拔出 USB 后无复位或异常并自动切换至
+电池供电。未来 ZMK board 首次构建后，检查构建产物 `zephyr.dts`，确认 `reg1` 为 DC/DC，
+且不存在 REG0/DCDC0 的 DC/DC 启用配置。
 
 ## USB、SWD 与恢复路径
 
