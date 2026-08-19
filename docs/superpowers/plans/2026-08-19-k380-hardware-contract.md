@@ -273,16 +273,17 @@ K380 Bootloader 的应用 Flash 起始地址、长度和 ZMK `fixed-partitions` 
 旧文件 docs/superpowers/specs/2026-08-14-k380-pinmap.md 已删除。
 docs/k380/pinmap.md 存在。
 .github/workflows/k380-ci.yml 的 push 与 pull_request 均监听 docs/k380/**。
-旧设计和计划文档不再引用旧 pinmap 路径。
+迁移目标范围 `.github`、`docs/k380`、`docs/superpowers/specs` 和 `zmk-keyboard-k380`
+不再引用旧 pinmap 路径；历史实施计划不在此检查范围内，因其必须保留迁移说明。
 ```
 
 执行：
 
 ```powershell
-rg -n -F "docs/superpowers/specs/2026-08-14-k380-pinmap.md" .github docs zmk-keyboard-k380
+rg -n -F "docs/superpowers/specs/2026-08-14-k380-pinmap.md" .github docs\k380 docs\superpowers\specs zmk-keyboard-k380
 ```
 
-预期：无匹配，命令退出码为 `1`。
+预期：上述范围无匹配，命令退出码为 `1`；历史实施计划不在检查范围内。
 
 ### Task 3: 验证、提交并通过 GitHub Actions 检查文档路径
 
@@ -343,16 +344,38 @@ if (($coords | Group-Object | Where-Object Count -gt 1).Count -gt 0) { throw "RC
 if (($matches | Where-Object { [int]$_.Groups[1].Value -gt 7 -or [int]$_.Groups[2].Value -gt 14 }).Count -gt 0) {
   throw "RC 坐标超出 8x15 范围"
 }
+$pinmap = "docs\k380\pinmap.md"
+$matrixLayout = "docs\k380\matrix-layout.md"
+$contract = "docs\k380\hardware-contract.md"
+foreach ($document in @($pinmap, $matrixLayout, $contract)) {
+  if (-not (Test-Path -LiteralPath $document -PathType Leaf)) {
+    throw "缺少文档: $document"
+  }
+}
+$pinmapContent = Get-Content -Raw $pinmap
+$matrixLayoutContent = Get-Content -Raw $matrixLayout
+if (-not $pinmapContent.Contains("](matrix-layout.md)")) {
+  throw "pinmap 缺少 matrix-layout 相对链接"
+}
+if (-not $pinmapContent.Contains("](hardware-contract.md)")) {
+  throw "pinmap 缺少 hardware-contract 相对链接"
+}
+if (-not $matrixLayoutContent.Contains("](pinmap.md)")) {
+  throw "matrix-layout 缺少 pinmap 相对链接"
+}
+if (-not $matrixLayoutContent.Contains("](hardware-contract.md)")) {
+  throw "matrix-layout 缺少 hardware-contract 相对链接"
+}
 git diff --check
-rg -n -F "docs/superpowers/specs/2026-08-14-k380-pinmap.md" .github docs zmk-keyboard-k380
+rg -n -F "docs/superpowers/specs/2026-08-14-k380-pinmap.md" .github docs\k380 docs\superpowers\specs zmk-keyboard-k380
 if ($LASTEXITCODE -ne 1) { throw "旧 pinmap 路径仍存在引用" }
-Write-Output "RC 对照、旧路径和补丁格式检查通过。"
+Write-Output "RC 对照、链接、旧路径和补丁格式检查通过。"
 ```
 
 预期输出：
 
 ```text
-RC 对照、旧路径和补丁格式检查通过。
+RC 对照、链接、旧路径和补丁格式检查通过。
 ```
 
 - [ ] **步骤 3：将设计规格标记为已完成**

@@ -31,7 +31,7 @@ k380,kscan-no-diode-matrix
 - 首次烧录、调试与救砖：J-Link/SWD
 
 信号分配的唯一来源见
-`docs/superpowers/specs/2026-08-14-k380-pinmap.md`。
+`docs/k380/pinmap.md`。
 
 ## 架构
 
