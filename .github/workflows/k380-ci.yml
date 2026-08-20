@@ -9,6 +9,10 @@ on:
       - "docs/superpowers/specs/2026-08-17-k380-no-diode-matrix-driver-design.md"
       - "docs/superpowers/specs/2026-08-17-k380-github-actions-validation-design.md"
       - "docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md"
+      - "app/boards/kimwolf/k380/**"
+      - "zmk-keyboard-k380/tests/board-build/**"
+      - "docs/superpowers/specs/2026-08-20-k380-flash-partitions-design.md"
+      - "docs/superpowers/plans/2026-08-20-k380-flash-partitions.md"
   pull_request:
     paths:
       - ".github/workflows/k380-ci.yml"
@@ -17,6 +21,10 @@ on:
       - "docs/superpowers/specs/2026-08-17-k380-no-diode-matrix-driver-design.md"
       - "docs/superpowers/specs/2026-08-17-k380-github-actions-validation-design.md"
       - "docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md"
+      - "app/boards/kimwolf/k380/**"
+      - "zmk-keyboard-k380/tests/board-build/**"
+      - "docs/superpowers/specs/2026-08-20-k380-flash-partitions-design.md"
+      - "docs/superpowers/plans/2026-08-20-k380-flash-partitions.md"
   workflow_dispatch:
 
 permissions:
@@ -110,6 +118,174 @@ jobs:
             build/k380-driver/**/*.log
             build/k380-driver/**/zephyr/.config
             build/k380-driver/**/zephyr/zephyr.dts
+          if-no-files-found: ignore
+
+  board-build:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-build-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - run: |
+          west build -s app -d build/k380-board -p always -b k380/nrf52840/zmk -- \
+            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
+            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/board-build/k380-board.conf" \
+            -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/board-build/k380-board.overlay"
+      - name: Validate K380 board contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import struct
+
+          source = Path("app/boards/kimwolf/k380/k380_nrf52840_zmk.dts").read_text()
+          generated = Path("build/k380-board/zephyr/zephyr.dts").read_text()
+          source_without_comments = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+          source_without_comments = re.sub(r"//[^\n]*", "", source_without_comments)
+          normalized = re.sub(r"\s+", "", source_without_comments)
+
+          for required in (
+              "#include<nordic/nrf52840_qiaa.dtsi>",
+              "#include<common/nordic/nrf52840_uf2_boot_mode.dtsi>",
+              "#include<zephyr/dt-bindings/regulator/nrf5x.h>",
+              "zephyr,code-partition=<&code_partition>;",
+          ):
+              assert required in normalized, f"missing source contract: {required}"
+
+          reg1 = re.search(r"&reg1\s*\{(?P<body>[^}]*)\};", source_without_comments, re.S)
+          assert reg1 and re.search(
+              r"\bregulator-initial-mode\s*=\s*<\s*NRF5X_REG_MODE_DCDC\s*>\s*;",
+              reg1.group("body"),
+          ), "reg1 must enable DCDC"
+
+          for forbidden in (
+              "zmk,kscan",
+              "zmk,matrix-transform",
+              "zmk,battery",
+              "ws2812",
+              "led-strip",
+          ):
+              assert forbidden not in normalized, f"forbidden source content: {forbidden}"
+          reg0 = re.search(r"&reg0\s*\{(?P<body>[^}]*)\};", source_without_comments, re.S)
+          assert not reg0 or not re.search(
+              r"\bregulator-initial-mode\s*=\s*<\s*NRF5X_REG_MODE_DCDC\s*>\s*;",
+              reg0.group("body"),
+          ), "reg0 must not enable DCDC"
+
+          expected_partitions = {
+              0x00000: (0x00000, 0x26000, True),
+              0x26000: (0x26000, 0xA4000, False),
+              0xCA000: (0xCA000, 0x20000, False),
+              0xEA000: (0xEA000, 0x0A000, True),
+              0xF4000: (0xF4000, 0x0C000, True),
+          }
+          def parse_partitions(dts):
+              partitions = {}
+              for address, body in re.findall(
+                  r"partition@([0-9a-fA-F]+)\s*\{(.*?)\n\s*\};", dts, re.S
+              ):
+                  reg = re.search(
+                      r"reg\s*=\s*<\s*(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s*>\s*;",
+                      body,
+                  )
+                  if reg:
+                      partitions[int(address, 16)] = (
+                          int(reg.group(1), 16),
+                          int(reg.group(2), 16),
+                          bool(re.search(r"\bread-only\s*;", body)),
+                      )
+              return partitions
+
+          for name, dts in (("source", source), ("generated", generated)):
+              assert parse_partitions(dts) == expected_partitions, (
+                  f"{name} partition contract mismatch: {parse_partitions(dts)!r}"
+              )
+
+          app_start, app_end = 0x26000, 0xCA000
+
+          def assert_application_range(start, size, artifact):
+              if start < 0x00100000:
+                  assert app_start <= start and start + size <= app_end, (
+                      f"{artifact} range {start:#x}-{start + size:#x} is outside "
+                      f"the application partition"
+                  )
+
+          hex_base = 0
+          hex_ranges = []
+          for line in Path("build/k380-board/zephyr/zmk.hex").read_text().splitlines():
+              assert line.startswith(":"), f"invalid Intel HEX record: {line!r}"
+              record = bytes.fromhex(line[1:])
+              assert len(record) == record[0] + 5, f"invalid Intel HEX length: {line!r}"
+              assert sum(record) & 0xFF == 0, f"invalid Intel HEX checksum: {line!r}"
+              count, offset, record_type = record[0], (record[1] << 8) | record[2], record[3]
+              data = record[4:-1]
+              if record_type == 0x00:
+                  start, end = hex_base + offset, hex_base + offset + count
+                  if start < 0x00100000:
+                      assert start < end, f"empty Intel HEX range: {line!r}"
+                      assert_application_range(start, count, "Intel HEX")
+                      hex_ranges.append((start, end))
+              elif record_type == 0x02:
+                  assert count == 2, f"invalid Intel HEX segment record: {line!r}"
+                  hex_base = int.from_bytes(data, "big") << 4
+              elif record_type == 0x04:
+                  assert count == 2, f"invalid Intel HEX linear record: {line!r}"
+                  hex_base = int.from_bytes(data, "big") << 16
+          assert hex_ranges, "Intel HEX contains no internal Flash data records"
+
+          uf2 = Path("build/k380-board/zephyr/zmk.uf2").read_bytes()
+          assert len(uf2) % 512 == 0, "UF2 is not composed of 512-byte blocks"
+          uf2_ranges = []
+          for index in range(0, len(uf2), 512):
+              block = uf2[index:index + 512]
+              magic0, magic1, _, target, payload_size, _, _, _ = struct.unpack_from(
+                  "<8I", block
+              )
+              assert (magic0, magic1) == (0x0A324655, 0x9E5D5157), (
+                  f"invalid UF2 header in block {index // 512}"
+              )
+              assert struct.unpack_from("<I", block, 508)[0] == 0x0AB16F30, (
+                  f"invalid UF2 footer in block {index // 512}"
+              )
+              assert 0 < payload_size <= 476, (
+                  f"invalid UF2 payload in block {index // 512}"
+              )
+              if target < 0x00100000:
+                  end = target + payload_size
+                  assert target < end, f"empty UF2 range in block {index // 512}"
+                  assert_application_range(target, payload_size, "UF2")
+                  uf2_ranges.append((target, end))
+          assert uf2_ranges, "UF2 contains no internal Flash data blocks"
+          PY
+      - if: failure()
+        run: |
+          find build/k380-board -type f -name '*.log' -print -exec tail -n 200 {} \;
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k380-board-build-output
+          path: |
+            build/k380-board/**/*.log
+            build/k380-board/**/zephyr/.config
+            build/k380-board/**/zephyr/zephyr.dts
+            build/k380-board/**/zephyr/zmk.hex
+            build/k380-board/**/zephyr/zmk.uf2
           if-no-files-found: ignore
 
   module-isolation:
