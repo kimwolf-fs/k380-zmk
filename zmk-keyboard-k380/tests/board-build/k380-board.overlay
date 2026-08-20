@@ -35,3 +35,7 @@
         default_layer { bindings = <&none>; };
     };
 };
+
+&gpio0 {
+    status = "okay";
+};
