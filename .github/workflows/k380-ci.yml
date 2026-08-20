@@ -164,7 +164,7 @@ jobs:
               "#include<nordic/nrf52840_qiaa.dtsi>",
               "#include<common/nordic/nrf52840_uf2_boot_mode.dtsi>",
               "#include<zephyr/dt-bindings/regulator/nrf5x.h>",
-              "zephyr,code-partition=<&code_partition>;",
+              "zephyr,code-partition=&code_partition;",
           ):
               assert required in normalized, f"missing source contract: {required}"
 
