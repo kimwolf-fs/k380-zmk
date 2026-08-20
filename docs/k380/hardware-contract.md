@@ -1,6 +1,7 @@
 # K380 硬件契约
 
-**状态：** 已确认硬件事实；Flash 应用分区参数待首次成功构建的 K380 Bootloader linker map 产出后记录。
+**状态：** 已确认硬件事实；K380 Bootloader 已验证应用 Flash 区间为
+`0x00026000..0x000EA000`，ZMK code 与 Settings 分区必须保持本文档所列边界。
 
 **用途：** 本文档是 K380 Bootloader、ZMK board 和实板 bring-up 共用的板级硬件契约。矩阵 GPIO 分配见 [`pinmap.md`](pinmap.md)，物理按键 RC 映射见 [`matrix-layout.md`](matrix-layout.md)。
 
@@ -144,11 +145,26 @@ DCDC0 未启用且 DCDC1 已启用；确认电池模式的 VDDH 低于 2.75 V �
 
 **问题：** Bootloader 与 ZMK 如何共享 Flash 应用分区边界，且不在事实未确认前写入错误数值？
 
-**已确认答案：** 应用 Flash 起始地址、长度和 ZMK `fixed-partitions` 只能从首次成功的 K380 Bootloader linker map 获得。
+**已确认答案：** K380 Bootloader `k380` 分支的合并提交
+`476577baf9134af8373f420d88a46e3ca2d4d5d9` 已由 `K380 Bootloader` CI 验证。
+MBR 与 S140 6.1.1 占用 `0x00000000..0x00026000`，Adafruit DFU/UF2 排除的应用保存数据
+保留区为 `0x000EA000..0x000F4000`，Bootloader 及其配置页占用
+`0x000F4000..0x00100000`。
 
-**实现影响：** 在首次成功的 K380 Bootloader linker map 产出前，禁止填写、猜测或固化应用 Flash 起始地址、长度和 ZMK `fixed-partitions` 数值。产出后必须将 linker map 中确认的参数记录到本文档，并使 Bootloader 与 ZMK 使用同一组参数。
+ZMK 只能使用 `0x00026000..0x000EA000` 的 784 KiB 应用窗口。其中
+`code_partition` 为 `0x00026000..0x000CA000`（656 KiB），
+`storage_partition` 为 `0x000CA000..0x000EA000`（128 KiB）。
+`0x000EA000..0x000F4000` 是 DFU/UF2 不写入的应用保存数据区；项目将其标记为只读且
+留空，不分配给 ZMK Settings，且它不属于 Bootloader 自身。
 
-**验证方式：** 首次成功构建 K380 Bootloader 后检查 linker map，提取应用 Flash 起始地址和长度；再核对 ZMK `fixed-partitions` 与 linker map 一致，并验证应用刷写、`&bootloader` 进入 UF2 和应用重新启动。
+**实现影响：** K380 ZMK board 必须把 `zephyr,code-partition` 指向
+`code_partition`，不得让链接产物、HEX 或应用 UF2 写入 MBR/S140、Adafruit DFU/UF2
+排除的应用保存数据保留区或 Bootloader 保留区域。`storage_partition` 只供 ZMK NVS/Settings
+使用，不能扩大应用窗口，也不能替代 Adafruit DFU/UF2 排除的应用保存数据保留区。
+
+**验证方式：** K380 CI 的 board-build job 必须从生成的 `zephyr.dts` 检查五个分区，
+并检查内部 Flash HEX 记录和 UF2 block 均位于 `code_partition`。
+实板阶段再验证应用 UF2 写入、`&bootloader` 进入 UF2 和应用重新启动。
 
 ## 实板验证清单
 

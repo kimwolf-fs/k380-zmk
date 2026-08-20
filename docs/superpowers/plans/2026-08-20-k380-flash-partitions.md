@@ -18,7 +18,8 @@
 ```text
 MBR + S140 6.1.1:      0x00000000 .. 0x00026000
 ZMK 应用总窗口:         0x00026000 .. 0x000EA000  (0x000C4000)
-Adafruit DFU 应用数据:  0x000EA000 .. 0x000F4000  (0x0000A000)
+Adafruit DFU/UF2 排除的应用保存数据保留区:
+                       0x000EA000 .. 0x000F4000  (0x0000A000)
 Bootloader 保留区:      0x000F4000 .. 0x00100000  (0x0000C000)
 ```
 
@@ -28,6 +29,9 @@ Bootloader 保留区:      0x000F4000 .. 0x00100000  (0x0000C000)
 code_partition:         0x00026000 .. 0x000CA000  (0x000A4000)
 storage_partition:      0x000CA000 .. 0x000EA000  (0x00020000)
 ```
+
+`0x000EA000..0x000F4000` 是 Adafruit DFU/UF2 排除的应用保存数据保留区；项目选择将其
+标记为只读且留空，不分配给 ZMK Settings，且它不属于 Bootloader 自身。
 
 不得修改：
 
@@ -78,7 +82,7 @@ docs/superpowers/specs/2026-08-20-k380-flash-partitions-design.md
 - Modify: `.github/workflows/k380-ci.yml`
 - Test: `K380 CI / board-build`
 
-- [ ] **Step 1: 创建测试专用配置片段**
+- [x] **Step 1: 创建测试专用配置片段**
 
 创建 `zmk-keyboard-k380/tests/board-build/k380-board.conf`：
 
@@ -89,7 +93,7 @@ CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
 
 该配置只让虚拟输入使用轮询，避免 CI 对不存在的 K380 实板中断引脚作出假设。
 
-- [ ] **Step 2: 创建会实例化专用矩阵驱动的测试 overlay**
+- [x] **Step 2: 创建会实例化专用矩阵驱动的测试 overlay**
 
 创建 `zmk-keyboard-k380/tests/board-build/k380-board.overlay`：
 
@@ -148,7 +152,7 @@ CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
 该 overlay 只为构建准备设备树依赖。上述 GPIO 不能复制到后续 K380 board DTS，也不代表
 `docs/k380/pinmap.md`。
 
-- [ ] **Step 3: 在 workflow 的触发路径中包含新 board、夹具、规格和计划**
+- [x] **Step 3: 在 workflow 的触发路径中包含新 board、夹具、规格和计划**
 
 在 `.github/workflows/k380-ci.yml` 的 `push.paths` 与 `pull_request.paths` 各加入：
 
@@ -159,7 +163,7 @@ CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
       - "docs/superpowers/plans/2026-08-20-k380-flash-partitions.md"
 ```
 
-- [ ] **Step 4: 添加 board-build job，使缺失 board 时构建失败**
+- [x] **Step 4: 添加 board-build job，使缺失 board 时构建失败**
 
 在 `driver-build` job 后加入下列 job。它复用当前 K380 CI 的容器、缓存和 module 注册门禁：
 
@@ -211,7 +215,7 @@ CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
               "#include<nordic/nrf52840_qiaa.dtsi>",
               "#include<common/nordic/nrf52840_uf2_boot_mode.dtsi>",
               "regulator-initial-mode=<NRF5X_REG_MODE_DCDC>;",
-              "zephyr,code-partition=<&code_partition>;",
+              "zephyr,code-partition=&code_partition;",
           )
           for fragment in required_source:
               assert fragment in normalized_source, fragment
@@ -326,7 +330,7 @@ CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
 生成 DTS；代码已经完成该规整。HEX 解析仅检查 1 MiB 内部 Flash 记录，以避免 nRF UICR
 记录干扰应用区间判断。
 
-- [ ] **Step 5: 推送夹具并确认 board-build 按预期失败**
+- [x] **Step 5: 推送夹具并确认 board-build 按预期失败**
 
 ```powershell
 git add `
@@ -349,7 +353,7 @@ git push -u origin feat/k380-flash-partitions
 - Create: `app/boards/kimwolf/k380/k380_nrf52840_zmk_defconfig`
 - Test: `K380 CI / board-build`
 
-- [ ] **Step 1: 创建 board 元数据**
+- [x] **Step 1: 创建 board 元数据**
 
 创建 `app/boards/kimwolf/k380/board.yml`：
 
@@ -363,7 +367,7 @@ board:
         - name: zmk
 ```
 
-- [ ] **Step 2: 创建 Kconfig board 选择项**
+- [x] **Step 2: 创建 Kconfig board 选择项**
 
 创建 `app/boards/kimwolf/k380/Kconfig.k380`：
 
@@ -379,7 +383,7 @@ config BOARD_K380
     imply RETENTION_BOOT_MODE if BOARD_K380_NRF52840_ZMK
 ```
 
-- [ ] **Step 3: 创建最小 board DTS 与完整分区表**
+- [x] **Step 3: 创建最小 board DTS 与完整分区表**
 
 创建 `app/boards/kimwolf/k380/k380_nrf52840_zmk.dts`：
 
@@ -445,7 +449,7 @@ config BOARD_K380
 不添加 `zmk,kscan`、`zmk,matrix-transform`、`zmk,battery`、LED、WS2812B、P0.13 或
 REG0/DCDC0 配置。
 
-- [ ] **Step 4: 创建应用与 Settings 基础 defconfig**
+- [x] **Step 4: 创建应用与 Settings 基础 defconfig**
 
 创建 `app/boards/kimwolf/k380/k380_nrf52840_zmk_defconfig`：
 
@@ -471,7 +475,7 @@ CONFIG_ZMK_USB=y
 CONFIG_ZMK_BLE=y
 ```
 
-- [ ] **Step 5: 运行同一 CI，确认 board-build 由红变绿**
+- [x] **Step 5: 运行同一 CI，确认 board-build 由红变绿**
 
 ```powershell
 git add app/boards/kimwolf/k380
@@ -491,7 +495,7 @@ HEX 段和 UF2 block 都没有进入 `0x00000000..0x00026000`、
 - Modify: `docs/superpowers/plans/2026-08-20-k380-flash-partitions.md`
 - Test: 文档与分区边界静态检查
 
-- [ ] **Step 1: 更新硬件契约状态与 Flash 门禁结论**
+- [x] **Step 1: 更新硬件契约状态与 Flash 门禁结论**
 
 将 `docs/k380/hardware-contract.md` 开头状态替换为：
 
@@ -505,21 +509,24 @@ HEX 段和 UF2 block 都没有进入 `0x00000000..0x00026000`、
 ```markdown
 **已确认答案：** K380 Bootloader `k380` 分支的合并提交
 `476577baf9134af8373f420d88a46e3ca2d4d5d9` 已由 `K380 Bootloader` CI 验证。
-MBR 与 S140 6.1.1 占用 `0x00000000..0x00026000`，Adafruit DFU 应用数据占用
-`0x000EA000..0x000F4000`，Bootloader 及其配置页占用 `0x000F4000..0x00100000`。
+MBR 与 S140 6.1.1 占用 `0x00000000..0x00026000`，Adafruit DFU/UF2 排除的应用保存数据
+保留区为 `0x000EA000..0x000F4000`，Bootloader 及其配置页占用
+`0x000F4000..0x00100000`。
 
 ZMK 只能使用 `0x00026000..0x000EA000` 的 784 KiB 应用窗口。其中
 `code_partition` 为 `0x00026000..0x000CA000`（656 KiB），
 `storage_partition` 为 `0x000CA000..0x000EA000`（128 KiB）。
+`0x000EA000..0x000F4000` 是 DFU/UF2 不写入的应用保存数据区；项目选择将其标记为只读且
+留空，不分配给 ZMK Settings，且它不属于 Bootloader 自身。
 ```
 
 将同节“实现影响”替换为：
 
 ```markdown
 **实现影响：** K380 ZMK board 必须把 `zephyr,code-partition` 指向
-`code_partition`，不得让链接产物、HEX 或应用 UF2 写入 MBR/S140、DFU 应用数据或
-Bootloader 保留区域。`storage_partition` 只供 ZMK NVS/Settings 使用，不能扩大应用
-窗口，也不能替代 Adafruit DFU 应用数据区。
+`code_partition`，不得让链接产物、HEX 或应用 UF2 写入 MBR/S140、Adafruit DFU/UF2
+排除的应用保存数据保留区或 Bootloader 保留区域。`storage_partition` 只供 ZMK NVS/Settings
+使用，不能扩大应用窗口，也不能替代 Adafruit DFU/UF2 排除的应用保存数据保留区。
 ```
 
 将同节“验证方式”替换为：
@@ -530,7 +537,7 @@ Bootloader 保留区域。`storage_partition` 只供 ZMK NVS/Settings 使用，�
 实板阶段再验证应用 UF2 写入、`&bootloader` 进入 UF2 和应用重新启动。
 ```
 
-- [ ] **Step 2: 标记设计规格为已完成**
+- [x] **Step 2: 标记设计规格为已完成**
 
 将 `docs/superpowers/specs/2026-08-20-k380-flash-partitions-design.md` 的状态改为：
 
@@ -538,7 +545,7 @@ Bootloader 保留区域。`storage_partition` 只供 ZMK NVS/Settings 使用，�
 **状态：** 已完成。
 ```
 
-- [ ] **Step 3: 执行文档和边界静态检查**
+- [x] **Step 3: 执行文档和边界静态检查**
 
 在仓库根目录执行：
 

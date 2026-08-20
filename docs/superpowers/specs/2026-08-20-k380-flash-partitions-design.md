@@ -1,6 +1,6 @@
 # K380 ZMK Flash 分区与最小 Board 设计
 
-**状态：** 已批准设计，待规格审阅。
+**状态：** 已完成。
 
 ## 目标
 
@@ -77,8 +77,11 @@ Bootloader 所需的 retention magic；本阶段不定义调用该行为的 keym
 | `mbr_softdevice_partition` | `0x00000000` | `0x00026000` | `0x00026000` | MBR 与 S140 6.1.1，保留 |
 | `code_partition` | `0x00026000` | `0x000A4000` | `0x000CA000` | ZMK 可执行代码 |
 | `storage_partition` | `0x000CA000` | `0x00020000` | `0x000EA000` | ZMK NVS/Settings |
-| `dfu_app_data_partition` | `0x000EA000` | `0x0000A000` | `0x000F4000` | Adafruit DFU 应用数据，保留 |
+| `dfu_app_data_partition` | `0x000EA000` | `0x0000A000` | `0x000F4000` | Adafruit DFU/UF2 排除的应用保存数据保留区 |
 | `boot_partition` | `0x000F4000` | `0x0000C000` | `0x00100000` | Bootloader、配置、MBR 参数与 settings 页，保留 |
+
+`dfu_app_data_partition` 是 Adafruit DFU/UF2 排除的应用保存数据保留区，项目将其标记为只读并
+留空、不分配给 ZMK Settings，且它不属于 Bootloader 自身。
 
 `zephyr,code-partition` 只能指向 `code_partition`。`storage_partition` 是同一 784 KiB 应用
 窗口的一部分，不属于 Bootloader，也不得越过 `0x000EA000`。因此代码可用空间为 656 KiB，
@@ -109,7 +112,8 @@ K380 矩阵、GPIO 或默认键位。
    `0x00026000..0x000CA000`。
 4. `storage_partition` 严格为 `0x000CA000..0x000EA000`。
 5. `reg1` 为 DC/DC，且 DTS 中没有 REG0/DCDC0 的 DC/DC 启用配置。
-6. 应用 ELF、HEX 或 UF2 的 Flash 段不落入 MBR/S140、DFU 应用数据或 Bootloader 保留区域。
+6. 应用 ELF、HEX 或 UF2 的 Flash 段不落入 MBR/S140、Adafruit DFU/UF2 排除的应用保存数据
+   保留区或 Bootloader 保留区域。
 
 ## 后续阶段
 
