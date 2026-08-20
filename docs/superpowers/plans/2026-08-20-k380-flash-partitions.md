@@ -594,7 +594,7 @@ Write-Output "K380 分区契约、DTS 边界和最小范围检查通过。"
 K380 分区契约、DTS 边界和最小范围检查通过。
 ```
 
-- [ ] **Step 4: 提交并检查最终 K380 CI**
+- [x] **Step 4: 提交并检查最终 K380 CI**
 
 ```powershell
 git add `
