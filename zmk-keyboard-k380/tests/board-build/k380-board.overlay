@@ -38,5 +38,8 @@
 
 &gpio0 {
     status = "okay";
-    /delete-property/ gpiote-instance;
+};
+
+&gpiote {
+    status = "okay";
 };
