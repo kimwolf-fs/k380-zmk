@@ -1,0 +1,60 @@
+/*
+ * Copyright (c) 2026
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+/dts-v1/;
+#include <nordic/nrf52840_qiaa.dtsi>
+#include <common/nordic/nrf52840_uf2_boot_mode.dtsi>
+#include <zephyr/dt-bindings/regulator/nrf5x.h>
+
+/ {
+    model = "K380";
+    compatible = "kimwolf,k380";
+
+    chosen {
+        zephyr,code-partition = &code_partition;
+        zephyr,sram = &sram0;
+        zephyr,flash = &flash0;
+    };
+};
+
+&reg1 {
+    regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
+};
+
+zephyr_udc0: &usbd {
+    status = "okay";
+};
+
+&flash0 {
+    partitions {
+        compatible = "fixed-partitions";
+        #address-cells = <1>;
+        #size-cells = <1>;
+
+        mbr_softdevice_partition: partition@0 {
+            reg = <0x00000000 0x00026000>;
+            read-only;
+        };
+
+        code_partition: partition@26000 {
+            reg = <0x00026000 0x000A4000>;
+        };
+
+        storage_partition: partition@ca000 {
+            reg = <0x000CA000 0x00020000>;
+        };
+
+        dfu_app_data_partition: partition@ea000 {
+            reg = <0x000EA000 0x0000A000>;
+            read-only;
+        };
+
+        boot_partition: partition@f4000 {
+            reg = <0x000F4000 0x0000C000>;
+            read-only;
+        };
+    };
+};

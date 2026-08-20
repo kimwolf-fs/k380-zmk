@@ -1,0 +1,7 @@
+board:
+  name: k380
+  vendor: kimwolf
+  socs:
+    - name: nrf52840
+      variants:
+        - name: zmk
