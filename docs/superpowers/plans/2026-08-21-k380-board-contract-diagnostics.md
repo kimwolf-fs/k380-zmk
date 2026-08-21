@@ -38,4 +38,30 @@ Expected: the diagnostic fixture prints the required heading and assertion messa
 
 - [x] **Step 5: Commit and push**
 
+### Task 2: Publish Failure Evidence as Check-Run Annotations
+
+**Files:**
+- Modify: `.github/workflows/k380-ci.yml`
+- Test: inline Python fixtures executed with `python3` and extracted validator shell executed with `bash`
+
+- [x] **Step 1: Write the failing regression probe**
+
+Require the workflow to capture validator stderr, emit a `K380 board contract assertion` error annotation, and emit diagnostic notices.
+
+- [x] **Step 2: Capture the assertion without changing its exit status**
+
+Run the existing validator with stderr redirected to `contract_failure.log`. On a nonzero exit, emit its final assertion line as a GitHub Actions error annotation, replay stderr, and exit with the original status.
+
+- [x] **Step 3: Publish compact generated-artifact diagnostics**
+
+Emit notice annotations for generated `chosen`, `k380_kscan`, fixed partitions, and internal Flash address ranges from the HEX and UF2 artifacts.
+
+- [x] **Step 4: Verify annotations locally**
+
+Execute the extracted validator shell with a missing source fixture and verify that it emits the error annotation and remains nonzero. Execute the extracted diagnostics Python with generated DTS, HEX, and UF2 fixtures and verify its notice annotations.
+
+- [ ] **Step 5: Push and read remote check-run annotations**
+
+Push the workflow change, wait for `K380 CI`, retrieve the check-run annotations through the public GitHub API, and use the exact assertion to start the source-level fix.
+
 Commit only the workflow and plan updates with a conventional `fix(k380)` message, then push the current feature branch to trigger the remote board build.

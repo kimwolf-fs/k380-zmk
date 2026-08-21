@@ -193,7 +193,8 @@ jobs:
             -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/board-build/k380-board.overlay"
       - name: Validate K380 board contract
         run: |
-          python3 - <<'PY'
+          set +e
+          python3 - <<'PY' 2>contract_failure.log
           from pathlib import Path
           import re
           import struct
@@ -468,6 +469,17 @@ jobs:
                   uf2_ranges.append((target, end))
           assert uf2_ranges, "UF2 contains no internal Flash data blocks"
           PY
+          validator_status=$?
+          set -e
+          if [ "$validator_status" -ne 0 ]; then
+            failure="$(tail -n 1 contract_failure.log)"
+            failure="${failure//'%'/'%25'}"
+            failure="${failure//$'\r'/'%0D'}"
+            failure="${failure//$'\n'/'%0A'}"
+            echo "::error title=K380 board contract assertion::$failure"
+            cat contract_failure.log >&2
+            exit "$validator_status"
+          fi
       - name: Diagnose K380 board contract failure
         if: failure()
         run: |
@@ -477,6 +489,12 @@ jobs:
           import struct
 
           print("=== K380 board contract diagnostics ===")
+
+          def escape_annotation(value):
+              return str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          def notice(title, value):
+              print(f"::notice title={escape_annotation(title)}::{escape_annotation(value)}")
 
           def matching_brace(dts, opening):
               depth = 0
@@ -497,11 +515,18 @@ jobs:
               )
               if not match:
                   print(f"--- {node_name}: missing ---")
+                  notice(f"K380 {node_name}", "missing")
                   return
               opening = dts.find("{", match.start())
               closing = matching_brace(dts, opening)
+              node = (
+                  dts[match.start():closing + 2]
+                  if closing is not None
+                  else dts[match.start():]
+              )
               print(f"--- {node_name} ---")
-              print(dts[match.start():closing + 2] if closing is not None else dts[match.start():])
+              print(node)
+              notice(f"K380 {node_name}", re.sub(r"\s+", " ", node))
 
           def internal_hex_ranges(path):
               base = 0
@@ -539,6 +564,11 @@ jobs:
               print(f"--- {label} internal Flash ranges ({len(ranges)}) ---")
               for start, end in ranges:
                   print(f"{start:#010x}-{end:#010x}")
+              notice(
+                  f"K380 {label} ranges",
+                  ", ".join(f"{start:#010x}-{end:#010x}" for start, end in ranges)
+                  or "none",
+              )
 
           build = Path("build/k380-board/zephyr")
           generated = build / "zephyr.dts"
@@ -547,24 +577,33 @@ jobs:
               print_node(dts, "chosen")
               print_node(dts, "k380_kscan")
               print("--- generated fixed partitions ---")
-              for partition in re.findall(
+              partitions = re.findall(
                   r"partition@[0-9a-fA-F]+\s*\{.*?\n\s*\};", dts, re.S
-              ):
+              )
+              for partition in partitions:
                   print(partition)
+              notice(
+                  "K380 generated fixed partitions",
+                  " | ".join(re.sub(r"\s+", " ", partition) for partition in partitions)
+                  or "none",
+              )
           else:
               print("--- generated DTS: missing ---")
+              notice("K380 generated DTS", "missing")
 
           hex_path = build / "zmk.hex"
           if hex_path.is_file():
               print_ranges("Intel HEX", internal_hex_ranges(hex_path))
           else:
               print("--- Intel HEX: missing ---")
+              notice("K380 Intel HEX", "missing")
 
           uf2_path = build / "zmk.uf2"
           if uf2_path.is_file():
               print_ranges("UF2", internal_uf2_ranges(uf2_path))
           else:
               print("--- UF2: missing ---")
+              notice("K380 UF2", "missing")
           PY
       - if: failure()
         run: |
