@@ -142,6 +142,50 @@ jobs:
       - run: west init -l app
       - run: west update --fetch-opt=--filter=tree:0
       - run: west zephyr-export
+      - name: Validate K380 matrix controller prerequisites
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          source = Path("app/boards/kimwolf/k380/k380_nrf52840_zmk.dts").read_text()
+          source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+          source = re.sub(r"//[^\n]*", "", source)
+
+          def matching_brace(dts, opening):
+              depth = 0
+              for index in range(opening, len(dts)):
+                  if dts[index] == "{":
+                      depth += 1
+                  elif dts[index] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          return index
+              raise AssertionError("unterminated devicetree node")
+
+          def direct_status(node_body):
+              matches = []
+              for match in re.finditer(r"(?m)^[ \t]*status\s*=", node_body):
+                  depth = node_body[:match.start()].count("{") - node_body[:match.start()].count("}")
+                  if depth == 0:
+                      matches.append(match)
+              assert len(matches) == 1, (
+                  f"expected exactly one direct status property, found {len(matches)}"
+              )
+              value_end = node_body.find(";", matches[0].end())
+              assert value_end >= 0, "unterminated status property"
+              return node_body[matches[0].end():value_end]
+
+          for node in ("gpio0", "gpio1", "gpiote"):
+              match = re.search(rf"&{node}\s*\{{", source)
+              assert match, f"missing {node} controller overlay"
+              opening = source.find("{", match.start())
+              closing = matching_brace(source, opening)
+              assert re.fullmatch(
+                  r'\s*"okay"\s*',
+                  direct_status(source[opening + 1:closing]),
+              ), f"{node} must be enabled for the K380 matrix"
+          PY
       - run: |
           west build -s app -d build/k380-board -p always -b k380/nrf52840/zmk -- \
             -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
