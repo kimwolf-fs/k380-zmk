@@ -175,18 +175,128 @@ jobs:
           ), "reg1 must enable DCDC"
 
           for forbidden in (
-              "zmk,kscan",
               "zmk,matrix-transform",
               "zmk,battery",
+              "battery",
               "ws2812",
               "led-strip",
+              "pwm-leds",
+              "led-controller",
+              "led",
           ):
               assert forbidden not in normalized, f"forbidden source content: {forbidden}"
+          assert not re.search(r"&gpio0\s+13\b", source_without_comments), (
+              "P0.13 must not be assigned in the board DTS"
+          )
           reg0 = re.search(r"&reg0\s*\{(?P<body>[^}]*)\};", source_without_comments, re.S)
           assert not reg0 or not re.search(
               r"\bregulator-initial-mode\s*=\s*<\s*NRF5X_REG_MODE_DCDC\s*>\s*;",
               reg0.group("body"),
           ), "reg0 must not enable DCDC"
+
+          expected_rows = (
+              ("gpio1", 9, 0x04),
+              ("gpio0", 26, 0x04),
+              ("gpio0", 6, 0x04),
+              ("gpio0", 8, 0x04),
+              ("gpio0", 4, 0x04),
+              ("gpio0", 12, 0x04),
+              ("gpio0", 7, 0x04),
+              ("gpio0", 15, 0x04),
+          )
+          expected_cols = (
+              ("gpio0", 5, 0x20),
+              ("gpio0", 17, 0x20),
+              ("gpio0", 20, 0x20),
+              ("gpio0", 22, 0x20),
+              ("gpio1", 2, 0x20),
+              ("gpio1", 4, 0x20),
+              ("gpio1", 6, 0x20),
+              ("gpio0", 31, 0x20),
+              ("gpio0", 29, 0x20),
+              ("gpio0", 2, 0x20),
+              ("gpio1", 13, 0x20),
+              ("gpio0", 28, 0x20),
+              ("gpio0", 3, 0x20),
+              ("gpio1", 10, 0x20),
+              ("gpio1", 11, 0x20),
+          )
+          gpio_flag_values = {
+              "GPIO_ACTIVE_HIGH": 0x00,
+              "GPIO_ACTIVE_LOW": 0x01,
+              "GPIO_OPEN_DRAIN": 0x02,
+              "GPIO_OPEN_SOURCE": 0x04,
+              "GPIO_DISCONNECTED": 0x08,
+              "GPIO_PULL_UP": 0x10,
+              "GPIO_PULL_DOWN": 0x20,
+          }
+
+          def extract_node(dts, node_name):
+              match = re.search(
+                  rf"\b(?:{re.escape(node_name)}\s*:)?\s*{re.escape(node_name)}\s*\{{",
+                  dts,
+              )
+              assert match, f"missing node: {node_name}"
+              opening = dts.find("{", match.start())
+              depth = 0
+              for index in range(opening, len(dts)):
+                  if dts[index] == "{":
+                      depth += 1
+                  elif dts[index] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          return dts[opening + 1:index]
+              raise AssertionError(f"unterminated node: {node_name}")
+
+          def parse_gpio_flags(flag_text):
+              flags = 0
+              symbolic_flags = re.findall(r"\bGPIO_[A-Z_]+\b", flag_text)
+              numeric_flags = re.findall(r"\b(?:0x[0-9a-fA-F]+|[0-9]+)\b", flag_text)
+              assert symbolic_flags or numeric_flags, f"missing GPIO flags: {flag_text!r}"
+              for flag in symbolic_flags:
+                  assert flag in gpio_flag_values, f"unknown GPIO flag: {flag}"
+                  flags |= gpio_flag_values[flag]
+              for flag in numeric_flags:
+                  flags |= int(flag, 0)
+              return flags
+
+          def parse_gpio_property(node_body, property_name):
+              match = re.search(
+                  rf"\b{re.escape(property_name)}\s*=\s*(?P<value>.*?);",
+                  node_body,
+                  re.S,
+              )
+              assert match, f"missing {property_name}"
+              entries = []
+              for entry in re.findall(r"<([^>]*)>", match.group("value")):
+                  controller = re.search(r"&([A-Za-z0-9_]+)", entry)
+                  assert controller, f"missing GPIO controller: {entry!r}"
+                  tail = entry[controller.end():]
+                  pin = re.search(r"\b(?:0x[0-9a-fA-F]+|[0-9]+)\b", tail)
+                  assert pin, f"missing GPIO pin: {entry!r}"
+                  flags = parse_gpio_flags(tail[pin.end():])
+                  entries.append((controller.group(1), int(pin.group(0), 0), flags))
+              return entries
+
+          def assert_kscan_contract(dts, name):
+              assert dts.count('compatible = "k380,kscan-no-diode-matrix";') == 1, (
+                  f"{name} must contain exactly one K380 kscan compatible"
+              )
+              assert re.search(r"\bzmk,kscan\s*=\s*&k380_kscan\s*;", dts), (
+                  f"{name} chosen zmk,kscan must point to k380_kscan"
+              )
+              node = extract_node(dts, "k380_kscan")
+              assert re.search(
+                  r'\bcompatible\s*=\s*"k380,kscan-no-diode-matrix"\s*;',
+                  node,
+              ), f"{name} k380_kscan has the wrong compatible"
+              rows = parse_gpio_property(node, "row-gpios")
+              cols = parse_gpio_property(node, "col-gpios")
+              assert rows == list(expected_rows), f"{name} row GPIO contract mismatch: {rows!r}"
+              assert cols == list(expected_cols), f"{name} col GPIO contract mismatch: {cols!r}"
+
+          assert_kscan_contract(source_without_comments, "source")
+          assert_kscan_contract(generated, "generated")
 
           expected_partitions = {
               0x00000: (0x00000, 0x26000, True),
