@@ -31,7 +31,7 @@
 - Modify: `docs/superpowers/plans/2026-08-21-k380-real-matrix-integration.md`
 - Test: 本地源文件静态门禁；远程 `K380 CI / board-build`
 
-- [ ] **Step 1: 写入会拒绝旧 board 的矩阵合同检查**
+- [x] **Step 1: 写入会拒绝旧 board 的矩阵合同检查**
 
 在现有 `board-build` 的 Python 验证脚本中，保留现有分区、`zephyr,code-partition`、REG1
 DC/DC、HEX 和 UF2 检查，并新增以下实际检查数据：
@@ -76,7 +76,7 @@ may normalize labels and whitespace. Assert that there is exactly one node with 
 exactly 8 `row-gpios`, exactly 15 `col-gpios`, and no `zmk,matrix-transform`,
 `zmk,battery`, `ws2812`, `led-strip`, or `&reg0` DC/DC fragment in the board source.
 
-- [ ] **Step 2: Remove the virtual matrix from the board-build overlay**
+- [x] **Step 2: Remove the virtual matrix from the board-build overlay**
 
 Replace `zmk-keyboard-k380/tests/board-build/k380-board.overlay` with a test-only keymap overlay:
 
@@ -98,7 +98,7 @@ Do not leave `#include <zephyr/dt-bindings/gpio/gpio.h>`, `row-gpios`, `col-gpio
 `k380_board_build_kscan`, or any GPIO number in this overlay. The board DTS is now the only
 matrix definition used by this build.
 
-- [ ] **Step 3: Run the static gate and verify it fails for the expected reason**
+- [x] **Step 3: Run the static gate and verify it fails for the expected reason**
 
 Run from `E:\project\k380-keyboard\zmk`:
 
@@ -117,7 +117,7 @@ Expected result before Task 2: the command throws
 `预期失败：真实 K380 kscan 尚未加入 board DTS`.
 This is the red test proving the new contract does not silently pass against the old minimal board.
 
-- [ ] **Step 4: Commit the red CI gate**
+- [x] **Step 4: Commit the red CI gate**
 
 ```powershell
 git add .github/workflows/k380-ci.yml `
