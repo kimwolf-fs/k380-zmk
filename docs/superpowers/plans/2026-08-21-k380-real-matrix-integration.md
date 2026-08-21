@@ -310,7 +310,7 @@ git commit -m "docs(k380): 保留矩阵实板验证任务"
 - Test: merged feature branch
 - No new implementation files
 
-- [ ] **Step 1: Check repository and branch state**
+- [x] **Step 1: Check repository and branch state**
 
 ```powershell
 git status --short
@@ -321,7 +321,7 @@ git log --oneline -5
 Expected result: current branch is `feat/k380-real-matrix-integration`; working tree is clean; the
 latest commits contain the real GPIO implementation and the deferred verification documentation.
 
-- [ ] **Step 2: Run static validation on the merged result**
+- [x] **Step 2: Run static validation on the merged result**
 
 ```powershell
 git diff --check k380..HEAD
@@ -352,7 +352,7 @@ State explicitly that this proves board build and configuration contracts only, 
 interrupt behavior, physical key coordinates, ghost-filter behavior on the real PCB, USB, LED, or
 battery behavior.
 
-- [ ] **Step 4: Keep the branch for review**
+- [x] **Step 4: Keep the branch for review**
 
 Do not merge or delete `feat/k380-real-matrix-integration` in this implementation phase. The branch
 must remain available for review and for later hardware-validation follow-up.
