@@ -135,7 +135,7 @@ Expected result: one commit is created; no board DTS implementation is included 
 - Modify: `zmk-keyboard-k380/tests/board-build/k380-board.conf`
 - Test: Task 1 static gate and remote `K380 CI / board-build`
 
-- [ ] **Step 1: Add the chosen node and exact row/column GPIO arrays**
+- [x] **Step 1: Add the chosen node and exact row/column GPIO arrays**
 
 Inside `/ { ... };` in `app/boards/kimwolf/k380/k380_nrf52840_zmk.dts`, extend `chosen` and add
 one labeled node:
@@ -186,7 +186,7 @@ Keep the existing `&reg1`, `&flash0`, five fixed partitions, UF2 boot-mode inclu
 `zephyr,code-partition` unchanged. Do not add a matrix transform, default keymap, LED node, battery
 node, `&reg0` DCDC configuration, or P0.13.
 
-- [ ] **Step 2: Keep CI polling explicit**
+- [x] **Step 2: Keep CI polling explicit**
 
 Verify `zmk-keyboard-k380/tests/board-build/k380-board.conf` contains:
 
@@ -199,7 +199,7 @@ Do not add `CONFIG_ZMK_KSCAN_MATRIX_POLLING=y` to the production board defconfig
 retain the driver's normal interrupt-capable path for later hardware validation; CI polling only
 avoids depending on physical GPIO interrupt behavior in the build container.
 
-- [ ] **Step 3: Run the source contract checks**
+- [x] **Step 3: Run the source contract checks**
 
 Run:
 
