@@ -255,33 +255,31 @@ module-isolation: success
 - Modify: `docs/k380/hardware-contract.md`
 - Test: document consistency and unchecked deferred-task audit
 
-- [ ] **Step 1: Add the deferred verification checklist to the plan**
+- [x] **Step 1: Add the deferred verification checklist to the plan**
 
 Keep the following checklist unchecked until a physical K380 board is available:
 
-```markdown
 ### Deferred: K380 实板矩阵逐键验证
 
-- [ ] 准备可观察 `(row, column)` 的矩阵诊断固件。
-- [ ] 记录 PCB revision、测试日期、测试固件提交和 SWD/UF2 烧写路径。
-- [ ] 验证 80 个有效按键各自只上报 `matrix-layout.md` 指定坐标。
-- [ ] 验证 40 个未使用坐标不产生按键事件。
-- [ ] 验证非歧义多键、矩形歧义、按键保持和释放行为。
-- [ ] 验证真实 P0/P1 GPIO 的中断唤醒、扫描停止和异常恢复。
-- [ ] 记录所有异常，并在发现 GPIO/RC 错误时先更新唯一来源文档。
-```
+- [ ] 准备可观察 `(row, column)` 的矩阵诊断固件；
+- [ ] 记录 PCB revision、测试日期、测试固件提交和 SWD/UF2 烧写路径；
+- [ ] 验证 80 个有效按键各自只上报 `matrix-layout.md` 坐标；
+- [ ] 验证 40 个未使用坐标不产生事件；
+- [ ] 验证非歧义多键、矩形歧义、保持和释放；
+- [ ] 验证真实 P0/P1 GPIO 中断唤醒、扫描停止和异常恢复；
+- [ ] 记录异常并先更新唯一来源文档。
 
 Do not write “verified”, “passed”, or a completion date for these items. CI success must be described
 as build/configuration evidence only.
 
-- [ ] **Step 2: Clarify the hardware-contract verification status**
+- [x] **Step 2: Clarify the hardware-contract verification status**
 
 In `docs/k380/hardware-contract.md`, update only the matrix-related verification wording so it
 states that the GPIO and RC tables are recorded hardware facts awaiting physical confirmation, and
 that the confirmation remains a required bring-up task. Do not alter the GPIO values, RC mapping,
 Flash boundaries, or power/Bootloader facts.
 
-- [ ] **Step 3: Run the deferred-task audit**
+- [x] **Step 3: Run the deferred-task audit**
 
 Run:
 

@@ -3,7 +3,7 @@
 **状态：** 已确认硬件事实；K380 Bootloader 已验证应用 Flash 区间为
 `0x00026000..0x000EA000`，ZMK code 与 Settings 分区必须保持本文档所列边界。
 
-**用途：** 本文档是 K380 Bootloader、ZMK board 和实板 bring-up 共用的板级硬件契约。矩阵 GPIO 分配见 [`pinmap.md`](pinmap.md)，物理按键 RC 映射见 [`matrix-layout.md`](matrix-layout.md)。
+**用途：** 本文档是 K380 Bootloader、ZMK board 和实板 bring-up 共用的板级硬件契约。矩阵 GPIO 分配见 [`pinmap.md`](pinmap.md)，物理按键 RC 映射见 [`matrix-layout.md`](matrix-layout.md)。这两份矩阵文档是已记录、但仍等待实板确认的事实来源；其逐键、多键和中断行为确认仍是必做的 bring-up 任务。
 
 ## 记录规则
 
@@ -170,11 +170,11 @@ ZMK 只能使用 `0x00026000..0x000EA000` 的 784 KiB 应用窗口。其中
 
 **问题：** 哪些最小实板检查必须完成，才能证明本契约已落实？
 
-**已确认答案：** 以下检查是 K380 bring-up 的必做项：SWD 首刷、擦除、救砖；USB-C 的 UF2+CDC 和 CDC-only 枚举；ZMK `&bootloader`；RESET 双击；`VDDHDIV5` 与万用表比对；低电量回差；四灯数据顺序；所有 LED 状态和 USB 提示。
+**已确认答案：** 以下检查是 K380 bring-up 的必做项：矩阵逐键坐标、多键与保持/释放行为、未使用坐标不产生事件、真实 P0/P1 GPIO 中断唤醒/扫描停止/异常恢复；SWD 首刷、擦除、救砖；USB-C 的 UF2+CDC 和 CDC-only 枚举；ZMK `&bootloader`；RESET 双击；`VDDHDIV5` 与万用表比对；低电量回差；四灯数据顺序；所有 LED 状态和 USB 提示。矩阵 GPIO 与 RC 映射已记录在 [`pinmap.md`](pinmap.md) 和 [`matrix-layout.md`](matrix-layout.md)，但上述矩阵行为尚未完成实板确认。
 
 **实现影响：** Bootloader、ZMK board 与 bring-up 记录必须覆盖每一项；任一项失败时，不得将对应路径标记为已验证。
 
-**验证方式：** 对每项执行可重复的实板操作并记录 PCB revision、测试日期、固件版本、测量值、枚举结果和异常项。LED 检查必须覆盖所有蓝牙状态、所有 LED4 事件、优先级和 USB 接入一次性提示。
+**验证方式：** 对每项执行可重复的实板操作并记录 PCB revision、测试日期、固件版本、测量值、枚举结果和异常项。矩阵验证必须使用可观察 `(row, column)` 的诊断固件，覆盖 80 个有效按键、40 个未使用坐标、非歧义多键、矩形歧义、保持/释放以及真实 P0/P1 GPIO 中断唤醒、扫描停止和异常恢复；如发现 GPIO 或 RC 错误，先更新对应唯一来源文档。LED 检查必须覆盖所有蓝牙状态、所有 LED4 事件、优先级和 USB 接入一次性提示。
 
 ## 变更规则
 
