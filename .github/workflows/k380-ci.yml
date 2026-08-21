@@ -287,7 +287,7 @@ jobs:
                   flags |= int(flag, 0)
               return flags
 
-          def parse_gpio_property(node_body, property_name):
+          def parse_direct_property(node_body, property_name):
               matches = []
               for match in re.finditer(
                   rf"(?m)^[ \t]*{re.escape(property_name)}\s*=",
@@ -301,10 +301,12 @@ jobs:
               match = matches[0]
               value_end = node_body.find(";", match.end())
               assert value_end >= 0, f"unterminated {property_name}"
+              return node_body[match.end():value_end]
+
+          def parse_gpio_property(node_body, property_name):
+              value = parse_direct_property(node_body, property_name)
               entries = []
-              for entry in re.findall(
-                  r"<([^>]*)>", node_body[match.end():value_end]
-              ):
+              for entry in re.findall(r"<([^>]*)>", value):
                   controller = re.search(r"&([A-Za-z0-9_]+)", entry)
                   assert controller, f"missing GPIO controller: {entry!r}"
                   tail = entry[controller.end():]
@@ -319,13 +321,15 @@ jobs:
                   f"{name} must contain exactly one K380 kscan compatible"
               )
               chosen = extract_root_node(dts, "chosen")
-              assert re.search(r"\bzmk,kscan\s*=\s*&k380_kscan\s*;", chosen), (
+              assert re.fullmatch(
+                  r"\s*&k380_kscan\s*", parse_direct_property(chosen, "zmk,kscan")
+              ), (
                   f"{name} /chosen zmk,kscan must point to k380_kscan"
               )
               node = extract_root_node(dts, "k380_kscan", required_label="k380_kscan")
-              assert re.search(
-                  r'\bcompatible\s*=\s*"k380,kscan-no-diode-matrix"\s*;',
-                  node,
+              assert re.fullmatch(
+                  r'\s*"k380,kscan-no-diode-matrix"\s*',
+                  parse_direct_property(node, "compatible"),
               ), f"{name} k380_kscan has the wrong compatible"
               rows = parse_gpio_property(node, "row-gpios")
               cols = parse_gpio_property(node, "col-gpios")
