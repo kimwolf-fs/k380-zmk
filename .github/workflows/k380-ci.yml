@@ -468,6 +468,104 @@ jobs:
                   uf2_ranges.append((target, end))
           assert uf2_ranges, "UF2 contains no internal Flash data blocks"
           PY
+      - name: Diagnose K380 board contract failure
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import struct
+
+          print("=== K380 board contract diagnostics ===")
+
+          def matching_brace(dts, opening):
+              depth = 0
+              for index in range(opening, len(dts)):
+                  if dts[index] == "{":
+                      depth += 1
+                  elif dts[index] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          return index
+              return None
+
+          def print_node(dts, node_name):
+              match = re.search(
+                  rf"(?m)^[ \t]*(?:[A-Za-z_][A-Za-z0-9_-]*\s*:\s*)?"
+                  rf"{re.escape(node_name)}\s*\{{",
+                  dts,
+              )
+              if not match:
+                  print(f"--- {node_name}: missing ---")
+                  return
+              opening = dts.find("{", match.start())
+              closing = matching_brace(dts, opening)
+              print(f"--- {node_name} ---")
+              print(dts[match.start():closing + 2] if closing is not None else dts[match.start():])
+
+          def internal_hex_ranges(path):
+              base = 0
+              ranges = []
+              for line in path.read_text().splitlines():
+                  if not line.startswith(":"):
+                      continue
+                  record = bytes.fromhex(line[1:])
+                  count = record[0]
+                  offset = (record[1] << 8) | record[2]
+                  record_type = record[3]
+                  data = record[4:-1]
+                  if record_type == 0x00:
+                      start = base + offset
+                      if start < 0x00100000 and count:
+                          ranges.append((start, start + count))
+                  elif record_type == 0x02 and len(data) == 2:
+                      base = int.from_bytes(data, "big") << 4
+                  elif record_type == 0x04 and len(data) == 2:
+                      base = int.from_bytes(data, "big") << 16
+              return ranges
+
+          def internal_uf2_ranges(path):
+              ranges = []
+              data = path.read_bytes()
+              for index in range(0, len(data) - 511, 512):
+                  _, _, _, target, payload_size, _, _, _ = struct.unpack_from(
+                      "<8I", data, index
+                  )
+                  if target < 0x00100000 and payload_size:
+                      ranges.append((target, target + payload_size))
+              return ranges
+
+          def print_ranges(label, ranges):
+              print(f"--- {label} internal Flash ranges ({len(ranges)}) ---")
+              for start, end in ranges:
+                  print(f"{start:#010x}-{end:#010x}")
+
+          build = Path("build/k380-board/zephyr")
+          generated = build / "zephyr.dts"
+          if generated.is_file():
+              dts = generated.read_text()
+              print_node(dts, "chosen")
+              print_node(dts, "k380_kscan")
+              print("--- generated fixed partitions ---")
+              for partition in re.findall(
+                  r"partition@[0-9a-fA-F]+\s*\{.*?\n\s*\};", dts, re.S
+              ):
+                  print(partition)
+          else:
+              print("--- generated DTS: missing ---")
+
+          hex_path = build / "zmk.hex"
+          if hex_path.is_file():
+              print_ranges("Intel HEX", internal_hex_ranges(hex_path))
+          else:
+              print("--- Intel HEX: missing ---")
+
+          uf2_path = build / "zmk.uf2"
+          if uf2_path.is_file():
+              print_ranges("UF2", internal_uf2_ranges(uf2_path))
+          else:
+              print("--- UF2: missing ---")
+          PY
       - if: failure()
         run: |
           find build/k380-board -type f -name '*.log' -print -exec tail -n 200 {} \;

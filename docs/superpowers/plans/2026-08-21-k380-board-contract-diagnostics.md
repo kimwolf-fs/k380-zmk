@@ -1,0 +1,41 @@
+# K380 Board Contract Diagnostics Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Make a K380 board-contract CI failure identify the exact assertion stage and generated-artifact state without changing firmware behavior.
+
+**Architecture:** The `board-build` job keeps its existing build and assertion semantics. Its Python validator receives an outer diagnostic handler that prints the assertion message and compact summaries of the generated DTS and firmware artifact address ranges before re-raising the failure.
+
+**Tech Stack:** GitHub Actions YAML, embedded Python 3, Zephyr generated DTS, Intel HEX, UF2.
+
+---
+
+### Task 1: Make Contract Failures Observable
+
+**Files:**
+- Modify: `.github/workflows/k380-ci.yml`
+- Test: inline Python smoke fixture executed with `python3`
+
+- [x] **Step 1: Write the failing regression probe**
+
+Run a Python fixture that raises `AssertionError("generated row GPIO contract mismatch")` inside the planned diagnostic handler and assert that its output contains both the assertion text and the `K380 board contract diagnostics` heading.
+
+- [x] **Step 2: Verify the probe fails before implementation**
+
+Run: `python3 -c "raise AssertionError('diagnostic handler is not defined')"`
+
+Expected: nonzero exit with `AssertionError`, because the diagnostic handler does not yet exist in the workflow.
+
+- [x] **Step 3: Add the minimal diagnostic handler**
+
+Wrap the existing board-contract assertions in `try`/`except AssertionError`. On failure, print the assertion message, matching `k380_kscan` and `chosen` sections from `zephyr.dts`, parsed partition data, and internal-flash ranges from `zmk.hex` and `zmk.uf2`; then re-raise.
+
+- [x] **Step 4: Run syntax and regression verification**
+
+Run the workflow's embedded Python through `ast.parse`, run the diagnostic fixture, and run `git diff --check`.
+
+Expected: the diagnostic fixture prints the required heading and assertion message; Python parsing and whitespace validation pass.
+
+- [x] **Step 5: Commit and push**
+
+Commit only the workflow and plan updates with a conventional `fix(k380)` message, then push the current feature branch to trigger the remote board build.
