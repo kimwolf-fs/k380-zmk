@@ -82,8 +82,10 @@ Match Zephyr's definitions: `GPIO_OPEN_SOURCE` is `0x02` and `GPIO_OPEN_DRAIN` i
 
 Run the actual embedded contract validator with an otherwise valid fixture. Require generated row flags of `0x02` to pass and `0x04` to fail with `generated row GPIO contract mismatch`.
 
-- [ ] **Step 4: Push and verify remote K380 CI**
+- [x] **Step 4: Push and verify remote K380 CI**
 
 Push the corrected contract and require the `board-build` job to complete successfully before marking the K380 CI integration verified.
+
+Evidence: `K380 CI` run `32458066955` completed with all five jobs successful.
 
 Commit only the workflow and plan updates with a conventional `fix(k380)` message, then push the current feature branch to trigger the remote board build.

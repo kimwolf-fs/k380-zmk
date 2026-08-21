@@ -224,7 +224,7 @@ git diff --check
 
 Expected result: no missing fragments, no scope violation, and `git diff --check` exits 0.
 
-- [ ] **Step 4: Run the remote build verification**
+- [x] **Step 4: Run the remote build verification**
 
 Push the feature branch:
 
@@ -247,6 +247,8 @@ module-isolation: success
 
 `board-build` must prove that the generated DTS preserves the 23 real GPIO entries and that
 `zephyr.hex` and `zephyr.uf2` remain within `0x00026000..0x000CA000`.
+
+Evidence: `K380 CI` run `32458066955` completed with all five jobs successful.
 
 ## Task 3: Record deferred hardware verification without marking it complete
 
@@ -345,12 +347,16 @@ Expected result:
 K380 真实矩阵源配置和范围检查通过。
 ```
 
-- [ ] **Step 3: Confirm remote CI evidence**
+- [x] **Step 3: Confirm remote CI evidence**
 
 Record the exact successful `K380 CI` run ID and its five successful jobs in the final handoff.
 State explicitly that this proves board build and configuration contracts only, not SWD, UF2,
 interrupt behavior, physical key coordinates, ghost-filter behavior on the real PCB, USB, LED, or
 battery behavior.
+
+Evidence: `K380 CI` run `32458066955` completed successfully:
+`module-metadata`, `ghost-filter`, `driver-build`, `board-build`, and
+`module-isolation`.
 
 - [x] **Step 4: Keep the branch for review**
 
