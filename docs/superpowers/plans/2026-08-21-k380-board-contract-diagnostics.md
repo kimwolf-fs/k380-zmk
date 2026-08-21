@@ -60,8 +60,30 @@ Emit notice annotations for generated `chosen`, `k380_kscan`, fixed partitions, 
 
 Execute the extracted validator shell with a missing source fixture and verify that it emits the error annotation and remains nonzero. Execute the extracted diagnostics Python with generated DTS, HEX, and UF2 fixtures and verify its notice annotations.
 
-- [ ] **Step 5: Push and read remote check-run annotations**
+- [x] **Step 5: Push and read remote check-run annotations**
 
 Push the workflow change, wait for `K380 CI`, retrieve the check-run annotations through the public GitHub API, and use the exact assertion to start the source-level fix.
+
+### Task 3: Correct Zephyr GPIO Flag Contract
+
+**Files:**
+- Modify: `.github/workflows/k380-ci.yml`
+- Test: inline Python fixture executing the embedded contract validator
+
+- [x] **Step 1: Reproduce the generated GPIO flag mismatch**
+
+Use a generated DTS fixture with row flags of `0x02`. Verify the prior workflow mapping rejects it because `GPIO_OPEN_SOURCE` and the expected row flags were set to `0x04`.
+
+- [x] **Step 2: Correct the GPIO flag constants**
+
+Match Zephyr's definitions: `GPIO_OPEN_SOURCE` is `0x02` and `GPIO_OPEN_DRAIN` is `0x06`. Set the eight K380 expected row flags to `0x02`.
+
+- [x] **Step 3: Verify positive and negative cases**
+
+Run the actual embedded contract validator with an otherwise valid fixture. Require generated row flags of `0x02` to pass and `0x04` to fail with `generated row GPIO contract mismatch`.
+
+- [ ] **Step 4: Push and verify remote K380 CI**
+
+Push the corrected contract and require the `board-build` job to complete successfully before marking the K380 CI integration verified.
 
 Commit only the workflow and plan updates with a conventional `fix(k380)` message, then push the current feature branch to trigger the remote board build.
