@@ -282,8 +282,9 @@ jobs:
               assert dts.count('compatible = "k380,kscan-no-diode-matrix";') == 1, (
                   f"{name} must contain exactly one K380 kscan compatible"
               )
-              assert re.search(r"\bzmk,kscan\s*=\s*&k380_kscan\s*;", dts), (
-                  f"{name} chosen zmk,kscan must point to k380_kscan"
+              chosen = extract_node(dts, "chosen")
+              assert re.search(r"\bzmk,kscan\s*=\s*&k380_kscan\s*;", chosen), (
+                  f"{name} /chosen zmk,kscan must point to k380_kscan"
               )
               node = extract_node(dts, "k380_kscan")
               assert re.search(
