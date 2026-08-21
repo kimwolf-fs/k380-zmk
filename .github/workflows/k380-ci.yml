@@ -231,13 +231,15 @@ jobs:
               "GPIO_PULL_DOWN": 0x20,
           }
 
-          def extract_node(dts, node_name):
-              match = re.search(
-                  rf"\b(?:{re.escape(node_name)}\s*:)?\s*{re.escape(node_name)}\s*\{{",
-                  dts,
-              )
-              assert match, f"missing node: {node_name}"
-              opening = dts.find("{", match.start())
+          node_declaration = re.compile(
+              r"(?m)^[ \t]*(?:(?P<label>[A-Za-z_][A-Za-z0-9_-]*)\s*:\s*)?"
+              r"(?P<node_name>/|[A-Za-z_][A-Za-z0-9_,-]*)\s*\{"
+          )
+
+          def brace_depth(dts, index):
+              return dts[:index].count("{") - dts[:index].count("}")
+
+          def matching_brace(dts, opening):
               depth = 0
               for index in range(opening, len(dts)):
                   if dts[index] == "{":
@@ -245,8 +247,33 @@ jobs:
                   elif dts[index] == "}":
                       depth -= 1
                       if depth == 0:
-                          return dts[opening + 1:index]
-              raise AssertionError(f"unterminated node: {node_name}")
+                          return index
+              raise AssertionError("unterminated devicetree node")
+
+          def extract_root_node(dts, node_name, required_label=None):
+              root = re.search(r"(?m)^[ \t]*/\s*\{", dts)
+              assert root, "missing devicetree root node"
+              root_opening = dts.find("{", root.start())
+              root_closing = matching_brace(dts, root_opening)
+              candidates = []
+              for match in node_declaration.finditer(
+                  dts, root_opening + 1, root_closing
+              ):
+                  if match.group("node_name") != node_name:
+                      continue
+                  opening = dts.find("{", match.start())
+                  closing = matching_brace(dts, opening)
+                  candidates.append((brace_depth(dts, match.start()), match, opening, closing))
+              assert len(candidates) == 1, (
+                  f"expected exactly one {node_name} node, found {len(candidates)}"
+              )
+              depth, match, opening, closing = candidates[0]
+              assert depth == 1, f"{node_name} must be a root-level node"
+              if required_label is not None:
+                  assert match.group("label") == required_label, (
+                      f"{node_name} must use label {required_label}"
+                  )
+              return dts[opening + 1:closing]
 
           def parse_gpio_flags(flag_text):
               flags = 0
@@ -261,14 +288,23 @@ jobs:
               return flags
 
           def parse_gpio_property(node_body, property_name):
-              match = re.search(
-                  rf"\b{re.escape(property_name)}\s*=\s*(?P<value>.*?);",
+              matches = []
+              for match in re.finditer(
+                  rf"(?m)^[ \t]*{re.escape(property_name)}\s*=",
                   node_body,
-                  re.S,
+              ):
+                  if brace_depth(node_body, match.start()) == 0:
+                      matches.append(match)
+              assert len(matches) == 1, (
+                  f"expected exactly one direct {property_name}, found {len(matches)}"
               )
-              assert match, f"missing {property_name}"
+              match = matches[0]
+              value_end = node_body.find(";", match.end())
+              assert value_end >= 0, f"unterminated {property_name}"
               entries = []
-              for entry in re.findall(r"<([^>]*)>", match.group("value")):
+              for entry in re.findall(
+                  r"<([^>]*)>", node_body[match.end():value_end]
+              ):
                   controller = re.search(r"&([A-Za-z0-9_]+)", entry)
                   assert controller, f"missing GPIO controller: {entry!r}"
                   tail = entry[controller.end():]
@@ -282,11 +318,11 @@ jobs:
               assert dts.count('compatible = "k380,kscan-no-diode-matrix";') == 1, (
                   f"{name} must contain exactly one K380 kscan compatible"
               )
-              chosen = extract_node(dts, "chosen")
+              chosen = extract_root_node(dts, "chosen")
               assert re.search(r"\bzmk,kscan\s*=\s*&k380_kscan\s*;", chosen), (
                   f"{name} /chosen zmk,kscan must point to k380_kscan"
               )
-              node = extract_node(dts, "k380_kscan")
+              node = extract_root_node(dts, "k380_kscan", required_label="k380_kscan")
               assert re.search(
                   r'\bcompatible\s*=\s*"k380,kscan-no-diode-matrix"\s*;',
                   node,
