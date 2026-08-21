@@ -296,7 +296,7 @@ git diff --check
 
 Expected result: all assertions pass and all deferred physical checks remain unchecked.
 
-- [ ] **Step 4: Commit the documentation status**
+- [x] **Step 4: Commit the documentation status**
 
 ```powershell
 git add docs/k380/hardware-contract.md `
