@@ -17,6 +17,40 @@
         zephyr,code-partition = &code_partition;
         zephyr,sram = &sram0;
         zephyr,flash = &flash0;
+        zmk,kscan = &k380_kscan;
+    };
+
+    k380_kscan: k380_kscan {
+        compatible = "k380,kscan-no-diode-matrix";
+        row-gpios =
+            <&gpio1 9 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
+            <&gpio0 26 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
+            <&gpio0 6 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
+            <&gpio0 8 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
+            <&gpio0 4 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
+            <&gpio0 12 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
+            <&gpio0 7 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
+            <&gpio0 15 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>;
+        col-gpios =
+            <&gpio0 5 GPIO_PULL_DOWN>,
+            <&gpio0 17 GPIO_PULL_DOWN>,
+            <&gpio0 20 GPIO_PULL_DOWN>,
+            <&gpio0 22 GPIO_PULL_DOWN>,
+            <&gpio1 2 GPIO_PULL_DOWN>,
+            <&gpio1 4 GPIO_PULL_DOWN>,
+            <&gpio1 6 GPIO_PULL_DOWN>,
+            <&gpio0 31 GPIO_PULL_DOWN>,
+            <&gpio0 29 GPIO_PULL_DOWN>,
+            <&gpio0 2 GPIO_PULL_DOWN>,
+            <&gpio1 13 GPIO_PULL_DOWN>,
+            <&gpio0 28 GPIO_PULL_DOWN>,
+            <&gpio0 3 GPIO_PULL_DOWN>,
+            <&gpio1 10 GPIO_PULL_DOWN>,
+            <&gpio1 11 GPIO_PULL_DOWN>;
+        debounce-press-ms = <5>;
+        debounce-release-ms = <5>;
+        debounce-scan-period-ms = <1>;
+        poll-period-ms = <10>;
     };
 };
 
