@@ -56,6 +56,7 @@
         poll-period-ms = <10>;
     };
 
+    /* ZMK physical layouts require an explicit transform. */
     k380_transform: keymap_transform_0 {
         compatible = "zmk,matrix-transform";
         columns = <15>;
