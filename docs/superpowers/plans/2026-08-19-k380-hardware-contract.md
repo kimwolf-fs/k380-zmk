@@ -145,7 +145,7 @@ zmk-keyboard-k380/drivers/
 ```markdown
 - RESET 只有测试点，无用户按键。
 - SWDIO、SWCLK、RESET、GND、VTref 均有测试点；VTref 必须接 nRF VDD。
-- 日常进入 UF2 使用 ZMK `&bootloader`；无法启动应用时用 RESET 测试点双击复位；
+- 日常进入 UF2 使用 ZMK `Fn+Del`（`&bootloader` 绑定）；常规恢复入口为上电前按住 `Del`；
   无法恢复时使用 SWD。
 - Bootloader 使用 USB UF2 与 CDC，不启用 BLE OTA、签名固件或双 bank 回滚。
 ```
@@ -225,7 +225,7 @@ K380 Bootloader 的应用 Flash 起始地址、长度和 ZMK `fixed-partitions` 
 ```
 
 实板验证清单必须逐条包含：SWD 首刷/擦除/救砖、USB-C 的 UF2+CDC 与 CDC-only 枚举、
-`&bootloader`、RESET 测试点双击、VDDHDIV5 与万用表比对、低电量回差、四灯数据顺序、
+`Fn+Del`、上电前按住 `Del` 的常规恢复入口、VDDHDIV5 与万用表比对、低电量回差、四灯数据顺序、
 所有 LED 状态和 USB 供电提示。
 
 变更规则必须说明：矩阵 GPIO 改动更新 `pinmap.md`，物理按键改动更新

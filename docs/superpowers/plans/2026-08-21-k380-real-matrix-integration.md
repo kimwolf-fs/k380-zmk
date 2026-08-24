@@ -4,7 +4,7 @@
 
 **Goal:** 将 `docs/k380/pinmap.md` 中的真实 8x15 GPIO 矩阵接入 K380 board，并让 CI 验证扫描器实例、GPIO 合同和既有 Flash 边界，同时保留实板逐键验证为延期未完成任务。
 
-**Architecture:** K380 board DTS 直接实例化现有 `k380,kscan-no-diode-matrix` 驱动，并将 `zmk,kscan` 指向该节点。board-build 使用真实 board 节点，不再使用虚拟 GPIO；CI 在生成 DTS 上检查 23 个 GPIO 的顺序、控制器、引脚和 flags。matrix transform、默认 keymap、灯效、电池和实板刷写继续不实现。
+**Architecture:** K380 board DTS 直接实例化现有 `k380,kscan-no-diode-matrix` 驱动，并将 `zmk,kscan` 指向该节点。board-build 使用真实 board 节点，不再使用虚拟 GPIO；CI 在生成 DTS 上检查 23 个 GPIO 的顺序、控制器、引脚和 flags。board 级最小默认 keymap 只负责物理布局和 `Fn+Del -> &bootloader`；matrix transform、灯效、电池和实板刷写继续不实现。
 
 **Tech Stack:** Zephyr devicetree、ZMK、K380 专用 kscan module、GitHub Actions、Python 3、PowerShell。
 
@@ -21,7 +21,7 @@
 | `docs/superpowers/specs/2026-08-21-k380-real-matrix-integration-design.md` | 已批准的设计和范围边界，实施中不得扩大。 |
 | `docs/superpowers/plans/2026-08-21-k380-real-matrix-integration.md` | 本实施清单；实板验证任务必须保持未勾选，直到具备硬件并完成记录。 |
 | `docs/k380/pinmap.md` | 真实 GPIO 唯一来源，只读使用，不在本阶段改写。 |
-| `docs/k380/matrix-layout.md` | 物理键到 RC 坐标唯一来源，只读使用；不复制到 keymap。 |
+| `docs/k380/matrix-layout.md` | 物理键到 RC 坐标唯一来源，只读使用；board keymap 仅消费布局顺序，不复制 RC 细节。 |
 
 ## Task 1: 先建立真实矩阵的 CI 失败门禁
 
@@ -183,8 +183,8 @@ one labeled node:
 ```
 
 Keep the existing `&reg1`, `&flash0`, five fixed partitions, UF2 boot-mode include, and
-`zephyr,code-partition` unchanged. Do not add a matrix transform, default keymap, LED node, battery
-node, `&reg0` DCDC configuration, or P0.13.
+`zephyr,code-partition` unchanged. Do not add a matrix transform, LED node, battery node,
+`&reg0` DCDC configuration, or P0.13.
 
 - [x] **Step 2: Keep CI polling explicit**
 

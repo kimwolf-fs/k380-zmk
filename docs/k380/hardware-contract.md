@@ -79,14 +79,14 @@ DCDC0 未启用且 DCDC1 已启用；确认电池模式的 VDDH 低于 2.75 V �
 
 - RESET 仅有测试点，无用户按键。
 - SWDIO、SWCLK、RESET、GND、VTref 测试点齐全；VTref 接 nRF VDD。
-- 日常通过 ZMK `&bootloader` 进入 UF2。
-- 应用无法启动时，通过 RESET 测试点双击复位进入 UF2。
+- 日常通过 ZMK `Fn+Del`（`&bootloader` 绑定）进入 UF2；常规恢复入口由上电前按住 `Del` 触发。
+- 应用无法启动时，通过 SWD 救砖；RESET 测试点仅保留给调试和救砖。
 - 无法通过 UF2 恢复时使用 SWD。
 - Bootloader 为 USB UF2+CDC；不支持 BLE OTA、签名固件或双 bank 回滚。
 
-**实现影响：** ZMK 必须保留 `&bootloader` 可进入 UF2 的路径；Bootloader 不得声明或依赖 BLE OTA、签名校验或双 bank 回滚能力。恢复文档与实板操作必须以 RESET 测试点和 SWD 测试点为准。
+**实现影响：** ZMK 必须保留 `Fn+Del`（`&bootloader` 绑定）可进入 UF2 的路径，并提供上电前按住 `Del` 的常规恢复入口；Bootloader 不得声明或依赖 BLE OTA、签名校验或双 bank 回滚能力。恢复文档与实板操作必须以 `Del` 和 SWD 测试点为准。
 
-**验证方式：** 在实板上验证 SWD 可首刷、擦除和救砖；验证 ZMK `&bootloader` 可进入 UF2，应用无法启动时 RESET 测试点双击可进入 UF2，并验证 USB 的 UF2+CDC 与 CDC-only 枚举。
+**验证方式：** 在实板上验证 SWD 可首刷、擦除和救砖；验证 ZMK `Fn+Del` 可进入 UF2，验证上电前按住 `Del` 可进入常规恢复入口，并验证 USB 的 UF2+CDC 与 CDC-only 枚举。
 
 ## WS2812B 状态灯
 
@@ -164,13 +164,13 @@ ZMK 只能使用 `0x00026000..0x000EA000` 的 784 KiB 应用窗口。其中
 
 **验证方式：** K380 CI 的 board-build job 必须从生成的 `zephyr.dts` 检查五个分区，
 并检查内部 Flash HEX 记录和 UF2 block 均位于 `code_partition`。
-实板阶段再验证应用 UF2 写入、`&bootloader` 进入 UF2 和应用重新启动。
+实板阶段再验证应用 UF2 写入、`Fn+Del` 进入 UF2 和应用重新启动。
 
 ## 实板验证清单
 
 **问题：** 哪些最小实板检查必须完成，才能证明本契约已落实？
 
-**已确认答案：** 以下检查是 K380 bring-up 的必做项：矩阵逐键坐标、多键与保持/释放行为、未使用坐标不产生事件、真实 P0/P1 GPIO 中断唤醒/扫描停止/异常恢复；SWD 首刷、擦除、救砖；USB-C 的 UF2+CDC 和 CDC-only 枚举；ZMK `&bootloader`；RESET 双击；`VDDHDIV5` 与万用表比对；低电量回差；四灯数据顺序；所有 LED 状态和 USB 提示。矩阵 GPIO 与 RC 映射已记录在 [`pinmap.md`](pinmap.md) 和 [`matrix-layout.md`](matrix-layout.md)，但上述矩阵行为尚未完成实板确认。
+**已确认答案：** 以下检查是 K380 bring-up 的必做项：矩阵逐键坐标、多键与保持/释放行为、未使用坐标不产生事件、真实 P0/P1 GPIO 中断唤醒/扫描停止/异常恢复；SWD 首刷、擦除、救砖；USB-C 的 UF2+CDC 和 CDC-only 枚举；ZMK `Fn+Del`；上电前按住 `Del` 的常规恢复入口；`VDDHDIV5` 与万用表比对；低电量回差；四灯数据顺序；所有 LED 状态和 USB 提示。矩阵 GPIO 与 RC 映射已记录在 [`pinmap.md`](pinmap.md) 和 [`matrix-layout.md`](matrix-layout.md)，但上述矩阵行为尚未完成实板确认。
 
 **实现影响：** Bootloader、ZMK board 与 bring-up 记录必须覆盖每一项；任一项失败时，不得将对应路径标记为已验证。
 

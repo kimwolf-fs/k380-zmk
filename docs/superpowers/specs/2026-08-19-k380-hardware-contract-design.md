@@ -65,7 +65,7 @@
 | USB | USB-C；CC1/CC2 分别经 5.1 kOhm 下拉至 GND；VBUS 有保护；D+/D- 有 ESD 保护 |
 | USB 身份 | UF2+CDC：`0x303A:0x1011`；CDC-only：`0x303A:0x1012` |
 | USB 授权 | 项目所有者持有对应 VID/PID 的书面授权；授权文件不提交到仓库 |
-| 恢复 | RESET 测试点、SWDIO/SWCLK/RESET/GND/VTref 测试点；无用户 RESET 按键 |
+| 恢复 | RESET 测试点、SWDIO/SWCLK/RESET/GND/VTref 测试点；无用户 RESET 按键，常规恢复入口由上电前按住 `Del` 触发；ZMK 运行时通过 `Fn+Del` 进入 UF2 |
 | WS2812B | 4 颗串联；P0.13 经 SN74LVC1T45 驱动第 1 颗 DIN |
 | WS2812B 电平转换 | VCCA 接 nRF VDD；VCCB 接 VDDH；DIR 固定接 VCCA，方向固定 A 到 B |
 | 电池测量 | 内部 `VDDHDIV5`；仅 USB 未插入时解释为电池电压 |
@@ -156,7 +156,7 @@ REG0 保持 LDO，2.7 V UICR 只由 Bootloader/SWD 首次刷写配置。Flash �
   仅在未来实现两种 board 后，新增对应构建任务作为后续门禁。
 - SWD 能够首次烧入、擦除和救砖。
 - USB-C 能枚举 UF2+CDC 和 CDC-only 两种描述符。
-- ZMK 的 `&bootloader` 能进入 UF2；RESET 测试点双击也能进入 UF2。
+- ZMK 的 `Fn+Del`（`&bootloader` 绑定）能进入 UF2；常规恢复入口由上电前按住 `Del` 触发。
 - 电池模式下测量 `VDDHDIV5` 与万用表的 VDDH 一致。
 - WS2812B 四灯串行数据、方向、电平转换、固定 LED 功能映射和互斥蓝牙灯状态正确。
 - LED4 的 USB 接入、低电量阈值及恢复回差、Bootloader 和 UF2 状态灯效正确。

@@ -27,7 +27,7 @@
 本阶段不包括：
 
 - `zmk,matrix-transform`。
-- 默认 keymap、用户 keymap 或 K380 物理布局映射。
+- 用户 keymap 或额外的 K380 物理布局映射。board 级最小 keymap 允许存在，仅消费布局顺序和 `Fn+Del` 入口。
 - WS2812B、LED 状态机、电池采样、低电量策略或 USB 提示。
 - 向 Bootloader 仓库添加或修改代码。
 - SWD、UF2、USB 或任何实板刷写操作。
@@ -84,7 +84,8 @@ boot-mode retention 和 `&reg1` DC/DC 配置，并新增以下逻辑：
 `CONFIG_ZMK_KSCAN_MATRIX_POLLING=y`，只为了避免对不存在的 CI GPIO 中断模型作出假设。
 
 `pinmap.md` 仍是 GPIO 的唯一来源，`matrix-layout.md` 仍是物理按键到逻辑 `(row, column)`
-的唯一来源。两者都不在本阶段复制到 keymap 或 matrix transform。
+的唯一来源。board 级最小 keymap 只消费布局顺序和 `Fn+Del` 入口，不复制 RC 细节到
+keymap 或 matrix transform。
 
 ## 构建夹具与 CI
 
@@ -102,7 +103,7 @@ K380 CI 的 `board-build` 验证扩展为：
 4. board DTS 没有第二个 K380 矩阵实例，也没有测试夹具虚拟 GPIO。
 5. 既有五个 Flash 分区、`zephyr,code-partition`、UF2/HEX 地址范围和 `&reg1` DC/DC 检查
    继续通过。
-6. board DTS 仍不含 matrix transform、默认 keymap、LED/WS2812、电池节点或 REG0 DC/DC
+6. board DTS 仍不含 matrix transform、LED/WS2812、电池节点或 REG0 DC/DC
    配置。
 
 远程 `K380 CI / board-build` 是本阶段唯一的完整构建证据。当前本地环境缺少 `west` 和
@@ -122,11 +123,11 @@ Docker，因此不能将本地静态检查描述为完整的 Zephyr 构建验证
 
 开始这部分工作前必须具备 K380 实板、可用的 SWD 或已验证的 UF2 进入路径，以及能观察或记录
 矩阵坐标的诊断固件。若发现 GPIO 或物理坐标错误，先更新唯一来源文档，再创建独立的修正设计；
-不得通过调整默认 keymap 掩盖硬件错误。
+不得通过调整 board keymap 掩盖硬件错误。
 
 ## 成功标准
 
 - `k380/nrf52840/zmk` 使用真实 K380 GPIO 实例化专用扫描驱动，并在远程 CI 中通过构建。
 - CI 能阻止行列数量、顺序、GPIO 控制器、引脚、flags、chosen 目标或 Flash/DC-DC 契约回归。
-- 生产 board 不包含虚拟矩阵、matrix transform、默认 keymap、LED 或电池功能。
+- 生产 board 不包含虚拟矩阵、matrix transform、LED 或电池功能；board 级最小 keymap 仅用于 `Fn+Del` 入口和布局绑定。
 - 实板矩阵验证在文档和实施计划中明确保留为延期未完成验收项。
