@@ -12,20 +12,21 @@
 
 ## 文件结构与职责
 
-| 文件 | 职责 |
-| --- | --- |
-| `app/boards/kimwolf/k380/k380_nrf52840_zmk.dts` | 添加真实 K380 kscan 节点和 `zmk,kscan` chosen，保留分区、UF2 retention 和 REG1 DC/DC。 |
-| `zmk-keyboard-k380/tests/board-build/k380-board.overlay` | 只提供 CI 构建所需的测试 keymap，不再伪造矩阵 GPIO。 |
-| `zmk-keyboard-k380/tests/board-build/k380-board.conf` | 保持 CI 的断言和轮询配置，避免 CI 对真实 GPIO 中断作硬件假设。 |
-| `.github/workflows/k380-ci.yml` | 在 board-build 中验证真实矩阵源 DTS 与生成 DTS，并继续验证 HEX/UF2 分区范围。 |
-| `docs/superpowers/specs/2026-08-21-k380-real-matrix-integration-design.md` | 已批准的设计和范围边界，实施中不得扩大。 |
-| `docs/superpowers/plans/2026-08-21-k380-real-matrix-integration.md` | 本实施清单；实板验证任务必须保持未勾选，直到具备硬件并完成记录。 |
-| `docs/k380/pinmap.md` | 真实 GPIO 唯一来源，只读使用，不在本阶段改写。 |
-| `docs/k380/matrix-layout.md` | 物理键到 RC 坐标唯一来源，只读使用；board keymap 仅消费布局顺序，不复制 RC 细节。 |
+| 文件                                                                       | 职责                                                                                   |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `app/boards/kimwolf/k380/k380_nrf52840_zmk.dts`                            | 添加真实 K380 kscan 节点和 `zmk,kscan` chosen，保留分区、UF2 retention 和 REG1 DC/DC。 |
+| `zmk-keyboard-k380/tests/board-build/k380-board.overlay`                   | 只提供 CI 构建所需的测试 keymap，不再伪造矩阵 GPIO。                                   |
+| `zmk-keyboard-k380/tests/board-build/k380-board.conf`                      | 保持 CI 的断言和轮询配置，避免 CI 对真实 GPIO 中断作硬件假设。                         |
+| `.github/workflows/k380-ci.yml`                                            | 在 board-build 中验证真实矩阵源 DTS 与生成 DTS，并继续验证 HEX/UF2 分区范围。          |
+| `docs/superpowers/specs/2026-08-21-k380-real-matrix-integration-design.md` | 已批准的设计和范围边界，实施中不得扩大。                                               |
+| `docs/superpowers/plans/2026-08-21-k380-real-matrix-integration.md`        | 本实施清单；实板验证任务必须保持未勾选，直到具备硬件并完成记录。                       |
+| `docs/k380/pinmap.md`                                                      | 真实 GPIO 唯一来源，只读使用，不在本阶段改写。                                         |
+| `docs/k380/matrix-layout.md`                                               | 物理键到 RC 坐标唯一来源，只读使用；board keymap 仅消费布局顺序，不复制 RC 细节。      |
 
 ## Task 1: 先建立真实矩阵的 CI 失败门禁
 
 **Files:**
+
 - Modify: `.github/workflows/k380-ci.yml`
 - Modify: `zmk-keyboard-k380/tests/board-build/k380-board.overlay`
 - Modify: `docs/superpowers/plans/2026-08-21-k380-real-matrix-integration.md`
@@ -131,6 +132,7 @@ Expected result: one commit is created; no board DTS implementation is included 
 ## Task 2: Add the real K380 matrix node
 
 **Files:**
+
 - Modify: `app/boards/kimwolf/k380/k380_nrf52840_zmk.dts`
 - Modify: `zmk-keyboard-k380/tests/board-build/k380-board.conf`
 - Test: Task 1 static gate and remote `K380 CI / board-build`
@@ -253,6 +255,7 @@ Evidence: `K380 CI` run `32458066955` completed with all five jobs successful.
 ## Task 3: Record deferred hardware verification without marking it complete
 
 **Files:**
+
 - Modify: `docs/superpowers/plans/2026-08-21-k380-real-matrix-integration.md`
 - Modify: `docs/k380/hardware-contract.md`
 - Test: document consistency and unchecked deferred-task audit
@@ -309,6 +312,7 @@ git commit -m "docs(k380): 保留矩阵实板验证任务"
 ## Task 4: Final verification and handoff
 
 **Files:**
+
 - Test: merged feature branch
 - No new implementation files
 

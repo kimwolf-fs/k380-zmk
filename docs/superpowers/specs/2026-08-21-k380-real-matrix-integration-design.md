@@ -52,31 +52,31 @@ boot-mode retention 和 `&reg1` DC/DC 配置，并新增以下逻辑：
 
 行与列严格采用以下分配，不得从 CI 夹具、驱动源码或物理按键布局推断或替换：
 
-| 信号 | GPIO | Devicetree flags |
-| --- | --- | --- |
-| R0 | P1.09 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R1 | P0.26 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R2 | P0.06 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R3 | P0.08 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R4 | P0.04 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R5 | P0.12 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R6 | P0.07 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R7 | P0.15 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| C0 | P0.05 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C1 | P0.17 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C2 | P0.20 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C3 | P0.22 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C4 | P1.02 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C5 | P1.04 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C6 | P1.06 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C7 | P0.31 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C8 | P0.29 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C9 | P0.02 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C10 | P1.13 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C11 | P0.28 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C12 | P0.03 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C13 | P1.10 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C14 | P1.11 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
+| 信号 | GPIO  | Devicetree flags                                      |
+| ---- | ----- | ----------------------------------------------------- |
+| R0   | P1.09 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R1   | P0.26 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R2   | P0.06 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R3   | P0.08 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R4   | P0.04 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R5   | P0.12 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R6   | P0.07 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R7   | P0.15 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| C0   | P0.05 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C1   | P0.17 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C2   | P0.20 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C3   | P0.22 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C4   | P1.02 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C5   | P1.04 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C6   | P1.06 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C7   | P0.31 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C8   | P0.29 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C9   | P0.02 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C10  | P1.13 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C11  | P0.28 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C12  | P0.03 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C13  | P1.10 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C14  | P1.11 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
 
 实例设置 `debounce-press-ms = <5>`、`debounce-release-ms = <5>`、
 `debounce-scan-period-ms = <1>` 和 `poll-period-ms = <10>`，与 K380 binding 的既有

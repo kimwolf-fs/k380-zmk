@@ -60,6 +60,7 @@ app/boards/
 ### Task 1: 建立 GitHub Actions 验证入口和会失败的编译夹具
 
 **文件：**
+
 - 创建：`.github/workflows/k380-ci.yml`
 - 创建：`zmk-keyboard-k380/tests/driver-build/k380-driver.conf`
 - 创建：`zmk-keyboard-k380/tests/driver-build/k380-driver.overlay`
@@ -288,6 +289,7 @@ git push --set-upstream origin feat/k380-no-diode-matrix-driver
 ### Task 2: 注册独立 module、Kconfig 和 devicetree binding
 
 **文件：**
+
 - 创建：`zmk-keyboard-k380/zephyr/module.yml`
 - 创建：`zmk-keyboard-k380/Kconfig`
 - 创建：`zmk-keyboard-k380/CMakeLists.txt`
@@ -415,6 +417,7 @@ git push
 ### Task 3: 受控派生矩阵驱动并在 debounce 前过滤完整扫描帧
 
 **文件：**
+
 - 创建：`zmk-keyboard-k380/drivers/kscan/kscan_k380_no_diode_matrix.c`
 - 依赖：`zmk-keyboard-k380/src/ghost_filter.c`
 - 依赖：`zmk-keyboard-k380/include/zmk_keyboard_k380/ghost_filter.h`
@@ -656,11 +659,11 @@ GPIO 就绪检查、GPIO 配置、工作队列和 PM suspend/resume 路径；只
 步骤后加入：
 
 ```yaml
-      - run: |
-          grep -q '^CONFIG_K380_KSCAN_NO_DIODE_MATRIX=y$' \
-            build/k380-driver/zephyr/.config
-          find build/k380-driver -name 'kscan_k380_no_diode_matrix.c.obj' \
-            -print -quit | grep -q .
+- run: |
+    grep -q '^CONFIG_K380_KSCAN_NO_DIODE_MATRIX=y$' \
+      build/k380-driver/zephyr/.config
+    find build/k380-driver -name 'kscan_k380_no_diode_matrix.c.obj' \
+      -print -quit | grep -q .
 ```
 
 - [x] **步骤 7：提交驱动和 CI 断言并确认 K380 CI 全部通过**
@@ -677,6 +680,7 @@ git push
 ### Task 4: 回归、隔离验证与阶段记录
 
 **文件：**
+
 - 修改：`docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md`
 - 测试：`zmk-keyboard-k380/tests/ghost-filter/`
 - 测试：`zmk-keyboard-k380/tests/driver-build/`

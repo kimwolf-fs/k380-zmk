@@ -77,6 +77,7 @@ docs/superpowers/specs/2026-08-20-k380-flash-partitions-design.md
 ### Task 1: 添加会失败的 K380 board 构建夹具和 CI 门禁
 
 **Files:**
+
 - Create: `zmk-keyboard-k380/tests/board-build/k380-board.conf`
 - Create: `zmk-keyboard-k380/tests/board-build/k380-board.overlay`
 - Modify: `.github/workflows/k380-ci.yml`
@@ -157,10 +158,10 @@ CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
 在 `.github/workflows/k380-ci.yml` 的 `push.paths` 与 `pull_request.paths` 各加入：
 
 ```yaml
-      - "app/boards/kimwolf/k380/**"
-      - "zmk-keyboard-k380/tests/board-build/**"
-      - "docs/superpowers/specs/2026-08-20-k380-flash-partitions-design.md"
-      - "docs/superpowers/plans/2026-08-20-k380-flash-partitions.md"
+- "app/boards/kimwolf/k380/**"
+- "zmk-keyboard-k380/tests/board-build/**"
+- "docs/superpowers/specs/2026-08-20-k380-flash-partitions-design.md"
+- "docs/superpowers/plans/2026-08-20-k380-flash-partitions.md"
 ```
 
 - [x] **Step 4: 添加 board-build job，使缺失 board 时构建失败**
@@ -168,162 +169,162 @@ CONFIG_ZMK_KSCAN_MATRIX_POLLING=y
 在 `driver-build` job 后加入下列 job。它复用当前 K380 CI 的容器、缓存和 module 注册门禁：
 
 ```yaml
-  board-build:
-    needs: module-metadata
-    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
-    runs-on: ubuntu-latest
-    container:
-      image: docker.io/zmkfirmware/zmk-build-arm:4.1
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/cache@v6
-        continue-on-error: true
-        with:
-          path: |
-            modules/
-            tools/
-            zephyr/
-            bootloader/
-          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-k380-
-      - run: west init -l app
-      - run: west update --fetch-opt=--filter=tree:0
-      - run: west zephyr-export
-      - name: Build minimal K380 board fixture
-        run: |
-          west build -s app -d build/k380-board -p always -b k380/nrf52840/zmk -- \
-            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
-            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/board-build/k380-board.conf" \
-            -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/board-build/k380-board.overlay"
-      - name: Validate K380 board contract
-        run: |
-          python3 - <<'PY'
-          import re
-          import struct
-          from pathlib import Path
+board-build:
+  needs: module-metadata
+  if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+  runs-on: ubuntu-latest
+  container:
+    image: docker.io/zmkfirmware/zmk-build-arm:4.1
+  steps:
+    - uses: actions/checkout@v7
+    - uses: actions/cache@v6
+      continue-on-error: true
+      with:
+        path: |
+          modules/
+          tools/
+          zephyr/
+          bootloader/
+        key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-k380-
+    - run: west init -l app
+    - run: west update --fetch-opt=--filter=tree:0
+    - run: west zephyr-export
+    - name: Build minimal K380 board fixture
+      run: |
+        west build -s app -d build/k380-board -p always -b k380/nrf52840/zmk -- \
+          -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
+          -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/board-build/k380-board.conf" \
+          -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/board-build/k380-board.overlay"
+    - name: Validate K380 board contract
+      run: |
+        python3 - <<'PY'
+        import re
+        import struct
+        from pathlib import Path
 
-          source = Path("app/boards/kimwolf/k380/k380_nrf52840_zmk.dts").read_text(
-              encoding="utf-8"
-          )
-          generated = Path("build/k380-board/zephyr/zephyr.dts").read_text(
-              encoding="utf-8"
-          )
-          normalized_source = re.sub(r"\s+", "", source)
+        source = Path("app/boards/kimwolf/k380/k380_nrf52840_zmk.dts").read_text(
+            encoding="utf-8"
+        )
+        generated = Path("build/k380-board/zephyr/zephyr.dts").read_text(
+            encoding="utf-8"
+        )
+        normalized_source = re.sub(r"\s+", "", source)
 
-          required_source = (
-              "#include<nordic/nrf52840_qiaa.dtsi>",
-              "#include<common/nordic/nrf52840_uf2_boot_mode.dtsi>",
-              "regulator-initial-mode=<NRF5X_REG_MODE_DCDC>;",
-              "zephyr,code-partition=&code_partition;",
-          )
-          for fragment in required_source:
-              assert fragment in normalized_source, fragment
+        required_source = (
+            "#include<nordic/nrf52840_qiaa.dtsi>",
+            "#include<common/nordic/nrf52840_uf2_boot_mode.dtsi>",
+            "regulator-initial-mode=<NRF5X_REG_MODE_DCDC>;",
+            "zephyr,code-partition=&code_partition;",
+        )
+        for fragment in required_source:
+            assert fragment in normalized_source, fragment
 
-          forbidden_source = (
-              "zmk,kscan",
-              "zmk,matrix-transform",
-              "zmk,battery",
-              "ws2812",
-              "led-strip",
-              "reg0{regulator-initial-mode=<NRF5X_REG_MODE_DCDC>;",
-          )
-          for fragment in forbidden_source:
-              assert fragment not in normalized_source, fragment
+        forbidden_source = (
+            "zmk,kscan",
+            "zmk,matrix-transform",
+            "zmk,battery",
+            "ws2812",
+            "led-strip",
+            "reg0{regulator-initial-mode=<NRF5X_REG_MODE_DCDC>;",
+        )
+        for fragment in forbidden_source:
+            assert fragment not in normalized_source, fragment
 
-          expected_partitions = {
-              "0": (0x00000000, 0x00026000, True, "MBR and S140"),
-              "26000": (0x00026000, 0x000A4000, False, "code"),
-              "ca000": (0x000CA000, 0x00020000, False, "storage"),
-              "ea000": (0x000EA000, 0x0000A000, True, "DFU data"),
-              "f4000": (0x000F4000, 0x0000C000, True, "bootloader"),
-          }
+        expected_partitions = {
+            "0": (0x00000000, 0x00026000, True, "MBR and S140"),
+            "26000": (0x00026000, 0x000A4000, False, "code"),
+            "ca000": (0x000CA000, 0x00020000, False, "storage"),
+            "ea000": (0x000EA000, 0x0000A000, True, "DFU data"),
+            "f4000": (0x000F4000, 0x0000C000, True, "bootloader"),
+        }
 
-          def parse_partitions(dts):
-              parsed = {}
-              for match in re.finditer(
-                  r"partition@(?P<address>[0-9a-fA-F]+)\s*\{(?P<body>.*?)\n\s*\};",
-                  dts,
-                  re.DOTALL,
-              ):
-                  reg = re.search(
-                      r"reg\s*=\s*<\s*(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s*>;",
-                      match.group("body"),
-                  )
-                  assert reg, match.group("address")
-                  parsed[f"{int(match.group('address'), 16):x}"] = (
-                      int(reg.group(1), 0),
-                      int(reg.group(2), 0),
-                      "read-only;" in match.group("body"),
-                  )
-              return parsed
+        def parse_partitions(dts):
+            parsed = {}
+            for match in re.finditer(
+                r"partition@(?P<address>[0-9a-fA-F]+)\s*\{(?P<body>.*?)\n\s*\};",
+                dts,
+                re.DOTALL,
+            ):
+                reg = re.search(
+                    r"reg\s*=\s*<\s*(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s*>;",
+                    match.group("body"),
+                )
+                assert reg, match.group("address")
+                parsed[f"{int(match.group('address'), 16):x}"] = (
+                    int(reg.group(1), 0),
+                    int(reg.group(2), 0),
+                    "read-only;" in match.group("body"),
+                )
+            return parsed
 
-          for dts, name in ((source, "source"), (generated, "generated")):
-              actual_partitions = parse_partitions(dts)
-              for address, expected in expected_partitions.items():
-                  expected_start, expected_size, expected_read_only, label = expected
-                  actual = actual_partitions.get(address)
-                  assert actual == (
-                      expected_start,
-                      expected_size,
-                      expected_read_only,
-                  ), (name, label, actual)
+        for dts, name in ((source, "source"), (generated, "generated")):
+            actual_partitions = parse_partitions(dts)
+            for address, expected in expected_partitions.items():
+                expected_start, expected_size, expected_read_only, label = expected
+                actual = actual_partitions.get(address)
+                assert actual == (
+                    expected_start,
+                    expected_size,
+                    expected_read_only,
+                ), (name, label, actual)
 
-          code_start = 0x00026000
-          code_end = 0x000CA000
+        code_start = 0x00026000
+        code_end = 0x000CA000
 
-          def internal_flash_ranges(hex_path):
-              upper = 0
-              ranges = []
-              for line in hex_path.read_text(encoding="ascii").splitlines():
-                  assert line.startswith(":"), line
-                  count = int(line[1:3], 16)
-                  address = int(line[3:7], 16)
-                  record_type = int(line[7:9], 16)
-                  data = bytes.fromhex(line[9 : 9 + count * 2])
-                  if record_type == 4:
-                      upper = int.from_bytes(data, "big") << 16
-                  elif record_type == 0:
-                      start = upper + address
-                      end = start + count
-                      if start < 0x00100000:
-                          ranges.append((start, end))
-              return ranges
+        def internal_flash_ranges(hex_path):
+            upper = 0
+            ranges = []
+            for line in hex_path.read_text(encoding="ascii").splitlines():
+                assert line.startswith(":"), line
+                count = int(line[1:3], 16)
+                address = int(line[3:7], 16)
+                record_type = int(line[7:9], 16)
+                data = bytes.fromhex(line[9 : 9 + count * 2])
+                if record_type == 4:
+                    upper = int.from_bytes(data, "big") << 16
+                elif record_type == 0:
+                    start = upper + address
+                    end = start + count
+                    if start < 0x00100000:
+                        ranges.append((start, end))
+            return ranges
 
-          hex_ranges = internal_flash_ranges(Path("build/k380-board/zephyr/zephyr.hex"))
-          assert hex_ranges
-          for start, end in hex_ranges:
-              assert code_start <= start < end <= code_end, (hex(start), hex(end))
+        hex_ranges = internal_flash_ranges(Path("build/k380-board/zephyr/zephyr.hex"))
+        assert hex_ranges
+        for start, end in hex_ranges:
+            assert code_start <= start < end <= code_end, (hex(start), hex(end))
 
-          uf2 = Path("build/k380-board/zephyr/zephyr.uf2").read_bytes()
-          assert len(uf2) % 512 == 0
-          uf2_ranges = []
-          for offset in range(0, len(uf2), 512):
-              block = uf2[offset : offset + 512]
-              magic0, magic1, _flags, target, payload_size = struct.unpack_from(
-                  "<IIIII", block
-              )
-              assert (magic0, magic1) == (0x0A324655, 0x9E5D5157)
-              if target < 0x00100000:
-                  uf2_ranges.append((target, target + payload_size))
-          assert uf2_ranges
-          for start, end in uf2_ranges:
-              assert code_start <= start < end <= code_end, (hex(start), hex(end))
-          PY
-      - if: failure()
-        run: |
-          find build/k380-board -type f -name '*.log' -print -exec tail -n 200 {} \;
-      - if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: k380-board-build-output
-          path: |
-            build/k380-board/**/*.log
-            build/k380-board/**/zephyr/.config
-            build/k380-board/**/zephyr/zephyr.dts
-            build/k380-board/**/zephyr/zephyr.hex
-            build/k380-board/**/zephyr/zephyr.uf2
-          if-no-files-found: ignore
+        uf2 = Path("build/k380-board/zephyr/zephyr.uf2").read_bytes()
+        assert len(uf2) % 512 == 0
+        uf2_ranges = []
+        for offset in range(0, len(uf2), 512):
+            block = uf2[offset : offset + 512]
+            magic0, magic1, _flags, target, payload_size = struct.unpack_from(
+                "<IIIII", block
+            )
+            assert (magic0, magic1) == (0x0A324655, 0x9E5D5157)
+            if target < 0x00100000:
+                uf2_ranges.append((target, target + payload_size))
+        assert uf2_ranges
+        for start, end in uf2_ranges:
+            assert code_start <= start < end <= code_end, (hex(start), hex(end))
+        PY
+    - if: failure()
+      run: |
+        find build/k380-board -type f -name '*.log' -print -exec tail -n 200 {} \;
+    - if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: k380-board-build-output
+        path: |
+          build/k380-board/**/*.log
+          build/k380-board/**/zephyr/.config
+          build/k380-board/**/zephyr/zephyr.dts
+          build/k380-board/**/zephyr/zephyr.hex
+          build/k380-board/**/zephyr/zephyr.uf2
+        if-no-files-found: ignore
 ```
 
 `expected_partitions` 的字符串比较需要先以 `re.sub(r"\s+", "", text)` 规整源 DTS 和
@@ -347,6 +348,7 @@ git push -u origin feat/k380-flash-partitions
 ### Task 2: 创建最小 K380 board，使分区构建通过
 
 **Files:**
+
 - Create: `app/boards/kimwolf/k380/board.yml`
 - Create: `app/boards/kimwolf/k380/Kconfig.k380`
 - Create: `app/boards/kimwolf/k380/k380_nrf52840_zmk.dts`
@@ -490,6 +492,7 @@ HEX 段和 UF2 block 都没有进入 `0x00000000..0x00026000`、
 ### Task 3: 记录 Bootloader 证据并完成分区阶段文档
 
 **Files:**
+
 - Modify: `docs/k380/hardware-contract.md`
 - Modify: `docs/superpowers/specs/2026-08-20-k380-flash-partitions-design.md`
 - Modify: `docs/superpowers/plans/2026-08-20-k380-flash-partitions.md`

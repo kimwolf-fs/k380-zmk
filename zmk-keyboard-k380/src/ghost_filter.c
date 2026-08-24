@@ -4,9 +4,7 @@
 
 #include <zmk_keyboard_k380/ghost_filter.h>
 
-static bool has_at_least_two_bits(uint16_t value) {
-    return (value & (uint16_t)(value - 1U)) != 0U;
-}
+static bool has_at_least_two_bits(uint16_t value) { return (value & (uint16_t)(value - 1U)) != 0U; }
 
 void k380_ghost_filter_apply(const uint16_t raw[K380_GHOST_FILTER_ROWS],
                              const uint16_t accepted[K380_GHOST_FILTER_ROWS],

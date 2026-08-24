@@ -40,6 +40,7 @@ zmk/app/boards/
 ### Task 1: 编写过滤器失败测试
 
 **文件：**
+
 - 创建：`zmk-keyboard-k380/tests/ghost-filter/CMakeLists.txt`
 - 创建：`zmk-keyboard-k380/tests/ghost-filter/prj.conf`
 - 创建：`zmk-keyboard-k380/tests/ghost-filter/testcase.yaml`
@@ -179,6 +180,7 @@ git commit -m "test(k380): 添加矩形歧义过滤器测试"
 ### Task 2: 实现纯矩阵过滤器
 
 **文件：**
+
 - 创建：`zmk-keyboard-k380/include/zmk_keyboard_k380/ghost_filter.h`
 - 创建：`zmk-keyboard-k380/src/ghost_filter.c`
 - 测试：`zmk-keyboard-k380/tests/ghost-filter/src/main.c`
@@ -268,6 +270,7 @@ git commit -m "feat(k380): 添加矩形歧义过滤器"
 ### Task 3: 验证第一阶段隔离性
 
 **文件：**
+
 - 修改：无
 - 测试：`zmk-keyboard-k380/tests/ghost-filter/`
 
@@ -304,6 +307,7 @@ git -C E:/project/k380-keyboard/zmk status --short
 ```
 
 预期：仅显示用户已有的无关变更；本验证任务不修改 ZMK 树内文件，因此不创建提交。
+
 ## 计划自检
 
 - 规格覆盖：本计划覆盖策略 2 的原始帧输入、矩形识别、已确认按键保持、新按键抑制、释放传播、列边界和 `native_sim` 回归测试。

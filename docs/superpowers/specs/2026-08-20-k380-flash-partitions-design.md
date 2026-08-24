@@ -72,13 +72,13 @@ Bootloader 所需的 retention magic；本阶段不定义调用该行为的 keym
 `k380_nrf52840_zmk.dts` 在 `&flash0` 定义连续且完整的 1 MiB `fixed-partitions`。保留分区
 标记为只读，只有代码和 Settings 存储分区可由应用使用。
 
-| 分区 | 起始 | 长度 | 结束 | 用途 |
-| --- | --- | --- | --- | --- |
-| `mbr_softdevice_partition` | `0x00000000` | `0x00026000` | `0x00026000` | MBR 与 S140 6.1.1，保留 |
-| `code_partition` | `0x00026000` | `0x000A4000` | `0x000CA000` | ZMK 可执行代码 |
-| `storage_partition` | `0x000CA000` | `0x00020000` | `0x000EA000` | ZMK NVS/Settings |
-| `dfu_app_data_partition` | `0x000EA000` | `0x0000A000` | `0x000F4000` | Adafruit DFU/UF2 排除的应用保存数据保留区 |
-| `boot_partition` | `0x000F4000` | `0x0000C000` | `0x00100000` | Bootloader、配置、MBR 参数与 settings 页，保留 |
+| 分区                       | 起始         | 长度         | 结束         | 用途                                           |
+| -------------------------- | ------------ | ------------ | ------------ | ---------------------------------------------- |
+| `mbr_softdevice_partition` | `0x00000000` | `0x00026000` | `0x00026000` | MBR 与 S140 6.1.1，保留                        |
+| `code_partition`           | `0x00026000` | `0x000A4000` | `0x000CA000` | ZMK 可执行代码                                 |
+| `storage_partition`        | `0x000CA000` | `0x00020000` | `0x000EA000` | ZMK NVS/Settings                               |
+| `dfu_app_data_partition`   | `0x000EA000` | `0x0000A000` | `0x000F4000` | Adafruit DFU/UF2 排除的应用保存数据保留区      |
+| `boot_partition`           | `0x000F4000` | `0x0000C000` | `0x00100000` | Bootloader、配置、MBR 参数与 settings 页，保留 |
 
 `dfu_app_data_partition` 是 Adafruit DFU/UF2 排除的应用保存数据保留区，项目将其标记为只读并
 留空、不分配给 ZMK Settings，且它不属于 Bootloader 自身。

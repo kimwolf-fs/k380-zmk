@@ -13,15 +13,15 @@
 
 ## 硬件与矩阵约束
 
-| 属性 | 值 |
-| --- | --- |
-| Board | K380 |
-| SoC | nRF52840-QIAA |
-| 矩阵 | 8 行 x 15 列 |
-| 二极管 | 无 |
-| 扫描方向 | row2col |
-| 行模式 | 高电平有效、开源输出 |
-| 列模式 | 高电平有效、下拉输入 |
+| 属性     | 值                   |
+| -------- | -------------------- |
+| Board    | K380                 |
+| SoC      | nRF52840-QIAA        |
+| 矩阵     | 8 行 x 15 列         |
+| 二极管   | 无                   |
+| 扫描方向 | row2col              |
+| 行模式   | 高电平有效、开源输出 |
+| 列模式   | 高电平有效、下拉输入 |
 
 `R0` 至 `R7` 和 `C0` 至 `C14` 是 K380 扫描器使用的逻辑矩阵坐标。它们描述
 矩阵网络与 SoC GPIO 的连接，不描述 Esc、字母键或功能键等物理按键的位置。
@@ -30,31 +30,31 @@
 
 ## 矩阵 GPIO
 
-| 信号 | GPIO | 方向 | Devicetree flags |
-| --- | --- | --- | --- |
-| R0 | P1.09 | 输出 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R1 | P0.26 | 输出 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R2 | P0.06 | 输出 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R3 | P0.08 | 输出 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R4 | P0.04 | 输出 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R5 | P0.12 | 输出 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R6 | P0.07 | 输出 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| R7 | P0.15 | 输出 | `GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE` |
-| C0 | P0.05 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C1 | P0.17 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C2 | P0.20 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C3 | P0.22 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C4 | P1.02 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C5 | P1.04 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C6 | P1.06 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C7 | P0.31 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C8 | P0.29 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C9 | P0.02 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C10 | P1.13 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C11 | P0.28 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C12 | P0.03 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C13 | P1.10 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
-| C14 | P1.11 | 输入 | `GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN` |
+| 信号 | GPIO  | 方向 | Devicetree flags                                      |
+| ---- | ----- | ---- | ----------------------------------------------------- |
+| R0   | P1.09 | 输出 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R1   | P0.26 | 输出 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R2   | P0.06 | 输出 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R3   | P0.08 | 输出 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R4   | P0.04 | 输出 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R5   | P0.12 | 输出 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R6   | P0.07 | 输出 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| R7   | P0.15 | 输出 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_OPEN_SOURCE</code> |
+| C0   | P0.05 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C1   | P0.17 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C2   | P0.20 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C3   | P0.22 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C4   | P1.02 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C5   | P1.04 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C6   | P1.06 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C7   | P0.31 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C8   | P0.29 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C9   | P0.02 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C10  | P1.13 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C11  | P0.28 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C12  | P0.03 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C13  | P1.10 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
+| C14  | P1.11 | 输入 | <code>GPIO_ACTIVE_HIGH &#124; GPIO_PULL_DOWN</code>   |
 
 ## 配置边界
 

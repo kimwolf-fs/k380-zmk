@@ -13,6 +13,7 @@
 ### Task 1: Make Contract Failures Observable
 
 **Files:**
+
 - Modify: `.github/workflows/k380-ci.yml`
 - Test: inline Python smoke fixture executed with `python3`
 
@@ -41,6 +42,7 @@ Expected: the diagnostic fixture prints the required heading and assertion messa
 ### Task 2: Publish Failure Evidence as Check-Run Annotations
 
 **Files:**
+
 - Modify: `.github/workflows/k380-ci.yml`
 - Test: inline Python fixtures executed with `python3` and extracted validator shell executed with `bash`
 
@@ -67,6 +69,7 @@ Push the workflow change, wait for `K380 CI`, retrieve the check-run annotations
 ### Task 3: Correct Zephyr GPIO Flag Contract
 
 **Files:**
+
 - Modify: `.github/workflows/k380-ci.yml`
 - Test: inline Python fixture executing the embedded contract validator
 

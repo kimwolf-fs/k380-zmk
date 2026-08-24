@@ -57,8 +57,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define COND_INTERRUPTS(code) COND_CODE_1(CONFIG_ZMK_KSCAN_MATRIX_POLLING, (), code)
 
 #define K380_KSCAN_GPIO_GET_BY_IDX(node_id, prop, idx)                                             \
-    ((struct k380_kscan_gpio){                                                                      \
-        .spec = GPIO_DT_SPEC_GET_BY_IDX(node_id, prop, idx), .index = idx})
+    ((struct k380_kscan_gpio){.spec = GPIO_DT_SPEC_GET_BY_IDX(node_id, prop, idx), .index = idx})
 #define K380_KSCAN_GPIO_LIST(gpio_array)                                                           \
     ((struct k380_kscan_gpio_list){.gpios = gpio_array, .len = ARRAY_SIZE(gpio_array)})
 #define K380_KSCAN_ROW_CFG_INIT(idx, inst_idx)                                                     \
@@ -117,7 +116,7 @@ static void k380_kscan_sort_inputs(struct k380_kscan_gpio_list *inputs) {
 }
 
 static int k380_kscan_pin_get(const struct k380_kscan_gpio *gpio,
-                               struct k380_kscan_gpio_port_state *state) {
+                              struct k380_kscan_gpio_port_state *state) {
     if (gpio->spec.port != state->port) {
         state->port = gpio->spec.port;
         const int err = gpio_port_get(state->port, &state->value);
@@ -183,7 +182,7 @@ static int k380_kscan_interrupt_disable(const struct device *dev) {
 }
 
 static void k380_kscan_irq_callback_handler(const struct device *port, struct gpio_callback *cb,
-                                             const gpio_port_pins_t pin) {
+                                            const gpio_port_pins_t pin) {
     struct k380_kscan_irq_callback *irq_data =
         CONTAINER_OF(cb, struct k380_kscan_irq_callback, callback);
     struct k380_kscan_data *data = irq_data->dev->data;
@@ -265,8 +264,7 @@ static int k380_kscan_read(const struct device *dev) {
 
     for (int row = 0; row < K380_KSCAN_ROWS; row++) {
         for (int col = 0; col < K380_KSCAN_COLS; col++) {
-            const struct zmk_debounce_state *state =
-                &data->matrix_state[state_index_rc(row, col)];
+            const struct zmk_debounce_state *state = &data->matrix_state[state_index_rc(row, col)];
 
             if (zmk_debounce_is_pressed(state)) {
                 accepted[row] |= BIT(col);
@@ -279,8 +277,8 @@ static int k380_kscan_read(const struct device *dev) {
     for (int row = 0; row < K380_KSCAN_ROWS; row++) {
         for (int col = 0; col < K380_KSCAN_COLS; col++) {
             zmk_debounce_update(&data->matrix_state[state_index_rc(row, col)],
-                                (filtered[row] & BIT(col)) != 0U,
-                                config->debounce_scan_period_ms, &config->debounce_config);
+                                (filtered[row] & BIT(col)) != 0U, config->debounce_scan_period_ms,
+                                &config->debounce_config);
         }
     }
 
@@ -355,7 +353,8 @@ static int k380_kscan_init_input_inst(const struct device *dev,
 
     int err = gpio_pin_configure_dt(&gpio->spec, GPIO_INPUT);
     if (err) {
-        LOG_ERR("Unable to configure pin %u on %s for input", gpio->spec.pin, gpio->spec.port->name);
+        LOG_ERR("Unable to configure pin %u on %s for input", gpio->spec.pin,
+                gpio->spec.port->name);
         return err;
     }
 
@@ -485,31 +484,30 @@ static const struct kscan_driver_api k380_kscan_api = {
     BUILD_ASSERT(DT_INST_PROP_LEN(n, row_gpios) == K380_KSCAN_ROWS,                                \
                  "K380 kscan requires exactly 8 row-gpios");                                       \
     BUILD_ASSERT(DT_INST_PROP_LEN(n, col_gpios) == K380_KSCAN_COLS,                                \
-                 "K380 kscan requires exactly 15 col-gpios");                                     \
+                 "K380 kscan requires exactly 15 col-gpios");                                      \
     BUILD_ASSERT(INST_DEBOUNCE_PRESS_MS(n) <= DEBOUNCE_COUNTER_MAX,                                \
-                 "ZMK_KSCAN_DEBOUNCE_PRESS_MS or debounce-press-ms is too large");                \
+                 "ZMK_KSCAN_DEBOUNCE_PRESS_MS or debounce-press-ms is too large");                 \
     BUILD_ASSERT(INST_DEBOUNCE_RELEASE_MS(n) <= DEBOUNCE_COUNTER_MAX,                              \
-                 "ZMK_KSCAN_DEBOUNCE_RELEASE_MS or debounce-release-ms is too large");            \
+                 "ZMK_KSCAN_DEBOUNCE_RELEASE_MS or debounce-release-ms is too large");             \
     static struct k380_kscan_gpio k380_kscan_rows_##n[] = {                                        \
         LISTIFY(8, K380_KSCAN_ROW_CFG_INIT, (, ), n)};                                             \
     static struct k380_kscan_gpio k380_kscan_cols_##n[] = {                                        \
-        LISTIFY(15, K380_KSCAN_COL_CFG_INIT, (, ), n)};                                           \
-    static struct zmk_debounce_state k380_kscan_state_##n[K380_KSCAN_MATRIX_LEN];                 \
-    COND_INTERRUPTS(                                                                               \
-        (static struct k380_kscan_irq_callback k380_kscan_irqs_##n[K380_KSCAN_COLS];))             \
+        LISTIFY(15, K380_KSCAN_COL_CFG_INIT, (, ), n)};                                            \
+    static struct zmk_debounce_state k380_kscan_state_##n[K380_KSCAN_MATRIX_LEN];                  \
+    COND_INTERRUPTS((static struct k380_kscan_irq_callback k380_kscan_irqs_##n[K380_KSCAN_COLS];)) \
     static struct k380_kscan_data k380_kscan_data_##n = {                                          \
         .inputs = K380_KSCAN_GPIO_LIST(k380_kscan_cols_##n),                                       \
         .matrix_state = k380_kscan_state_##n,                                                      \
         COND_INTERRUPTS((.irqs = k380_kscan_irqs_##n, ))};                                         \
     static const struct k380_kscan_config k380_kscan_config_##n = {                                \
-        .outputs = K380_KSCAN_GPIO_LIST(k380_kscan_rows_##n),                                     \
+        .outputs = K380_KSCAN_GPIO_LIST(k380_kscan_rows_##n),                                      \
         .debounce_config = {.debounce_press_ms = INST_DEBOUNCE_PRESS_MS(n),                        \
                             .debounce_release_ms = INST_DEBOUNCE_RELEASE_MS(n)},                   \
         .debounce_scan_period_ms = DT_INST_PROP(n, debounce_scan_period_ms),                       \
         .poll_period_ms = DT_INST_PROP(n, poll_period_ms)};                                        \
     PM_DEVICE_DT_INST_DEFINE(n, k380_kscan_pm_action);                                             \
     DEVICE_DT_INST_DEFINE(n, &k380_kscan_init, PM_DEVICE_DT_INST_GET(n), &k380_kscan_data_##n,     \
-                          &k380_kscan_config_##n, POST_KERNEL, CONFIG_KSCAN_INIT_PRIORITY,        \
+                          &k380_kscan_config_##n, POST_KERNEL, CONFIG_KSCAN_INIT_PRIORITY,         \
                           &k380_kscan_api);
 
 DT_INST_FOREACH_STATUS_OKAY(K380_KSCAN_INIT);
