@@ -220,7 +220,6 @@ jobs:
           ), "reg1 must enable DCDC"
 
           for forbidden in (
-              "zmk,matrix-transform",
               "zmk,battery",
               "battery",
               "ws2812",
@@ -230,6 +229,10 @@ jobs:
               "led",
           ):
               assert forbidden not in normalized, f"forbidden source content: {forbidden}"
+          chosen_source = re.search(r"chosen\s*\{(?P<body>[^}]*)\};", source_without_comments, re.S)
+          assert chosen_source and "zmk,matrix-transform" not in chosen_source.group("body"), (
+              "chosen zmk,matrix-transform must not be used; K380 uses the physical layout transform"
+          )
           assert not re.search(r"&gpio0\s+13\b", source_without_comments), (
               "P0.13 must not be assigned in the board DTS"
           )

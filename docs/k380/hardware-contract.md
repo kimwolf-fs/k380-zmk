@@ -3,7 +3,7 @@
 **状态：** 已确认硬件事实；K380 Bootloader 已验证应用 Flash 区间为
 `0x00026000..0x000EA000`，ZMK code 与 Settings 分区必须保持本文档所列边界。
 
-**用途：** 本文档是 K380 Bootloader、ZMK board 和实板 bring-up 共用的板级硬件契约。矩阵 GPIO 分配见 [`pinmap.md`](pinmap.md)，物理按键 RC 映射见 [`matrix-layout.md`](matrix-layout.md)。这两份矩阵文档是已记录、但仍等待实板确认的事实来源；其逐键、多键和中断行为确认仍是必做的 bring-up 任务。
+**用途：** 本文档是 K380 Bootloader、ZMK board 和实板 bring-up 共用的板级硬件契约。矩阵 GPIO 分配见 [`pinmap.md`](pinmap.md)，物理按键 RC 映射见 [`matrix-layout.md`](matrix-layout.md)，Bootloader 硬件验证路径见 [`bootloader-hardware-validation.md`](bootloader-hardware-validation.md)。这几份文档是已记录、但仍等待实板确认的事实来源；其逐键、多键、中断行为和恢复入口确认仍是必做的 bring-up 任务。
 
 ## 记录规则
 
@@ -84,9 +84,9 @@ DCDC0 未启用且 DCDC1 已启用；确认电池模式的 VDDH 低于 2.75 V �
 - 无法通过 UF2 恢复时使用 SWD。
 - Bootloader 为 USB UF2+CDC；不支持 BLE OTA、签名固件或双 bank 回滚。
 
-**实现影响：** ZMK 必须保留 `Fn+Del`（`&bootloader` 绑定）可进入 UF2 的路径，并提供上电前按住 `Del` 的常规恢复入口；Bootloader 不得声明或依赖 BLE OTA、签名校验或双 bank 回滚能力。恢复文档与实板操作必须以 `Del` 和 SWD 测试点为准。
+**实现影响：** ZMK 必须保留 `Fn+Del`（`&bootloader` 绑定）可进入 UF2 的运行时入口；Bootloader 必须在冷启动窗口检测上电前按住 `Del` 的常规恢复入口。Bootloader 不得声明或依赖 BLE OTA、签名校验或双 bank 回滚能力。恢复文档与实板操作必须以 `Del` 和 SWD 测试点为准。
 
-**验证方式：** 在实板上验证 SWD 可首刷、擦除和救砖；验证 ZMK `Fn+Del` 可进入 UF2，验证上电前按住 `Del` 可进入常规恢复入口，并验证 USB 的 UF2+CDC 与 CDC-only 枚举。
+**验证方式：** 在实板上验证 J-Link/SWD 可首刷、擦除和救砖；验证 ZMK `Fn+Del` 可进入 UF2，验证上电前按住 `Del` 可进入常规恢复入口，并验证 USB 的 UF2+CDC 与 CDC-only 枚举。USB/UF2 只适用于 Bootloader 已存在后的更新或恢复，不能替代首次写入 Bootloader 的 SWD 路径。
 
 ## WS2812B 状态灯
 
