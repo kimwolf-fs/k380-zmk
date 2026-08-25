@@ -24,7 +24,6 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/sys/__assert.h>
-#include <SEGGER_RTT.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
 
@@ -138,14 +137,6 @@ static int state_index_rc(const int row, const int col) {
     return (col * K380_KSCAN_ROWS) + row;
 }
 
-static void k380_rtt_write(const char *message) {
-#if IS_ENABLED(CONFIG_USE_SEGGER_RTT)
-    SEGGER_RTT_WriteString(0, message);
-#else
-    printk("%s", message);
-#endif
-}
-
 static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool pressed) {
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
     char line[64];
@@ -153,7 +144,7 @@ static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool presse
                              col, pressed ? "down" : "up");
 
     if (len > 0) {
-        k380_rtt_write(line);
+        printk("%s", line);
     }
 #else
     ARG_UNUSED(row);
@@ -164,7 +155,7 @@ static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool presse
 
 static void k380_kscan_rtt_report(const char *message) {
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
-    k380_rtt_write(message);
+    printk("%s", message);
 #endif
 }
 
