@@ -574,7 +574,7 @@ The term 'west' is not recognized as a name of a cmdlet, function, script file, 
 
 Static checks passed, but local static checks are not a full firmware build.
 
-- [ ] **Step 5: Push and verify remote K380 CI**
+- [x] **Step 5: Push and verify remote K380 CI**
 
 Run:
 
@@ -597,6 +597,19 @@ module-isolation
 ```
 
 Record the successful run ID in the final handoff.
+
+Result: pushed branch `feat/k380-real-matrix-integration` at
+`214ca1d077328c2ee4a79a2f5fce6b7dd8b2f698`. `K380 CI` run
+`32806902278` passed with:
+
+```text
+module-metadata
+ghost-filter
+driver-build
+board-build
+matrix-rtt-diagnostics
+module-isolation
+```
 
 - [x] **Step 6: Keep real-board validation unchecked**
 
