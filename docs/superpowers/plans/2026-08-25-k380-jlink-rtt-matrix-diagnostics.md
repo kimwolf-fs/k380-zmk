@@ -210,11 +210,10 @@ Create `zmk-keyboard-k380/diagnostics/matrix-rtt/k380-matrix-rtt.conf` with:
 ```conf
 CONFIG_ZMK_RTT_LOGGING=y
 CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y
-CONFIG_LOG_MODE_IMMEDIATE=y
 CONFIG_LOG_BACKEND_SHOW_COLOR=n
 ```
 
-Expected result: diagnostic builds enable RTT and immediate logs without enabling USB CDC diagnostics.
+Expected result: diagnostic builds enable RTT matrix diagnostics without enabling USB CDC diagnostics or Zephyr immediate logging.
 
 - [x] **Step 3: Run the config source check**
 
