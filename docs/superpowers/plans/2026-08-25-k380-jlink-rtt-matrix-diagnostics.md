@@ -116,10 +116,25 @@ In the existing `board-build` job, extend the post-build validation step after t
 ```yaml
       - name: Validate K380 diagnostics are opt-in
         run: |
-          ! grep -q '^CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y$' \
-            build/k380-board/zephyr/.config
-          ! grep -R "K380_MATRIX row=%u col=%u state=%s" \
-            build/k380-board/zephyr
+          test -f build/k380-board/zephyr/.config
+          if grep -q '^CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y$' \
+            build/k380-board/zephyr/.config; then
+            echo "::error title=K380 diagnostics must be opt-in::CONFIG_K380_MATRIX_DIAGNOSTICS_RTT is enabled in the default board build"
+            exit 1
+          fi
+
+          set +e
+          grep -R "K380_MATRIX row=%u col=%u state=%s" \
+            build/k380-board/zephyr >/tmp/k380_diag_string_matches.txt
+          grep_status=$?
+          set -e
+          if [ "$grep_status" -eq 0 ]; then
+            echo "::error title=K380 diagnostics must be opt-in::diagnostic RTT format string is present in the default board build"
+            cat /tmp/k380_diag_string_matches.txt
+            exit 1
+          elif [ "$grep_status" -ne 1 ]; then
+            exit "$grep_status"
+          fi
 ```
 
 Expected result: default board builds must fail if the diagnostic path is compiled in by accident.
