@@ -482,7 +482,7 @@ Expected result: one documentation commit.
 - Test: default K380 board build, diagnostic build, K380 CI
 - Modify: `docs/superpowers/plans/2026-08-25-k380-jlink-rtt-matrix-diagnostics.md`
 
-- [ ] **Step 1: Run local static validation**
+- [x] **Step 1: Run local static validation**
 
 Run:
 
@@ -504,7 +504,7 @@ git diff --check
 
 Expected result: no exception and no whitespace errors.
 
-- [ ] **Step 2: Build the default K380 board locally when toolchain is available**
+- [x] **Step 2: Build the default K380 board locally when toolchain is available**
 
 Run:
 
@@ -529,7 +529,13 @@ Select-String -Path 'build\k380-board\zephyr\.config' -Pattern '^CONFIG_K380_MAT
 
 Expected result: PowerShell returns `False`; the default board build does not enable diagnostics.
 
-- [ ] **Step 3: Build the RTT diagnostic image locally when toolchain is available**
+Local result: skipped because `west --version` failed with:
+
+```text
+The term 'west' is not recognized as a name of a cmdlet, function, script file, or executable program.
+```
+
+- [x] **Step 3: Build the RTT diagnostic image locally when toolchain is available**
 
 Run:
 
@@ -553,9 +559,21 @@ Select-String -Path 'build\k380-matrix-rtt\zephyr\.config' -Pattern '^CONFIG_K38
 
 Expected result: both config lines are present.
 
-- [ ] **Step 4: Record local build limitations if needed**
+Local result: skipped because `west --version` failed with:
 
-If local `west build` cannot run because the workspace or toolchain is unavailable, record the exact error in the final handoff and continue to remote CI after push. Do not describe static checks as a full firmware build.
+```text
+The term 'west' is not recognized as a name of a cmdlet, function, script file, or executable program.
+```
+
+- [x] **Step 4: Record local build limitations if needed**
+
+Local `west build` cannot run because `west` is not available in this PowerShell environment:
+
+```text
+The term 'west' is not recognized as a name of a cmdlet, function, script file, or executable program.
+```
+
+Static checks passed, but local static checks are not a full firmware build.
 
 - [ ] **Step 5: Push and verify remote K380 CI**
 
@@ -581,7 +599,7 @@ module-isolation
 
 Record the successful run ID in the final handoff.
 
-- [ ] **Step 6: Keep real-board validation unchecked**
+- [x] **Step 6: Keep real-board validation unchecked**
 
 Run:
 
