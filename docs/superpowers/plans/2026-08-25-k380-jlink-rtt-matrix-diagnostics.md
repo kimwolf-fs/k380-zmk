@@ -12,14 +12,14 @@
 
 ## File Structure And Responsibilities
 
-| File | Responsibility |
-| --- | --- |
-| `zmk-keyboard-k380/drivers/kscan/Kconfig` | Define `CONFIG_K380_MATRIX_DIAGNOSTICS_RTT`, default off, depending on the K380 no-diode driver. |
-| `zmk-keyboard-k380/drivers/kscan/kscan_k380_no_diode_matrix.c` | Print stable `K380_MATRIX row=<r> col=<c> state=<down\|up>` lines only when the diagnostic Kconfig is enabled. |
-| `zmk-keyboard-k380/diagnostics/matrix-rtt/k380-matrix-rtt.conf` | Opt-in build config enabling RTT logging and the K380 matrix diagnostic switch. |
-| `.github/workflows/k380-ci.yml` | Add a diagnostic build job and validation gates; keep the default board build proving diagnostics are not enabled by default. |
-| `docs/k380/matrix-rtt-diagnostics.md` | Operator workflow for building, flashing with J-Link, opening RTT, interpreting output, and recording results. |
-| `docs/superpowers/plans/2026-08-25-k380-jlink-rtt-matrix-diagnostics.md` | Track implementation steps; do not mark real-board validation complete. |
+| File                                                                     | Responsibility                                                                                                                |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `zmk-keyboard-k380/drivers/kscan/Kconfig`                                | Define `CONFIG_K380_MATRIX_DIAGNOSTICS_RTT`, default off, depending on the K380 no-diode driver.                              |
+| `zmk-keyboard-k380/drivers/kscan/kscan_k380_no_diode_matrix.c`           | Print stable `K380_MATRIX row=<r> col=<c> state=<down\|up>` lines only when the diagnostic Kconfig is enabled.                |
+| `zmk-keyboard-k380/diagnostics/matrix-rtt/k380-matrix-rtt.conf`          | Opt-in build config enabling RTT logging and the K380 matrix diagnostic switch.                                               |
+| `.github/workflows/k380-ci.yml`                                          | Add a diagnostic build job and validation gates; keep the default board build proving diagnostics are not enabled by default. |
+| `docs/k380/matrix-rtt-diagnostics.md`                                    | Operator workflow for building, flashing with J-Link, opening RTT, interpreting output, and recording results.                |
+| `docs/superpowers/plans/2026-08-25-k380-jlink-rtt-matrix-diagnostics.md` | Track implementation steps; do not mark real-board validation complete.                                                       |
 
 ## Task 1: Add Failing Gates For The Diagnostic Contract
 
@@ -60,50 +60,50 @@ expected failure: driver does not emit K380_MATRIX RTT lines yet
 In `.github/workflows/k380-ci.yml`, add a new job after `board-build` and before `module-isolation`:
 
 ```yaml
-  matrix-rtt-diagnostics:
-    needs: module-metadata
-    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
-    runs-on: ubuntu-latest
-    container:
-      image: docker.io/zmkfirmware/zmk-build-arm:4.1
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/cache@v6
-        continue-on-error: true
-        with:
-          path: |
-            modules/
-            tools/
-            zephyr/
-            bootloader/
-          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-k380-
-      - run: west init -l app
-      - run: west update --fetch-opt=--filter=tree:0
-      - run: west zephyr-export
-      - run: |
-          west build -s app -d build/k380-matrix-rtt -p always -b k380/nrf52840/zmk -- \
-            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
-            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/diagnostics/matrix-rtt/k380-matrix-rtt.conf"
-      - run: |
-          grep -q '^CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y$' \
-            build/k380-matrix-rtt/zephyr/.config
-          grep -q '^CONFIG_ZMK_RTT_LOGGING=y$' \
-            build/k380-matrix-rtt/zephyr/.config
-          grep -R "K380_MATRIX row=%u col=%u state=%s" \
-            build/k380-matrix-rtt/zephyr
-      - if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: k380-matrix-rtt-diagnostics-output
-          path: |
-            build/k380-matrix-rtt/**/*.log
-            build/k380-matrix-rtt/**/zephyr/.config
-            build/k380-matrix-rtt/**/zephyr/zephyr.dts
-            build/k380-matrix-rtt/**/zephyr/zmk.hex
-            build/k380-matrix-rtt/**/zephyr/zmk.uf2
-          if-no-files-found: ignore
+matrix-rtt-diagnostics:
+  needs: module-metadata
+  if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+  runs-on: ubuntu-latest
+  container:
+    image: docker.io/zmkfirmware/zmk-build-arm:4.1
+  steps:
+    - uses: actions/checkout@v7
+    - uses: actions/cache@v6
+      continue-on-error: true
+      with:
+        path: |
+          modules/
+          tools/
+          zephyr/
+          bootloader/
+        key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-k380-
+    - run: west init -l app
+    - run: west update --fetch-opt=--filter=tree:0
+    - run: west zephyr-export
+    - run: |
+        west build -s app -d build/k380-matrix-rtt -p always -b k380/nrf52840/zmk -- \
+          -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
+          -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/diagnostics/matrix-rtt/k380-matrix-rtt.conf"
+    - run: |
+        grep -q '^CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y$' \
+          build/k380-matrix-rtt/zephyr/.config
+        grep -q '^CONFIG_ZMK_RTT_LOGGING=y$' \
+          build/k380-matrix-rtt/zephyr/.config
+        grep -R "K380_MATRIX row=%u col=%u state=%s" \
+          build/k380-matrix-rtt/zephyr
+    - if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: k380-matrix-rtt-diagnostics-output
+        path: |
+          build/k380-matrix-rtt/**/*.log
+          build/k380-matrix-rtt/**/zephyr/.config
+          build/k380-matrix-rtt/**/zephyr/zephyr.dts
+          build/k380-matrix-rtt/**/zephyr/zmk.hex
+          build/k380-matrix-rtt/**/zephyr/zmk.uf2
+        if-no-files-found: ignore
 ```
 
 Expected result at this point: the workflow is intentionally red because
@@ -114,35 +114,35 @@ Expected result at this point: the workflow is intentionally red because
 In the existing `board-build` job, extend the post-build validation step after the board contract validation with:
 
 ```yaml
-      - name: Validate K380 diagnostics are opt-in
-        run: |
-          test -f build/k380-board/zephyr/.config
-          set +e
-          grep -q '^CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y$' \
-            build/k380-board/zephyr/.config
-          config_status=$?
-          set -e
-          if [ "$config_status" -eq 0 ]; then
-            echo "::error title=K380 diagnostics must be opt-in::CONFIG_K380_MATRIX_DIAGNOSTICS_RTT is enabled in the default board build"
-            exit 1
-          fi
-          if [ "$config_status" -ne 1 ]; then
-            echo "::error title=K380 diagnostics inspection failed::Unable to inspect K380 board .config"
-            exit "$config_status"
-          fi
+- name: Validate K380 diagnostics are opt-in
+  run: |
+    test -f build/k380-board/zephyr/.config
+    set +e
+    grep -q '^CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y$' \
+      build/k380-board/zephyr/.config
+    config_status=$?
+    set -e
+    if [ "$config_status" -eq 0 ]; then
+      echo "::error title=K380 diagnostics must be opt-in::CONFIG_K380_MATRIX_DIAGNOSTICS_RTT is enabled in the default board build"
+      exit 1
+    fi
+    if [ "$config_status" -ne 1 ]; then
+      echo "::error title=K380 diagnostics inspection failed::Unable to inspect K380 board .config"
+      exit "$config_status"
+    fi
 
-          set +e
-          grep -R "K380_MATRIX row=%u col=%u state=%s" \
-            build/k380-board/zephyr >/tmp/k380_diag_string_matches.txt
-          grep_status=$?
-          set -e
-          if [ "$grep_status" -eq 0 ]; then
-            echo "::error title=K380 diagnostics must be opt-in::diagnostic RTT format string is present in the default board build"
-            cat /tmp/k380_diag_string_matches.txt
-            exit 1
-          elif [ "$grep_status" -ne 1 ]; then
-            exit "$grep_status"
-          fi
+    set +e
+    grep -R "K380_MATRIX row=%u col=%u state=%s" \
+      build/k380-board/zephyr >/tmp/k380_diag_string_matches.txt
+    grep_status=$?
+    set -e
+    if [ "$grep_status" -eq 0 ]; then
+      echo "::error title=K380 diagnostics must be opt-in::diagnostic RTT format string is present in the default board build"
+      cat /tmp/k380_diag_string_matches.txt
+      exit 1
+    elif [ "$grep_status" -ne 1 ]; then
+      exit "$grep_status"
+    fi
 ```
 
 Expected result: default board builds must fail if the diagnostic path is compiled in by accident.
@@ -371,7 +371,7 @@ Expected result: one commit with the guarded driver emitter only.
 
 Create `docs/k380/matrix-rtt-diagnostics.md` with:
 
-```markdown
+````text
 # K380 J-Link RTT Matrix Diagnostics
 
 **Status:** Diagnostic firmware workflow defined; real-board validation remains incomplete until captured hardware results are recorded.
@@ -428,7 +428,8 @@ Compare each observed event with `matrix-layout.md`.
 
 Do not mark the real-board matrix checklist complete from a successful build
 alone. Only captured RTT output from real hardware counts as matrix evidence.
-```
+
+````
 
 Expected result: the document gives an operator a reproducible J-Link RTT workflow.
 
