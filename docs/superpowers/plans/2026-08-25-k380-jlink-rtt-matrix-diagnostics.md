@@ -262,7 +262,7 @@ Expected result: one commit with Kconfig and diagnostic config only.
 - Modify: `docs/superpowers/plans/2026-08-25-k380-jlink-rtt-matrix-diagnostics.md`
 - Test: local source checks and existing ghost-filter test
 
-- [ ] **Step 1: Add the printk include**
+- [x] **Step 1: Add the printk include**
 
 In `zmk-keyboard-k380/drivers/kscan/kscan_k380_no_diode_matrix.c`, add this include with the other Zephyr includes:
 
@@ -272,7 +272,7 @@ In `zmk-keyboard-k380/drivers/kscan/kscan_k380_no_diode_matrix.c`, add this incl
 
 Expected result: the driver can use `printk()` without relying on logging prefixes.
 
-- [ ] **Step 2: Add a focused diagnostic helper**
+- [x] **Step 2: Add a focused diagnostic helper**
 
 In the same file, below `static int state_index_rc(...)`, add:
 
@@ -291,7 +291,7 @@ static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool presse
 Expected result: the format exactly matches the approved spec and compiles away for normal builds,
 including the format string.
 
-- [ ] **Step 3: Call the helper before forwarding kscan events**
+- [x] **Step 3: Call the helper before forwarding kscan events**
 
 In `k380_kscan_read()`, inside the `if (zmk_debounce_get_changed(state))` block, change the event section to:
 
@@ -307,7 +307,7 @@ if (zmk_debounce_get_changed(state)) {
 
 Expected result: the diagnostic line reports the original kscan row and column before ZMK transforms them to positions or keycodes.
 
-- [ ] **Step 4: Run the exact format source check**
+- [x] **Step 4: Run the exact format source check**
 
 Run:
 
@@ -330,7 +330,7 @@ git diff --check
 
 Expected result: no exception and no whitespace errors.
 
-- [ ] **Step 5: Run the existing host unit test**
+- [x] **Step 5: Run the existing host unit test**
 
 If the local Zephyr workspace is initialized, run:
 
@@ -346,7 +346,9 @@ Expected result:
 
 If `west` or the Zephyr workspace is unavailable locally, record the exact failure and rely on the remote `K380 CI / ghost-filter` job after push.
 
-- [ ] **Step 6: Commit the diagnostic emitter**
+Result: local command failed because `west` is unavailable: `The term 'west' is not recognized as a name of a cmdlet, function, script file, or executable program.`
+
+- [x] **Step 6: Commit the diagnostic emitter**
 
 Run:
 

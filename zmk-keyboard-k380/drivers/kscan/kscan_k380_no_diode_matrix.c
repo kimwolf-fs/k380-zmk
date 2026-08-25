@@ -24,6 +24,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/sys/__assert.h>
+#include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
 
 #include <zmk/debounce.h>
@@ -134,6 +135,16 @@ static int state_index_rc(const int row, const int col) {
     __ASSERT(col < K380_KSCAN_COLS, "Invalid column %i", col);
 
     return (col * K380_KSCAN_ROWS) + row;
+}
+
+static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool pressed) {
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+    printk("K380_MATRIX row=%u col=%u state=%s\n", row, col, pressed ? "down" : "up");
+#else
+    ARG_UNUSED(row);
+    ARG_UNUSED(col);
+    ARG_UNUSED(pressed);
+#endif
 }
 
 static int k380_kscan_set_all_outputs(const struct device *dev, const int value) {
@@ -292,6 +303,7 @@ static int k380_kscan_read(const struct device *dev) {
                 const bool pressed = zmk_debounce_is_pressed(state);
 
                 LOG_DBG("Sending event at %i,%i state %s", row, col, pressed ? "on" : "off");
+                k380_kscan_diagnostic_report(row, col, pressed);
                 data->callback(dev, row, col, pressed);
             }
 
