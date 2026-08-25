@@ -615,8 +615,8 @@ module-isolation
 Record the successful run ID in the final handoff.
 
 Result: pushed branch `feat/k380-real-matrix-integration` at
-`214ca1d077328c2ee4a79a2f5fce6b7dd8b2f698`. `K380 CI` run
-`32806902278` passed with:
+`bb1f2cd1916b4ed4116ffa52514737c39329eb87`. `K380 CI` run
+`32807881086` passed with:
 
 ```text
 module-metadata
