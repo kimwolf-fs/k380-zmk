@@ -614,10 +614,18 @@ jobs:
       - name: Validate K380 diagnostics are opt-in
         run: |
           test -f build/k380-board/zephyr/.config
-          if grep -q '^CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y$' \
-            build/k380-board/zephyr/.config; then
+          set +e
+          grep -q '^CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y$' \
+            build/k380-board/zephyr/.config
+          config_status=$?
+          set -e
+          if [ "$config_status" -eq 0 ]; then
             echo "::error title=K380 diagnostics must be opt-in::CONFIG_K380_MATRIX_DIAGNOSTICS_RTT is enabled in the default board build"
             exit 1
+          fi
+          if [ "$config_status" -ne 1 ]; then
+            echo "::error title=K380 diagnostics inspection failed::Unable to inspect K380 board .config"
+            exit "$config_status"
           fi
 
           set +e
