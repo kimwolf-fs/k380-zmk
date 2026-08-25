@@ -368,7 +368,7 @@ Expected result: one commit with the guarded driver emitter only.
 - Modify: `docs/superpowers/plans/2026-08-25-k380-jlink-rtt-matrix-diagnostics.md`
 - Test: document consistency checks
 
-- [ ] **Step 1: Create the operator workflow document**
+- [x] **Step 1: Create the operator workflow document**
 
 Create `docs/k380/matrix-rtt-diagnostics.md` with:
 
@@ -433,7 +433,7 @@ alone. Only captured RTT output from real hardware counts as matrix evidence.
 
 Expected result: the document gives an operator a reproducible J-Link RTT workflow.
 
-- [ ] **Step 2: Link the workflow from the hardware contract**
+- [x] **Step 2: Link the workflow from the hardware contract**
 
 In `docs/k380/hardware-contract.md`, in the `实板验证清单` verification paragraph, append this sentence:
 
@@ -443,7 +443,7 @@ In `docs/k380/hardware-contract.md`, in the `实板验证清单` verification pa
 
 Expected result: the main contract points to the diagnostic workflow but does not mark any hardware task complete.
 
-- [ ] **Step 3: Run document checks**
+- [x] **Step 3: Run document checks**
 
 Run:
 
@@ -464,7 +464,7 @@ git diff --check
 
 Expected result: no exception and no whitespace errors.
 
-- [ ] **Step 4: Commit the operator documentation**
+- [x] **Step 4: Commit the operator documentation**
 
 Run:
 
