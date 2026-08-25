@@ -184,7 +184,7 @@ Expected result: one commit containing only the workflow gate and updated plan c
 - Modify: `docs/superpowers/plans/2026-08-25-k380-jlink-rtt-matrix-diagnostics.md`
 - Test: local source checks
 
-- [ ] **Step 1: Add the Kconfig switch**
+- [x] **Step 1: Add the Kconfig switch**
 
 In `zmk-keyboard-k380/drivers/kscan/Kconfig`, inside the existing `if KSCAN` block, add:
 
@@ -203,7 +203,7 @@ config K380_MATRIX_DIAGNOSTICS_RTT
 
 Expected result: the option exists, is scoped to the K380 driver, and defaults off.
 
-- [ ] **Step 2: Create the diagnostic RTT config**
+- [x] **Step 2: Create the diagnostic RTT config**
 
 Create `zmk-keyboard-k380/diagnostics/matrix-rtt/k380-matrix-rtt.conf` with:
 
@@ -216,7 +216,7 @@ CONFIG_LOG_BACKEND_SHOW_COLOR=n
 
 Expected result: diagnostic builds enable RTT and immediate logs without enabling USB CDC diagnostics.
 
-- [ ] **Step 3: Run the config source check**
+- [x] **Step 3: Run the config source check**
 
 Run:
 
@@ -243,7 +243,7 @@ git diff --check
 
 Expected result: no exception and no whitespace errors.
 
-- [ ] **Step 4: Commit the diagnostic config**
+- [x] **Step 4: Commit the diagnostic config**
 
 Run:
 

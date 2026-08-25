@@ -7,4 +7,15 @@ config K380_KSCAN_NO_DIODE_MATRIX
     default $(dt_compat_enabled,$(DT_COMPAT_K380_KSCAN_NO_DIODE_MATRIX))
     select ZMK_KSCAN_GPIO_DRIVER
 
+config K380_MATRIX_DIAGNOSTICS_RTT
+    bool "Emit K380 matrix events over RTT"
+    depends on K380_KSCAN_NO_DIODE_MATRIX
+    default n
+    help
+      Emit each K380 kscan press and release as a plain text RTT line:
+      K380_MATRIX row=<row> col=<column> state=<down|up>.
+
+      This is a hardware bring-up diagnostic path. It must stay disabled in
+      normal K380 firmware builds.
+
 endif # KSCAN
