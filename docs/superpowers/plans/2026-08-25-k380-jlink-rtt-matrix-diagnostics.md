@@ -29,7 +29,7 @@
 - Modify: `docs/superpowers/plans/2026-08-25-k380-jlink-rtt-matrix-diagnostics.md`
 - Test: local PowerShell static checks
 
-- [ ] **Step 1: Run the pre-implementation source probe and capture the expected failure**
+- [x] **Step 1: Run the pre-implementation source probe and capture the expected failure**
 
 Run from `E:\project\k380-keyboard\k380-zmk`:
 
@@ -55,7 +55,7 @@ Expected result before Task 2:
 expected failure: driver does not emit K380_MATRIX RTT lines yet
 ```
 
-- [ ] **Step 2: Add the CI diagnostic build skeleton**
+- [x] **Step 2: Add the CI diagnostic build skeleton**
 
 In `.github/workflows/k380-ci.yml`, add a new job after `board-build` and before `module-isolation`:
 
@@ -109,7 +109,7 @@ In `.github/workflows/k380-ci.yml`, add a new job after `board-build` and before
 Expected result at this point: the workflow is intentionally red because
 `zmk-keyboard-k380/diagnostics/matrix-rtt/k380-matrix-rtt.conf` does not exist yet.
 
-- [ ] **Step 3: Add default-board diagnostic-off assertions**
+- [x] **Step 3: Add default-board diagnostic-off assertions**
 
 In the existing `board-build` job, extend the post-build validation step after the board contract validation with:
 
@@ -124,7 +124,7 @@ In the existing `board-build` job, extend the post-build validation step after t
 
 Expected result: default board builds must fail if the diagnostic path is compiled in by accident.
 
-- [ ] **Step 4: Run YAML and whitespace checks**
+- [x] **Step 4: Run YAML and whitespace checks**
 
 Run:
 
@@ -141,7 +141,7 @@ Expected result:
 .github\workflows\k380-ci.yml:<line>:            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/diagnostics/matrix-rtt/k380-matrix-rtt.conf"
 ```
 
-- [ ] **Step 5: Commit the failing gates**
+- [x] **Step 5: Commit the failing gates**
 
 Run:
 

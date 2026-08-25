@@ -611,6 +611,12 @@ jobs:
       - if: failure()
         run: |
           find build/k380-board -type f -name '*.log' -print -exec tail -n 200 {} \;
+      - name: Validate K380 diagnostics are opt-in
+        run: |
+          ! grep -q '^CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y$' \
+            build/k380-board/zephyr/.config
+          ! grep -R "K380_MATRIX row=%u col=%u state=%s" \
+            build/k380-board/zephyr
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -621,6 +627,51 @@ jobs:
             build/k380-board/**/zephyr/zephyr.dts
             build/k380-board/**/zephyr/zmk.hex
             build/k380-board/**/zephyr/zmk.uf2
+          if-no-files-found: ignore
+
+  matrix-rtt-diagnostics:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-build-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - run: |
+          west build -s app -d build/k380-matrix-rtt -p always -b k380/nrf52840/zmk -- \
+            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
+            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/diagnostics/matrix-rtt/k380-matrix-rtt.conf"
+      - run: |
+          grep -q '^CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y$' \
+            build/k380-matrix-rtt/zephyr/.config
+          grep -q '^CONFIG_ZMK_RTT_LOGGING=y$' \
+            build/k380-matrix-rtt/zephyr/.config
+          grep -R "K380_MATRIX row=%u col=%u state=%s" \
+            build/k380-matrix-rtt/zephyr
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k380-matrix-rtt-diagnostics-output
+          path: |
+            build/k380-matrix-rtt/**/*.log
+            build/k380-matrix-rtt/**/zephyr/.config
+            build/k380-matrix-rtt/**/zephyr/zephyr.dts
+            build/k380-matrix-rtt/**/zephyr/zmk.hex
+            build/k380-matrix-rtt/**/zephyr/zmk.uf2
           if-no-files-found: ignore
 
   module-isolation:
