@@ -147,6 +147,12 @@ static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool presse
 #endif
 }
 
+static void k380_kscan_boot_report(void) {
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+    printk("K380_KSCAN_BOOT ready\n");
+#endif
+}
+
 static int k380_kscan_set_all_outputs(const struct device *dev, const int value) {
     const struct k380_kscan_config *config = dev->config;
 
@@ -341,6 +347,7 @@ static int k380_kscan_configure(const struct device *dev, const kscan_callback_t
 static int k380_kscan_enable(const struct device *dev) {
     struct k380_kscan_data *data = dev->data;
 
+    k380_kscan_boot_report();
     data->scan_time = k_uptime_get();
     return k380_kscan_read(dev);
 }
