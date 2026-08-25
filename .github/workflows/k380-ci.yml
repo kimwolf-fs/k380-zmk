@@ -683,6 +683,21 @@ jobs:
             build/k380-matrix-rtt/zephyr/.config
           grep -q '^CONFIG_ZMK_RTT_LOGGING=y$' \
             build/k380-matrix-rtt/zephyr/.config
+          if grep -q '^CONFIG_LOG_MODE_IMMEDIATE=y$' \
+            build/k380-matrix-rtt/zephyr/.config; then
+            echo "::error title=K380 RTT diagnostics must use deferred logging::CONFIG_LOG_MODE_IMMEDIATE is incompatible with the Bluetooth software Link Layer"
+            exit 1
+          fi
+          if grep -q '^CONFIG_ZMK_USB_LOGGING=y$' \
+            build/k380-matrix-rtt/zephyr/.config; then
+            echo "::error title=K380 RTT diagnostics must not use USB logging::CONFIG_ZMK_USB_LOGGING is enabled"
+            exit 1
+          fi
+          if grep -q '^CONFIG_USB_CDC_ACM=y$' \
+            build/k380-matrix-rtt/zephyr/.config; then
+            echo "::error title=K380 RTT diagnostics must not use USB CDC ACM::CONFIG_USB_CDC_ACM is enabled"
+            exit 1
+          fi
           grep -R "K380_MATRIX row=%u col=%u state=%s" \
             build/k380-matrix-rtt/zephyr
       - if: always()
