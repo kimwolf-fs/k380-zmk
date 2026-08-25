@@ -38,11 +38,13 @@ K380_MATRIX row=<0-7> col=<0-14> state=<down|up>
 On successful startup, the diagnostic image also prints:
 
 ```text
+K380_KSCAN_INIT ready
 K380_KSCAN_BOOT ready
 ```
 
-If this line appears, the application reached the K380 kscan enable path and
-RTT output is working.
+If `K380_KSCAN_INIT ready` appears, the K380 kscan driver initialized and RTT
+output is working. If `K380_KSCAN_BOOT ready` appears, the kscan enable path
+ran as well.
 
 Example for `Del`, which is `RC(4,7)`:
 

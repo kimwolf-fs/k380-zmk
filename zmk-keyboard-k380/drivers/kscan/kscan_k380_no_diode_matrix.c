@@ -24,6 +24,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/sys/__assert.h>
+#include <SEGGER_RTT.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
 
@@ -137,9 +138,23 @@ static int state_index_rc(const int row, const int col) {
     return (col * K380_KSCAN_ROWS) + row;
 }
 
+static void k380_rtt_write(const char *message) {
+#if IS_ENABLED(CONFIG_USE_SEGGER_RTT)
+    SEGGER_RTT_WriteString(0, message);
+#else
+    printk("%s", message);
+#endif
+}
+
 static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool pressed) {
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
-    printk("K380_MATRIX row=%u col=%u state=%s\n", row, col, pressed ? "down" : "up");
+    char line[64];
+    const int len = snprintk(line, sizeof(line), "K380_MATRIX row=%u col=%u state=%s\n", row,
+                             col, pressed ? "down" : "up");
+
+    if (len > 0) {
+        k380_rtt_write(line);
+    }
 #else
     ARG_UNUSED(row);
     ARG_UNUSED(col);
@@ -147,9 +162,9 @@ static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool presse
 #endif
 }
 
-static void k380_kscan_boot_report(void) {
+static void k380_kscan_rtt_report(const char *message) {
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
-    printk("K380_KSCAN_BOOT ready\n");
+    k380_rtt_write(message);
 #endif
 }
 
@@ -347,7 +362,7 @@ static int k380_kscan_configure(const struct device *dev, const kscan_callback_t
 static int k380_kscan_enable(const struct device *dev) {
     struct k380_kscan_data *data = dev->data;
 
-    k380_kscan_boot_report();
+    k380_kscan_rtt_report("K380_KSCAN_INIT ready\n");
     data->scan_time = k_uptime_get();
     return k380_kscan_read(dev);
 }
@@ -465,6 +480,7 @@ static int k380_kscan_init(const struct device *dev) {
     data->dev = dev;
     k380_kscan_sort_inputs(&data->inputs);
     k_work_init_delayable(&data->work, k380_kscan_work_handler);
+    k380_kscan_rtt_report("K380_KSCAN_BOOT ready\n");
 
 #if IS_ENABLED(CONFIG_PM_DEVICE)
     pm_device_init_suspended(dev);

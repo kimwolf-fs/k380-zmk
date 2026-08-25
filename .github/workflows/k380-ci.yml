@@ -683,6 +683,8 @@ jobs:
             build/k380-matrix-rtt/zephyr/.config
           grep -q '^CONFIG_ZMK_RTT_LOGGING=y$' \
             build/k380-matrix-rtt/zephyr/.config
+          grep -q '^CONFIG_USE_SEGGER_RTT=y$' \
+            build/k380-matrix-rtt/zephyr/.config
           grep -q '^CONFIG_PRINTK=y$' \
             build/k380-matrix-rtt/zephyr/.config
           grep -q '^CONFIG_LOG_PRINTK=y$' \
