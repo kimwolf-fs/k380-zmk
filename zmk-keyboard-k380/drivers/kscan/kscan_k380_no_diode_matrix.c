@@ -262,7 +262,7 @@ static int k380_kscan_direct_rtt_boot_probe(void) {
 
 SYS_INIT(k380_kscan_direct_rtt_pre_kernel_probe, PRE_KERNEL_1, 0);
 SYS_INIT(k380_kscan_direct_rtt_post_kernel_probe, POST_KERNEL,
-         CONFIG_KERNEL_INIT_PRIORITY_DEFAULT - 1);
+         35);
 SYS_INIT(k380_kscan_direct_rtt_boot_probe, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
 SYS_INIT(k380_kscan_direct_rtt_application_probe, APPLICATION, 0);
 #endif
