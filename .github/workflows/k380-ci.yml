@@ -757,9 +757,36 @@ jobs:
             build/k380-matrix-rtt/zephyr
           grep -R "K380_RTT_DIRECT_HEARTBEAT" \
             build/k380-matrix-rtt/zephyr
-          test -f build/k380-matrix-rtt/zephyr/zephyr.map
-          grep -q "k380_kscan_diag_snapshot" \
-            build/k380-matrix-rtt/zephyr/zephyr.map
+      - name: Generate K380 RTT diagnostic index
+        run: |
+          mkdir -p build/k380-matrix-rtt/diagnostics
+          cp build/k380-matrix-rtt/zephyr/.config \
+            build/k380-matrix-rtt/diagnostics/k380-matrix-rtt.config
+          find build/k380-matrix-rtt -type f \( -name '*.elf' -o -name '*.map' \) \
+            -print | sort > build/k380-matrix-rtt/diagnostics/k380-build-symbol-files.txt
+
+          if command -v arm-zephyr-eabi-nm >/dev/null 2>&1; then
+            nm_tool=arm-zephyr-eabi-nm
+          elif command -v arm-none-eabi-nm >/dev/null 2>&1; then
+            nm_tool=arm-none-eabi-nm
+          else
+            echo "::error title=K380 diagnostic symbol export failed::No ARM nm tool found"
+            exit 1
+          fi
+
+          "$nm_tool" -n build/k380-matrix-rtt/zephyr/zmk.elf \
+            > build/k380-matrix-rtt/diagnostics/k380-zmk-symbols.txt
+          grep ' k380_kscan_diag_snapshot$' \
+            build/k380-matrix-rtt/diagnostics/k380-zmk-symbols.txt \
+            > build/k380-matrix-rtt/diagnostics/k380-diagnostic-symbols.txt
+          awk '
+            / k380_kscan_diag_snapshot$/ {
+              print "k380_kscan_diag_snapshot=0x" $1;
+              print "jlink_mem32_command=mem32 0x" $1 " 12";
+            }
+          ' build/k380-matrix-rtt/diagnostics/k380-diagnostic-symbols.txt \
+            > build/k380-matrix-rtt/diagnostics/k380-diagnostic-addresses.txt
+          test -s build/k380-matrix-rtt/diagnostics/k380-diagnostic-addresses.txt
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -767,11 +794,11 @@ jobs:
           include-hidden-files: true
           path: |
             build/k380-matrix-rtt/**/*.log
+            build/k380-matrix-rtt/diagnostics/**
             build/k380-matrix-rtt/**/zephyr/.config
             build/k380-matrix-rtt/**/zephyr/zephyr.dts
-            build/k380-matrix-rtt/**/zephyr/zmk.elf
-            build/k380-matrix-rtt/**/zephyr/zephyr.elf
-            build/k380-matrix-rtt/**/zephyr/zephyr.map
+            build/k380-matrix-rtt/**/*.elf
+            build/k380-matrix-rtt/**/*.map
             build/k380-matrix-rtt/**/zephyr/zmk.hex
             build/k380-matrix-rtt/**/zephyr/zmk.uf2
           if-no-files-found: ignore
