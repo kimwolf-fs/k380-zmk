@@ -1,0 +1,11 @@
+Device NRF52840_XXAA
+SelectInterface SWD
+Speed 4000
+Connect
+Halt
+Regs
+Mem32 0x40000100, 4
+Mem32 0x40000400, 8
+Mem32 0x40000518, 2
+Mem32 0x200029AC, 16
+Exit

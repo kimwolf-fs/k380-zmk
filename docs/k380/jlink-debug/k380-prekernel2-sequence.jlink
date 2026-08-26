@@ -1,0 +1,57 @@
+Device NRF52840_XXAA
+SelectInterface SWD
+Speed 4000
+Connect
+Reset
+Halt
+Mem32 0x00066DB8, 4
+Mem32 0x200029AC, 16
+SetBP 0x00057100 T H
+SetBP 0x000529C8 T H
+SetBP 0x000336F0 T H
+SetBP 0x00057314 T H
+Go
+WaitHalt 2000
+Halt
+MoE
+Regs
+Mem32 0x200029AC, 16
+Go
+WaitHalt 2000
+Halt
+MoE
+Regs
+Mem32 0x200029AC, 16
+Go
+WaitHalt 2000
+Halt
+MoE
+Regs
+Mem32 0x200029AC, 16
+Go
+WaitHalt 2000
+Halt
+MoE
+Regs
+Mem32 0x200029AC, 16
+SetBP 0x00057110 T H
+Go
+WaitHalt 2000
+Halt
+MoE
+Regs
+Mem32 0x200029AC, 16
+ClearBP 5
+Go
+WaitHalt 2000
+Halt
+MoE
+Regs
+Mem32 0x200029AC, 16
+Go
+WaitHalt 2000
+Halt
+MoE
+Regs
+Mem32 0x200029AC, 16
+Exit

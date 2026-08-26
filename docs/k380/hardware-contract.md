@@ -37,20 +37,23 @@
 
 - USB 5 V 与单节锂电池经自动切换电路接入 VDDH。
 - 电池模式下 VDDH 低于 2.75 V 时断开。
-- REG0 使用内部 LDO，`UICR.REGOUT0` 固定为 2.7 V。
+- REG0 使用内部 LDO，`UICR.REGOUT0` 固定为 1.8 V。
 - REG1 使用内部 DC/DC，DCC-DEC4 的 LC 已确认符合参考设计。
 - DCCH 无电感，REG0 DCDC 不可启用。
 - 32 MHz 外部晶振接 XC1/XC2 并配置匹配负载电容；无 32.768 kHz 晶振，低速时钟使用内部 RC。
+- J-Link/Ozone 实测旧 ZMK 产物配置为 `CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL=y` 时，
+  启动进入 `sys_clock_driver_init` 后停在 `lfclk_spinwait`；当时 `LFCLKSRC=1` 且
+  `EVENTS_LFCLKSTARTED=0`。这确认 K380 不能依赖未装配的外部 LFXO。
 
 **实现影响：** 以下宏是 Adafruit nRF52 Bootloader 的配置，不是 ZMK 的共享配置：
 
 ```c
-#define UICR_REGOUT0_VALUE UICR_REGOUT0_VOUT_2V7
+#define UICR_REGOUT0_VALUE UICR_REGOUT0_VOUT_1V8
 #define ENABLE_DCDC_0 0
 #define ENABLE_DCDC_1 1
 ```
 
-`UICR.REGOUT0 = 2.7 V` 也只能由 Bootloader 或 SWD 首次刷写配置。后续 ZMK board 基于本仓库
+`UICR.REGOUT0 = 1.8 V` 也只能由 Bootloader 或 SWD 首次刷写配置。后续 ZMK board 基于本仓库
 Zephyr v4.1.0 的 nRF52840 SoC DTS，其中 `&reg1` 默认使用 LDO；board overlay 必须将其设为
 DC/DC：
 
@@ -65,11 +68,23 @@ DC/DC：
 不得使用已废弃的 `CONFIG_SOC_DCDC_NRF52X`，也不得为 REG0/DCDC0 增加任何 DC/DC 配置；
 REG0 保持 LDO。
 
-**验证方式：** 分别在 USB 供电和接近 2.75 V 的电池模式下测量 VDDH/VDD，确认 VDD 为 2.7 V、
+K380 ZMK board 必须显式选择 nRF 内部 RC 作为 LFCLK 来源：
+
+```text
+CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y
+```
+
+不得启用 `CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL`。如果构建产物使用 XTAL，应用会在
+PRE_KERNEL_2 的 LFCLK 启动等待路径卡住，无法进入 `POST_KERNEL`，RTT、kscan、USB 和 BLE
+都不会继续初始化。
+
+**验证方式：** 分别在 USB 供电和接近 2.75 V 的电池模式下测量 VDDH/VDD，确认 VDD 为 1.8 V、
 DCDC0 未启用且 DCDC1 已启用；确认电池模式的 VDDH 低于 2.75 V 时断开；并实测 USB
 插入/拔出时的自动切换，确认 USB 存在时由 USB 供电，拔出 USB 后无复位或异常并自动切换至
 电池供电。未来 ZMK board 首次构建后，检查构建产物 `zephyr.dts`，确认 `reg1` 为 DC/DC，
-且不存在 REG0/DCDC0 的 DC/DC 启用配置。
+且不存在 REG0/DCDC0 的 DC/DC 启用配置。检查 CI 诊断产物 `.config`，确认
+`CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y` 且 `CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL` 未启用；
+实板 J-Link 检查应看到 LFCLK 启动后能继续进入 `POST_KERNEL` 或后续线程初始化。
 
 ## USB、SWD 与恢复路径
 
@@ -134,12 +149,13 @@ DCDC0 未启用且 DCDC1 已启用；确认电池模式的 VDDH 低于 2.75 V �
 - 使用内部 `VDDHDIV5` 采样，无外部分压。
 - USB 未插入时，采样值解释为电池电压。
 - USB 插入时，只代表外部 USB 供电。
-- 电池电压低于 3.20 V 时提示；高于 3.30 V 时恢复。
+- ZMK 运行时电量管理采用三段阈值：VDDH 低于 3.40 V 持续成立时进入低电量提醒，低于 3.30 V 时限制非必要耗电，低于 3.20 V 持续一段时间后执行保护关机。
+- 恢复到 3.40 V 以上后退出低电量并解除限制。
 - 高于电池的 VDDH 不能解释为电池正在充电或已经充满。
 
-**实现影响：** ZMK 的电池状态和低电量 LED4 逻辑必须使用 `VDDHDIV5` 与 3.20 V/3.30 V 回差。USB 存在时不得根据 VDDH 推断电池电压、充电中或已充满。
+**实现影响：** ZMK 的电池状态、低电量 LED4 逻辑和运行时保护关机必须使用 `VDDHDIV5`，并按 3.40 V / 3.30 V / 3.20 V 三段阈值管理。USB 存在时不得根据 VDDH 推断电池电压、充电中或已充满。Bootloader 在 DFU/UF2 写入前必须先检查 VDDH，低于安全阈值时拒绝写入或要求外部 USB 供电。
 
-**验证方式：** 在 USB 未插入时，将 `VDDHDIV5` 读数与万用表测得的电池电压比对；跨越 3.20 V 和 3.30 V 阈值验证低电量提示与恢复回差；插入 USB 后确认状态只报告外部 USB 供电，不报告电池正在充电或已充满。
+**验证方式：** 在 USB 未插入时，将 `VDDHDIV5` 读数与万用表测得的电池电压比对；跨越 3.40 V、3.30 V 和 3.20 V 阈值验证低电量提示、限功耗和保护关机，并在恢复到 3.40 V 以上后验证解除限制；插入 USB 后确认状态只报告外部 USB 供电，不报告电池正在充电或已充满。
 
 ## Bootloader 与 ZMK 配置门禁
 
