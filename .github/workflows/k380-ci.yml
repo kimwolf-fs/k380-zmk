@@ -653,6 +653,19 @@ jobs:
           elif [ "$direct_status" -ne 1 ]; then
             exit "$direct_status"
           fi
+
+          set +e
+          grep -R "K380_RTT_DIRECT_HEARTBEAT" \
+            build/k380-board/zephyr >/tmp/k380_direct_heartbeat_matches.txt
+          heartbeat_status=$?
+          set -e
+          if [ "$heartbeat_status" -eq 0 ]; then
+            echo "::error title=K380 diagnostics must be opt-in::direct RTT heartbeat string is present in the default board build"
+            cat /tmp/k380_direct_heartbeat_matches.txt
+            exit 1
+          elif [ "$heartbeat_status" -ne 1 ]; then
+            exit "$heartbeat_status"
+          fi
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -722,6 +735,8 @@ jobs:
           grep -R "K380_MATRIX row=%u col=%u state=%s" \
             build/k380-matrix-rtt/zephyr
           grep -R "K380_RTT_DIRECT_BOOT ready" \
+            build/k380-matrix-rtt/zephyr
+          grep -R "K380_RTT_DIRECT_HEARTBEAT" \
             build/k380-matrix-rtt/zephyr
       - if: always()
         uses: actions/upload-artifact@v7

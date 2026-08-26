@@ -141,6 +141,50 @@ static int state_index_rc(const int row, const int col) {
     return (col * K380_KSCAN_ROWS) + row;
 }
 
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+static void k380_kscan_direct_rtt_write(const char *message) {
+    SEGGER_RTT_WriteString(0, message);
+}
+
+static void k380_kscan_direct_rtt_heartbeat_thread(void *unused1, void *unused2, void *unused3) {
+    static uint32_t heartbeat;
+    char line[40];
+
+    ARG_UNUSED(unused1);
+    ARG_UNUSED(unused2);
+    ARG_UNUSED(unused3);
+
+    while (true) {
+        const int len =
+            snprintk(line, sizeof(line), "K380_RTT_DIRECT_HEARTBEAT %u\n", heartbeat++);
+        if (len > 0) {
+            k380_kscan_direct_rtt_write(line);
+        }
+
+        k_sleep(K_SECONDS(1));
+    }
+}
+
+K_THREAD_DEFINE(k380_kscan_direct_rtt_heartbeat_tid, 512, k380_kscan_direct_rtt_heartbeat_thread,
+                NULL, NULL, NULL, K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
+#endif
+
+static void k380_kscan_diagnostic_direct_report(uint32_t row, uint32_t col, bool pressed) {
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+    char line[64];
+
+    const int len = snprintk(line, sizeof(line), "K380_MATRIX row=%u col=%u state=%s\n", row, col,
+                             pressed ? "down" : "up");
+    if (len > 0) {
+        k380_kscan_direct_rtt_write(line);
+    }
+#else
+    ARG_UNUSED(row);
+    ARG_UNUSED(col);
+    ARG_UNUSED(pressed);
+#endif
+}
+
 static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool pressed) {
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
     char line[64];
@@ -148,6 +192,7 @@ static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool presse
                              pressed ? "down" : "up");
 
     if (len > 0) {
+        k380_kscan_diagnostic_direct_report(row, col, pressed);
         printk("%s", line);
     }
 #else
@@ -165,7 +210,7 @@ static void k380_kscan_rtt_report(const char *message) {
 
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
 static int k380_kscan_direct_rtt_boot_probe(void) {
-    SEGGER_RTT_WriteString(0, "K380_RTT_DIRECT_BOOT ready\n");
+    k380_kscan_direct_rtt_write("K380_RTT_DIRECT_BOOT ready\n");
     return 0;
 }
 
