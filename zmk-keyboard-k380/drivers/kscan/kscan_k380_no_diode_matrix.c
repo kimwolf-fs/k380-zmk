@@ -36,9 +36,12 @@
 struct k380_kscan_diag_snapshot {
     uint32_t magic0;
     uint32_t magic1;
+    uint32_t pre_kernel_probe_count;
     uint32_t boot_probe_count;
+    uint32_t application_probe_count;
     uint32_t kscan_init_count;
     uint32_t kscan_enable_count;
+    uint32_t heartbeat_entry_count;
     uint32_t heartbeat_count;
     uint32_t heartbeat_write_ret;
     uint32_t matrix_event_count;
@@ -174,6 +177,7 @@ static void k380_kscan_direct_rtt_heartbeat_thread(void *unused1, void *unused2,
     ARG_UNUSED(unused2);
     ARG_UNUSED(unused3);
 
+    k380_kscan_diag_snapshot.heartbeat_entry_count++;
     while (true) {
         const int len = snprintk(line, sizeof(line), "K380_RTT_DIRECT_HEARTBEAT %u\n", heartbeat++);
         k380_kscan_diag_snapshot.heartbeat_count++;
@@ -233,6 +237,16 @@ static void k380_kscan_rtt_report(const char *message) {
 }
 
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+static int k380_kscan_direct_rtt_pre_kernel_probe(void) {
+    k380_kscan_diag_snapshot.pre_kernel_probe_count++;
+    return 0;
+}
+
+static int k380_kscan_direct_rtt_application_probe(void) {
+    k380_kscan_diag_snapshot.application_probe_count++;
+    return 0;
+}
+
 static int k380_kscan_direct_rtt_boot_probe(void) {
     k380_kscan_diag_snapshot.boot_probe_count++;
     k380_kscan_diag_snapshot.heartbeat_write_ret =
@@ -240,7 +254,9 @@ static int k380_kscan_direct_rtt_boot_probe(void) {
     return 0;
 }
 
+SYS_INIT(k380_kscan_direct_rtt_pre_kernel_probe, PRE_KERNEL_1, 0);
 SYS_INIT(k380_kscan_direct_rtt_boot_probe, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+SYS_INIT(k380_kscan_direct_rtt_application_probe, APPLICATION, 0);
 #endif
 
 static int k380_kscan_set_all_outputs(const struct device *dev, const int value) {

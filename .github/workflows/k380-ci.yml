@@ -772,7 +772,7 @@ jobs:
           awk '
             / k380_kscan_diag_snapshot$/ {
               print "k380_kscan_diag_snapshot=" $1;
-              print "jlink_mem32_command=mem32 " $1 " 12";
+              print "jlink_mem32_command=mem32 " $1 " 16";
             }
           ' build/k380-matrix-rtt/diagnostics/k380-diagnostic-symbols.txt \
             > build/k380-matrix-rtt/diagnostics/k380-diagnostic-addresses.txt
