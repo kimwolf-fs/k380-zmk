@@ -640,6 +640,19 @@ jobs:
           elif [ "$grep_status" -ne 1 ]; then
             exit "$grep_status"
           fi
+
+          set +e
+          grep -R "K380_RTT_DIRECT_BOOT ready" \
+            build/k380-board/zephyr >/tmp/k380_direct_rtt_matches.txt
+          direct_status=$?
+          set -e
+          if [ "$direct_status" -eq 0 ]; then
+            echo "::error title=K380 diagnostics must be opt-in::direct RTT boot probe string is present in the default board build"
+            cat /tmp/k380_direct_rtt_matches.txt
+            exit 1
+          elif [ "$direct_status" -ne 1 ]; then
+            exit "$direct_status"
+          fi
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -707,6 +720,8 @@ jobs:
             exit 1
           fi
           grep -R "K380_MATRIX row=%u col=%u state=%s" \
+            build/k380-matrix-rtt/zephyr
+          grep -R "K380_RTT_DIRECT_BOOT ready" \
             build/k380-matrix-rtt/zephyr
       - if: always()
         uses: actions/upload-artifact@v7

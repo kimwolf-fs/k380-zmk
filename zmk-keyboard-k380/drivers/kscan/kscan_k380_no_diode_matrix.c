@@ -30,6 +30,10 @@
 #include <zmk/debounce.h>
 #include <zmk_keyboard_k380/ghost_filter.h>
 
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+#include <SEGGER_RTT.h>
+#endif
+
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #define DT_DRV_COMPAT k380_kscan_no_diode_matrix
@@ -158,6 +162,15 @@ static void k380_kscan_rtt_report(const char *message) {
     printk("%s", message);
 #endif
 }
+
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+static int k380_kscan_direct_rtt_boot_probe(void) {
+    SEGGER_RTT_WriteString(0, "K380_RTT_DIRECT_BOOT ready\n");
+    return 0;
+}
+
+SYS_INIT(k380_kscan_direct_rtt_boot_probe, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+#endif
 
 static int k380_kscan_set_all_outputs(const struct device *dev, const int value) {
     const struct k380_kscan_config *config = dev->config;
