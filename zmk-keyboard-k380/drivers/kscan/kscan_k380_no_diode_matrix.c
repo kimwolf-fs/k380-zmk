@@ -37,6 +37,7 @@ struct k380_kscan_diag_snapshot {
     uint32_t magic0;
     uint32_t magic1;
     uint32_t pre_kernel_probe_count;
+    uint32_t post_kernel_probe_count;
     uint32_t boot_probe_count;
     uint32_t application_probe_count;
     uint32_t kscan_init_count;
@@ -242,6 +243,11 @@ static int k380_kscan_direct_rtt_pre_kernel_probe(void) {
     return 0;
 }
 
+static int k380_kscan_direct_rtt_post_kernel_probe(void) {
+    k380_kscan_diag_snapshot.post_kernel_probe_count++;
+    return 0;
+}
+
 static int k380_kscan_direct_rtt_application_probe(void) {
     k380_kscan_diag_snapshot.application_probe_count++;
     return 0;
@@ -255,6 +261,8 @@ static int k380_kscan_direct_rtt_boot_probe(void) {
 }
 
 SYS_INIT(k380_kscan_direct_rtt_pre_kernel_probe, PRE_KERNEL_1, 0);
+SYS_INIT(k380_kscan_direct_rtt_post_kernel_probe, POST_KERNEL,
+         CONFIG_KERNEL_INIT_PRIORITY_DEFAULT - 1);
 SYS_INIT(k380_kscan_direct_rtt_boot_probe, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
 SYS_INIT(k380_kscan_direct_rtt_application_probe, APPLICATION, 0);
 #endif
