@@ -70,6 +70,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: k380-ghost-filter-logs
+          include-hidden-files: true
           path: |
             twister-out*/**/*.log
             twister-out*/**/zephyr/.config
@@ -114,6 +115,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: k380-driver-build-output
+          include-hidden-files: true
           path: |
             build/k380-driver/**/*.log
             build/k380-driver/**/zephyr/.config
@@ -666,14 +668,31 @@ jobs:
           elif [ "$heartbeat_status" -ne 1 ]; then
             exit "$heartbeat_status"
           fi
+
+          set +e
+          grep -R "k380_kscan_diag_snapshot" \
+            build/k380-board/zephyr >/tmp/k380_diag_snapshot_matches.txt
+          snapshot_status=$?
+          set -e
+          if [ "$snapshot_status" -eq 0 ]; then
+            echo "::error title=K380 diagnostics must be opt-in::diagnostic RAM snapshot symbol is present in the default board build"
+            cat /tmp/k380_diag_snapshot_matches.txt
+            exit 1
+          elif [ "$snapshot_status" -ne 1 ]; then
+            exit "$snapshot_status"
+          fi
       - if: always()
         uses: actions/upload-artifact@v7
         with:
           name: k380-board-build-output
+          include-hidden-files: true
           path: |
             build/k380-board/**/*.log
             build/k380-board/**/zephyr/.config
             build/k380-board/**/zephyr/zephyr.dts
+            build/k380-board/**/zephyr/zmk.elf
+            build/k380-board/**/zephyr/zephyr.elf
+            build/k380-board/**/zephyr/zephyr.map
             build/k380-board/**/zephyr/zmk.hex
             build/k380-board/**/zephyr/zmk.uf2
           if-no-files-found: ignore
@@ -738,14 +757,21 @@ jobs:
             build/k380-matrix-rtt/zephyr
           grep -R "K380_RTT_DIRECT_HEARTBEAT" \
             build/k380-matrix-rtt/zephyr
+          test -f build/k380-matrix-rtt/zephyr/zephyr.map
+          grep -q "k380_kscan_diag_snapshot" \
+            build/k380-matrix-rtt/zephyr/zephyr.map
       - if: always()
         uses: actions/upload-artifact@v7
         with:
           name: k380-matrix-rtt-diagnostics-output
+          include-hidden-files: true
           path: |
             build/k380-matrix-rtt/**/*.log
             build/k380-matrix-rtt/**/zephyr/.config
             build/k380-matrix-rtt/**/zephyr/zephyr.dts
+            build/k380-matrix-rtt/**/zephyr/zmk.elf
+            build/k380-matrix-rtt/**/zephyr/zephyr.elf
+            build/k380-matrix-rtt/**/zephyr/zephyr.map
             build/k380-matrix-rtt/**/zephyr/zmk.hex
             build/k380-matrix-rtt/**/zephyr/zmk.uf2
           if-no-files-found: ignore
@@ -781,6 +807,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: k380-module-isolation-logs
+          include-hidden-files: true
           path: |
             app/build/**/*.log
           if-no-files-found: ignore

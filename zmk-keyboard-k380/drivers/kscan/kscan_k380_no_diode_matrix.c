@@ -32,6 +32,26 @@
 
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
 #include <SEGGER_RTT.h>
+
+struct k380_kscan_diag_snapshot {
+    uint32_t magic0;
+    uint32_t magic1;
+    uint32_t boot_probe_count;
+    uint32_t kscan_init_count;
+    uint32_t kscan_enable_count;
+    uint32_t heartbeat_count;
+    uint32_t heartbeat_write_ret;
+    uint32_t matrix_event_count;
+    uint32_t matrix_write_ret;
+    uint32_t last_row;
+    uint32_t last_col;
+    uint32_t last_pressed;
+};
+
+volatile struct k380_kscan_diag_snapshot k380_kscan_diag_snapshot = {
+    .magic0 = 0x4B333830, /* K380 */
+    .magic1 = 0x44494147, /* DIAG */
+};
 #endif
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
@@ -142,7 +162,9 @@ static int state_index_rc(const int row, const int col) {
 }
 
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
-static void k380_kscan_direct_rtt_write(const char *message) { SEGGER_RTT_WriteString(0, message); }
+static unsigned k380_kscan_direct_rtt_write(const char *message) {
+    return SEGGER_RTT_WriteString(0, message);
+}
 
 static void k380_kscan_direct_rtt_heartbeat_thread(void *unused1, void *unused2, void *unused3) {
     static uint32_t heartbeat;
@@ -154,8 +176,9 @@ static void k380_kscan_direct_rtt_heartbeat_thread(void *unused1, void *unused2,
 
     while (true) {
         const int len = snprintk(line, sizeof(line), "K380_RTT_DIRECT_HEARTBEAT %u\n", heartbeat++);
+        k380_kscan_diag_snapshot.heartbeat_count++;
         if (len > 0) {
-            k380_kscan_direct_rtt_write(line);
+            k380_kscan_diag_snapshot.heartbeat_write_ret = k380_kscan_direct_rtt_write(line);
         }
 
         k_sleep(K_SECONDS(1));
@@ -172,8 +195,12 @@ static void k380_kscan_diagnostic_direct_report(uint32_t row, uint32_t col, bool
 
     const int len = snprintk(line, sizeof(line), "K380_MATRIX row=%u col=%u state=%s\n", row, col,
                              pressed ? "down" : "up");
+    k380_kscan_diag_snapshot.matrix_event_count++;
+    k380_kscan_diag_snapshot.last_row = row;
+    k380_kscan_diag_snapshot.last_col = col;
+    k380_kscan_diag_snapshot.last_pressed = pressed ? 1U : 0U;
     if (len > 0) {
-        k380_kscan_direct_rtt_write(line);
+        k380_kscan_diag_snapshot.matrix_write_ret = k380_kscan_direct_rtt_write(line);
     }
 #else
     ARG_UNUSED(row);
@@ -207,7 +234,9 @@ static void k380_kscan_rtt_report(const char *message) {
 
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
 static int k380_kscan_direct_rtt_boot_probe(void) {
-    k380_kscan_direct_rtt_write("K380_RTT_DIRECT_BOOT ready\n");
+    k380_kscan_diag_snapshot.boot_probe_count++;
+    k380_kscan_diag_snapshot.heartbeat_write_ret =
+        k380_kscan_direct_rtt_write("K380_RTT_DIRECT_BOOT ready\n");
     return 0;
 }
 
@@ -408,6 +437,10 @@ static int k380_kscan_configure(const struct device *dev, const kscan_callback_t
 static int k380_kscan_enable(const struct device *dev) {
     struct k380_kscan_data *data = dev->data;
 
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+    k380_kscan_diag_snapshot.kscan_enable_count++;
+#endif
+
     k380_kscan_rtt_report("K380_KSCAN_INIT ready\n");
     data->scan_time = k_uptime_get();
     return k380_kscan_read(dev);
@@ -524,6 +557,9 @@ static int k380_kscan_init(const struct device *dev) {
     struct k380_kscan_data *data = dev->data;
 
     data->dev = dev;
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+    k380_kscan_diag_snapshot.kscan_init_count++;
+#endif
     k380_kscan_sort_inputs(&data->inputs);
     k_work_init_delayable(&data->work, k380_kscan_work_handler);
     k380_kscan_rtt_report("K380_KSCAN_BOOT ready\n");
