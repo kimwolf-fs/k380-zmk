@@ -144,8 +144,8 @@ static int state_index_rc(const int row, const int col) {
 static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool pressed) {
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
     char line[64];
-    const int len = snprintk(line, sizeof(line), "K380_MATRIX row=%u col=%u state=%s\n", row,
-                             col, pressed ? "down" : "up");
+    const int len = snprintk(line, sizeof(line), "K380_MATRIX row=%u col=%u state=%s\n", row, col,
+                             pressed ? "down" : "up");
 
     if (len > 0) {
         printk("%s", line);
