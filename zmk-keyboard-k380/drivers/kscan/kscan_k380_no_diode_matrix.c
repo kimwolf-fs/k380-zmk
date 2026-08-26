@@ -142,9 +142,7 @@ static int state_index_rc(const int row, const int col) {
 }
 
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
-static void k380_kscan_direct_rtt_write(const char *message) {
-    SEGGER_RTT_WriteString(0, message);
-}
+static void k380_kscan_direct_rtt_write(const char *message) { SEGGER_RTT_WriteString(0, message); }
 
 static void k380_kscan_direct_rtt_heartbeat_thread(void *unused1, void *unused2, void *unused3) {
     static uint32_t heartbeat;
@@ -155,8 +153,7 @@ static void k380_kscan_direct_rtt_heartbeat_thread(void *unused1, void *unused2,
     ARG_UNUSED(unused3);
 
     while (true) {
-        const int len =
-            snprintk(line, sizeof(line), "K380_RTT_DIRECT_HEARTBEAT %u\n", heartbeat++);
+        const int len = snprintk(line, sizeof(line), "K380_RTT_DIRECT_HEARTBEAT %u\n", heartbeat++);
         if (len > 0) {
             k380_kscan_direct_rtt_write(line);
         }
