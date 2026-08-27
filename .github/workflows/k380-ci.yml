@@ -631,7 +631,7 @@ jobs:
           fi
 
           set +e
-          grep -R "K380_MATRIX row=%u col=%u state=%s" \
+          grep -R "K380_MATRIX row=%u col=%u key=%s state=%s" \
             build/k380-board/zephyr >/tmp/k380_diag_string_matches.txt
           grep_status=$?
           set -e
@@ -719,6 +719,32 @@ jobs:
       - run: west init -l app
       - run: west update --fetch-opt=--filter=tree:0
       - run: west zephyr-export
+      - name: Validate K380 RTT diagnostic log format
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          source = Path(
+              "zmk-keyboard-k380/drivers/kscan/kscan_k380_no_diode_matrix.c"
+          ).read_text()
+          entries = re.findall(
+              r'\[(?P<row>[0-7])\]\[(?P<col>[0-9]+)\]\s*=\s*"(?P<key>[^"]+)"',
+              source,
+          )
+          coords = {(int(row), int(col)) for row, col, _ in entries}
+          assert len(entries) == 80, f"expected 80 key name entries, found {len(entries)}"
+          assert len(coords) == 80, "duplicate K380 diagnostic key coordinates"
+          assert (4, 7, "Del") in [
+              (int(row), int(col), key) for row, col, key in entries
+          ], "Del must be identified as RC(4,7)"
+          assert (
+              "K380_MATRIX row=%u col=%u key=%s state=%s\\n" in source
+          ), "diagnostic matrix log must include key name"
+          assert (
+              'printk("%s", line)' not in source
+          ), "diagnostic matrix events must not be duplicated through printk"
+          PY
       - run: |
           west build -s app -d build/k380-matrix-rtt -p always -b k380/nrf52840/zmk -- \
             -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
@@ -726,9 +752,13 @@ jobs:
       - run: |
           grep -q '^CONFIG_K380_MATRIX_DIAGNOSTICS_RTT=y$' \
             build/k380-matrix-rtt/zephyr/.config
+          grep -q '^# CONFIG_K380_MATRIX_DIAGNOSTICS_RTT_HEARTBEAT is not set$' \
+            build/k380-matrix-rtt/zephyr/.config
           grep -q '^CONFIG_ZMK_RTT_LOGGING=y$' \
             build/k380-matrix-rtt/zephyr/.config
           grep -q '^CONFIG_LOG_BACKEND_RTT=y$' \
+            build/k380-matrix-rtt/zephyr/.config
+          grep -q '^CONFIG_ZMK_LOG_LEVEL=3$' \
             build/k380-matrix-rtt/zephyr/.config
           grep -q '^CONFIG_USE_SEGGER_RTT=y$' \
             build/k380-matrix-rtt/zephyr/.config
@@ -751,12 +781,16 @@ jobs:
             echo "::error title=K380 RTT diagnostics must not use USB CDC ACM::CONFIG_USB_CDC_ACM is enabled"
             exit 1
           fi
-          grep -R "K380_MATRIX row=%u col=%u state=%s" \
+          grep -R "K380_MATRIX row=%u col=%u key=%s state=%s" \
             build/k380-matrix-rtt/zephyr
           grep -R "K380_RTT_DIRECT_BOOT ready" \
             build/k380-matrix-rtt/zephyr
-          grep -R "K380_RTT_DIRECT_HEARTBEAT" \
-            build/k380-matrix-rtt/zephyr
+          if grep -R "K380_RTT_DIRECT_HEARTBEAT" \
+            build/k380-matrix-rtt/zephyr >/tmp/k380_heartbeat_matches.txt; then
+            echo "::error title=K380 RTT diagnostics must be quiet by default::heartbeat output string is present"
+            cat /tmp/k380_heartbeat_matches.txt
+            exit 1
+          fi
       - name: Generate K380 RTT diagnostic index
         run: |
           mkdir -p build/k380-matrix-rtt/diagnostics

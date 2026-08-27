@@ -12,10 +12,20 @@ config K380_MATRIX_DIAGNOSTICS_RTT
     depends on K380_KSCAN_NO_DIODE_MATRIX
     default n
     help
-      Emit each K380 kscan press and release as a plain text RTT line:
-      K380_MATRIX row=<row> col=<column> state=<down|up>.
+      Emit each K380 kscan press and release as a plain text RTT line with
+      both matrix coordinates and the recorded physical key name:
+      K380_MATRIX row=<row> col=<column> key=<key> state=<down|up>.
 
       This is a hardware bring-up diagnostic path. It must stay disabled in
       normal K380 firmware builds.
+
+config K380_MATRIX_DIAGNOSTICS_RTT_HEARTBEAT
+    bool "Emit K380 RTT diagnostic heartbeat"
+    depends on K380_MATRIX_DIAGNOSTICS_RTT
+    default n
+    help
+      Emit one RTT heartbeat line per second. This is useful for proving that
+      the application thread scheduler is alive, but should stay disabled
+      during per-key matrix validation to keep the log readable.
 
 endif # KSCAN

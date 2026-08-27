@@ -56,6 +56,89 @@ volatile struct k380_kscan_diag_snapshot k380_kscan_diag_snapshot = {
     .magic0 = 0x4B333830, /* K380 */
     .magic1 = 0x44494147, /* DIAG */
 };
+
+static const char *const k380_matrix_key_names[K380_GHOST_FILTER_ROWS][K380_GHOST_FILTER_COLS] = {
+    [0][1] = "9",
+    [0][2] = "Apostrophe",
+    [0][3] = "Enter",
+    [0][4] = "Comma",
+    [0][5] = "J",
+    [0][6] = "N",
+    [0][7] = "F",
+    [0][8] = "F4",
+    [0][9] = "A",
+    [0][13] = "Fn",
+    [1][1] = "Y",
+    [1][2] = "F2",
+    [1][3] = "F6",
+    [1][4] = "F1",
+    [1][5] = "H",
+    [1][6] = "R",
+    [1][7] = "Q",
+    [1][8] = "X",
+    [1][9] = "F7",
+    [1][12] = "LeftGUI",
+    [2][0] = "RightCtrl",
+    [2][1] = "Equal",
+    [2][2] = "LeftBracket",
+    [2][3] = "S",
+    [2][4] = "O",
+    [2][6] = "7",
+    [2][7] = "M",
+    [2][8] = "Up",
+    [2][9] = "L",
+    [3][1] = "CapsLock",
+    [3][2] = "RightBracket",
+    [3][3] = "B",
+    [3][4] = "I",
+    [3][5] = "F5",
+    [3][6] = "V",
+    [3][7] = "Left",
+    [3][8] = "5",
+    [3][9] = "3",
+    [3][14] = "LeftCtrl",
+    [4][1] = "Right",
+    [4][2] = "K",
+    [4][3] = "Backspace",
+    [4][4] = "D",
+    [4][5] = "P",
+    [4][6] = "Ins",
+    [4][7] = "Del",
+    [4][8] = "T",
+    [4][9] = "Backslash",
+    [4][11] = "RightAlt",
+    [4][13] = "NonUSBackslash",
+    [5][1] = "Space",
+    [5][2] = "F12",
+    [5][3] = "F10",
+    [5][4] = "0",
+    [5][5] = "F11",
+    [5][6] = "2",
+    [5][7] = "C",
+    [5][8] = "G",
+    [5][9] = "F9",
+    [5][11] = "LeftAlt",
+    [5][13] = "Grave",
+    [6][1] = "Slash",
+    [6][2] = "E",
+    [6][3] = "U",
+    [6][4] = "Dot",
+    [6][5] = "W",
+    [6][6] = "Down",
+    [6][7] = "Semicolon",
+    [6][8] = "8",
+    [6][10] = "RightShift",
+    [7][1] = "4",
+    [7][2] = "Minus",
+    [7][3] = "Esc",
+    [7][4] = "F8",
+    [7][5] = "F3",
+    [7][6] = "1",
+    [7][7] = "6",
+    [7][8] = "Tab",
+    [7][9] = "Z",
+    [7][10] = "LeftShift",
+};
 #endif
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
@@ -170,6 +253,7 @@ static unsigned k380_kscan_direct_rtt_write(const char *message) {
     return SEGGER_RTT_WriteString(0, message);
 }
 
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT_HEARTBEAT)
 static void k380_kscan_direct_rtt_heartbeat_thread(void *unused1, void *unused2, void *unused3) {
     static uint32_t heartbeat;
     char line[40];
@@ -194,11 +278,23 @@ K_THREAD_DEFINE(k380_kscan_direct_rtt_heartbeat_tid, 512, k380_kscan_direct_rtt_
                 NULL, NULL, NULL, K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
 #endif
 
+static const char *k380_kscan_diagnostic_key_name(uint32_t row, uint32_t col) {
+    if (row >= K380_KSCAN_ROWS || col >= K380_KSCAN_COLS) {
+        return "UNKNOWN";
+    }
+
+    const char *name = k380_matrix_key_names[row][col];
+
+    return name ? name : "UNUSED";
+}
+#endif
+
 static void k380_kscan_diagnostic_direct_report(uint32_t row, uint32_t col, bool pressed) {
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
-    char line[64];
+    char line[80];
 
-    const int len = snprintk(line, sizeof(line), "K380_MATRIX row=%u col=%u state=%s\n", row, col,
+    const int len = snprintk(line, sizeof(line), "K380_MATRIX row=%u col=%u key=%s state=%s\n",
+                             row, col, k380_kscan_diagnostic_key_name(row, col),
                              pressed ? "down" : "up");
     k380_kscan_diag_snapshot.matrix_event_count++;
     k380_kscan_diag_snapshot.last_row = row;
@@ -216,14 +312,7 @@ static void k380_kscan_diagnostic_direct_report(uint32_t row, uint32_t col, bool
 
 static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool pressed) {
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
-    char line[64];
-    const int len = snprintk(line, sizeof(line), "K380_MATRIX row=%u col=%u state=%s\n", row, col,
-                             pressed ? "down" : "up");
-
-    if (len > 0) {
-        k380_kscan_diagnostic_direct_report(row, col, pressed);
-        printk("%s", line);
-    }
+    k380_kscan_diagnostic_direct_report(row, col, pressed);
 #else
     ARG_UNUSED(row);
     ARG_UNUSED(col);

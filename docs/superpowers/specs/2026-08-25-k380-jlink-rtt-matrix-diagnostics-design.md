@@ -58,14 +58,14 @@ debounce, and interrupt or polling behavior.
 Every matrix event must produce one single-line RTT record:
 
 ```text
-K380_MATRIX row=<0-7> col=<0-14> state=<down|up>
+K380_MATRIX row=<0-7> col=<0-14> key=<key-name> state=<down|up>
 ```
 
 Example:
 
 ```text
-K380_MATRIX row=4 col=7 state=down
-K380_MATRIX row=4 col=7 state=up
+K380_MATRIX row=4 col=7 key=Del state=down
+K380_MATRIX row=4 col=7 key=Del state=up
 ```
 
 The format is intentionally plain text so it can be copied from RTT Viewer,
@@ -140,7 +140,7 @@ Real-board validation remains separate and must record:
 
 - A developer can build and flash a K380 diagnostic image with J-Link.
 - Opening RTT shows each press and release as
-  `K380_MATRIX row=<r> col=<c> state=<down|up>`.
+  `K380_MATRIX row=<r> col=<c> key=<key-name> state=<down|up>`.
 - The diagnostic image uses the real K380 kscan driver and board GPIO contract.
 - Default K380 firmware behavior is unchanged.
 - The deferred real-board checklist remains unchecked until actual hardware

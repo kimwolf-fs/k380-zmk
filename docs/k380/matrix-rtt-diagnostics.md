@@ -4,8 +4,9 @@
 
 ## Purpose
 
-Use this diagnostic image to observe K380 matrix `(row, column)` events over
-J-Link RTT while exercising the real K380 kscan driver and board GPIO contract.
+Use this diagnostic image to observe K380 matrix `(row, column, key, state)`
+events over J-Link RTT while exercising the real K380 kscan driver and board
+GPIO contract.
 
 ## Build
 
@@ -32,7 +33,7 @@ Open J-Link RTT Viewer or `JLinkRTTClient` after flashing. Matrix events use
 this exact line format:
 
 ```text
-K380_MATRIX row=<0-7> col=<0-14> state=<down|up>
+K380_MATRIX row=<0-7> col=<0-14> key=<key-name> state=<down|up>
 ```
 
 On successful startup, the diagnostic image also prints:
@@ -46,16 +47,23 @@ If `K380_KSCAN_INIT ready` appears, the K380 kscan driver initialized and RTT
 output is working. If `K380_KSCAN_BOOT ready` appears, the kscan enable path
 ran as well.
 
+The diagnostic build is quiet by default: it does not emit the one-line-per-
+second heartbeat, and ZMK module logs are limited to non-debug levels so the
+per-key matrix output remains readable.
+
 Example for `Del`, which is `RC(4,7)`:
 
 ```text
-K380_MATRIX row=4 col=7 state=down
-K380_MATRIX row=4 col=7 state=up
+K380_MATRIX row=4 col=7 key=Del state=down
+K380_MATRIX row=4 col=7 key=Del state=up
 ```
 
 ## Validation
 
-Compare each observed event with `matrix-layout.md`.
+Compare each observed event with `matrix-layout.md`. A valid key must report
+the expected coordinate and key name. Unused matrix coordinates are reported as
+`key=UNUSED` if they ever appear, which is a validation failure unless the
+hardware map is being deliberately updated.
 
 - Every one of the 80 valid keys must report only its recorded coordinate.
 - The 40 unused coordinates must not report events.
