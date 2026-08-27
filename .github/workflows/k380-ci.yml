@@ -153,6 +153,12 @@ jobs:
           source = Path("app/boards/kimwolf/k380/k380_nrf52840_zmk.dts").read_text()
           source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
           source = re.sub(r"//[^\n]*", "", source)
+          normalized = re.sub(r"\s+", "", source)
+
+          for rc in ("RC(2,5)", "RC(6,9)"):
+              assert rc in normalized, f"K380 transform must include confirmed {rc}"
+          for rc in ("RC(5,13)", "RC(4,9)"):
+              assert rc not in normalized, f"K380 transform still contains obsolete {rc}"
 
           def matching_brace(dts, opening):
               depth = 0
@@ -733,11 +739,20 @@ jobs:
               source,
           )
           coords = {(int(row), int(col)) for row, col, _ in entries}
+          entry_set = {(int(row), int(col), key) for row, col, key in entries}
           assert len(entries) == 80, f"expected 80 key name entries, found {len(entries)}"
           assert len(coords) == 80, "duplicate K380 diagnostic key coordinates"
-          assert (4, 7, "Del") in [
-              (int(row), int(col), key) for row, col, key in entries
-          ], "Del must be identified as RC(4,7)"
+          assert (4, 7, "Del") in entry_set, "Del must be identified as RC(4,7)"
+          assert (2, 5, "Grave") in entry_set, "Grave must be identified as confirmed RC(2,5)"
+          assert (6, 9, "Backslash") in entry_set, (
+              "Backslash must be identified as confirmed RC(6,9)"
+          )
+          assert (5, 13, "Grave") not in entry_set, (
+              "Grave must not remain on obsolete RC(5,13)"
+          )
+          assert (4, 9, "Backslash") not in entry_set, (
+              "Backslash must not remain on obsolete RC(4,9)"
+          )
           assert (
               "K380_MATRIX row=%u col=%u key=%s state=%s\\n" in source
           ), "diagnostic matrix log must include key name"
