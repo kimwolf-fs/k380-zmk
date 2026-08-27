@@ -19,34 +19,34 @@ The sequence script resets the nRF52840, reads key Zephyr init table entries, se
 Expected init table values for the current artifact:
 
 ```text
-0x00066D68 -> 00055DC9  pre_probe
-0x00066DB8 -> 000529C9  sys_clock_driver_init
-0x00066DC0 -> 000336F1  xoshiro128_initialize
-0x00066DE0 -> 00055DD9  post_probe
-0x00066E40 -> 00055DF9  boot_probe
-0x00066E80 -> 00056D59  k380_kscan_init
-0x00066E90 -> 00055DE9  application_probe
+0x00066D68 -> 0005628D  pre_probe
+0x00066DB8 -> 00052DA1  sys_clock_driver_init
+0x00066DC0 -> 00033891  xoshiro128_initialize
+0x00066DE0 -> 0005629D  post_probe
+0x00066E40 -> 000562BD  boot_probe
+0x00066E80 -> 0005721D  k380_kscan_init
+0x00066E90 -> 000562AD  application_probe
 ```
 
 Important breakpoint addresses:
 
 ```text
-0x00057100  z_sys_init_run_level
-0x000529C8  sys_clock_driver_init
-0x00057110  return from init function call inside z_sys_init_run_level
-0x000336F0  xoshiro128_initialize
-0x00057314  prepare_multithreading
+0x00052DA0  sys_clock_driver_init
+0x00033890  xoshiro128_initialize
+0x0005628C  k380_kscan_direct_rtt_pre_kernel_probe
+0x0005629C  k380_kscan_direct_rtt_post_kernel_probe
+0x000562AC  k380_kscan_direct_rtt_application_probe
+0x000562BC  k380_kscan_direct_rtt_boot_probe
+0x0005721C  k380_kscan_init
 ```
 
 Interpretation:
 
 ```text
-PC=0x00057100, R0=1 -> PRE_KERNEL_1
-PC=0x00057100, R0=2 -> PRE_KERNEL_2
-PC=0x000529C8 -> entered RTC timer init
-PC=0x000336F0 -> entered xoshiro random init
-PC=0x00057314 -> PRE_KERNEL_2 returned; entering multithreading preparation
-PC around 0x0005EFD0 with LR around 0x0005168F -> waiting in lfclk_spinwait
+PC=0x00052DA0 -> entered RTC timer init
+PC=0x00033890 -> entered xoshiro random init
+PC=0x0005628C / 0x0005629C / 0x000562BC -> entered K380 probe hooks
+PC=0x0005721C -> K380 matrix init
 ```
 
 The LFCLK root cause found during bring-up:
@@ -59,5 +59,5 @@ K380 firmware must select CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y.
 ```
 
 After flashing a new GitHub Actions artifact, run the pre-kernel sequence again. A good RC-LFCLK
-artifact should not remain in the `lfclk_spinwait` state, and should reach either
-`xoshiro128_initialize`, `prepare_multithreading`, or later K380 POST_KERNEL/Application probes.
+artifact should not remain in the `lfclk_spinwait` state, and should reach the K380 probe hooks
+listed above. Check `k380_kscan_diag_snapshot` at `0x200029CC`.
