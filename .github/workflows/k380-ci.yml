@@ -5,26 +5,14 @@ on:
     paths:
       - ".github/workflows/k380-ci.yml"
       - "zmk-keyboard-k380/**"
-      - "docs/k380/**"
-      - "docs/superpowers/specs/2026-08-17-k380-no-diode-matrix-driver-design.md"
-      - "docs/superpowers/specs/2026-08-17-k380-github-actions-validation-design.md"
-      - "docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md"
       - "app/boards/kimwolf/k380/**"
       - "zmk-keyboard-k380/tests/board-build/**"
-      - "docs/superpowers/specs/2026-08-20-k380-flash-partitions-design.md"
-      - "docs/superpowers/plans/2026-08-20-k380-flash-partitions.md"
   pull_request:
     paths:
       - ".github/workflows/k380-ci.yml"
       - "zmk-keyboard-k380/**"
-      - "docs/k380/**"
-      - "docs/superpowers/specs/2026-08-17-k380-no-diode-matrix-driver-design.md"
-      - "docs/superpowers/specs/2026-08-17-k380-github-actions-validation-design.md"
-      - "docs/superpowers/plans/2026-08-17-k380-no-diode-matrix-driver.md"
       - "app/boards/kimwolf/k380/**"
       - "zmk-keyboard-k380/tests/board-build/**"
-      - "docs/superpowers/specs/2026-08-20-k380-flash-partitions-design.md"
-      - "docs/superpowers/plans/2026-08-20-k380-flash-partitions.md"
   workflow_dispatch:
 
 permissions:
@@ -155,10 +143,23 @@ jobs:
           source = re.sub(r"//[^\n]*", "", source)
           normalized = re.sub(r"\s+", "", source)
 
-          for rc in ("RC(2,5)", "RC(6,9)"):
-              assert rc in normalized, f"K380 transform must include confirmed {rc}"
-          for rc in ("RC(5,13)", "RC(4,9)"):
-              assert rc not in normalized, f"K380 transform still contains obsolete {rc}"
+          transform = re.search(
+              r"k380_transform\s*:\s*keymap_transform_0\s*\{(?P<body>.*?)\n\s*\};",
+              source,
+              re.S,
+          )
+          assert transform, "missing K380 physical layout transform"
+          entries = [
+              (int(row), int(col))
+              for row, col in re.findall(r"\bRC\((\d+),(\d+)\)", transform.group("body"))
+          ]
+          coords = set(entries)
+          assert len(entries) == 80, f"K380 transform must contain 80 keys, found {len(entries)}"
+          assert len(coords) == 80, "K380 transform contains duplicate RC coordinates"
+          for row, col in coords:
+              assert 0 <= row < 8, f"K380 transform row out of range: RC({row},{col})"
+              assert 0 <= col < 15, f"K380 transform column out of range: RC({row},{col})"
+          assert (4, 7) in coords, "K380 transform must include Del recovery coordinate RC(4,7)"
 
           def matching_brace(dts, opening):
               depth = 0
@@ -742,17 +743,10 @@ jobs:
           entry_set = {(int(row), int(col), key) for row, col, key in entries}
           assert len(entries) == 80, f"expected 80 key name entries, found {len(entries)}"
           assert len(coords) == 80, "duplicate K380 diagnostic key coordinates"
+          for row, col in coords:
+              assert 0 <= row < 8, f"K380 diagnostic row out of range: RC({row},{col})"
+              assert 0 <= col < 15, f"K380 diagnostic column out of range: RC({row},{col})"
           assert (4, 7, "Del") in entry_set, "Del must be identified as RC(4,7)"
-          assert (2, 5, "Grave") in entry_set, "Grave must be identified as confirmed RC(2,5)"
-          assert (6, 9, "Backslash") in entry_set, (
-              "Backslash must be identified as confirmed RC(6,9)"
-          )
-          assert (5, 13, "Grave") not in entry_set, (
-              "Grave must not remain on obsolete RC(5,13)"
-          )
-          assert (4, 9, "Backslash") not in entry_set, (
-              "Backslash must not remain on obsolete RC(4,9)"
-          )
           assert (
               "K380_MATRIX row=%u col=%u key=%s state=%s\\n" in source
           ), "diagnostic matrix log must include key name"

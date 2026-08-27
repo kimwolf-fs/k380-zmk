@@ -3,6 +3,3 @@
 
 # Convert YAML to JSON for validation
 remarshal>=0.14.0
-
-# Perform our hardware metadata validation
-jsonschema>=3.2.0
