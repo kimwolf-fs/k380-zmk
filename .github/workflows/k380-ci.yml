@@ -232,19 +232,19 @@ jobs:
           for forbidden in (
               "zmk,battery",
               "battery",
-              "ws2812",
-              "led-strip",
               "pwm-leds",
-              "led-controller",
-              "led",
           ):
               assert forbidden not in normalized, f"forbidden source content: {forbidden}"
           chosen_source = re.search(r"chosen\s*\{(?P<body>[^}]*)\};", source_without_comments, re.S)
           assert chosen_source and "zmk,matrix-transform" not in chosen_source.group("body"), (
               "chosen zmk,matrix-transform must not be used; K380 uses the physical layout transform"
           )
-          assert not re.search(r"&gpio0\s+13\b", source_without_comments), (
-              "P0.13 must not be assigned in the board DTS"
+          assert re.search(
+              r"\bzmk,underglow\s*=\s*&k380_ws2812\s*;",
+              chosen_source.group("body"),
+          ), "chosen zmk,underglow must point to k380_ws2812"
+          assert not re.search(r"<\s*&gpio0\s+13\b", source_without_comments), (
+              "P0.13 must not be assigned as a GPIO in the board DTS"
           )
           reg0 = re.search(r"&reg0\s*\{(?P<body>[^}]*)\};", source_without_comments, re.S)
           assert not reg0 or not re.search(
@@ -360,6 +360,61 @@ jobs:
               value_end = node_body.find(";", match.end())
               assert value_end >= 0, f"unterminated {property_name}"
               return node_body[match.end():value_end]
+
+          def extract_overlay_node(dts, node_ref):
+              match = re.search(rf"&{re.escape(node_ref)}\s*\{{", dts)
+              assert match, f"missing {node_ref} overlay"
+              opening = dts.find("{", match.start())
+              closing = matching_brace(dts, opening)
+              return dts[opening + 1:closing]
+
+          def extract_labeled_node(dts, label, node_name):
+              match = re.search(
+                  rf"(?m)^[ \t]*{re.escape(label)}\s*:\s*"
+                  rf"{re.escape(node_name)}\s*\{{",
+                  dts,
+              )
+              assert match, f"missing {label}: {node_name} node"
+              opening = dts.find("{", match.start())
+              closing = matching_brace(dts, opening)
+              return dts[opening + 1:closing]
+
+          def assert_ws2812_source_contract(dts):
+              spi3 = extract_overlay_node(dts, "spi3")
+              assert re.search(
+                  r'\bcompatible\s*=\s*"nordic,nrf-spim"\s*;',
+                  spi3,
+              ), "K380 WS2812B must use nRF SPIM"
+              assert re.search(
+                  r"\bpinctrl-0\s*=\s*<\s*&spi3_default\s*>\s*;",
+                  spi3,
+              ), "K380 WS2812B SPI default pinctrl is missing"
+              assert re.search(
+                  r"\bpinctrl-1\s*=\s*<\s*&spi3_sleep\s*>\s*;",
+                  spi3,
+              ), "K380 WS2812B SPI sleep pinctrl is missing"
+              assert re.search(
+                  r"\bpsels\s*=\s*<\s*NRF_PSEL\s*\(\s*SPIM_MOSI\s*,\s*0\s*,\s*13\s*\)\s*>\s*;",
+                  extract_labeled_node(dts, "spi3_default", "spi3_default"),
+              ), "K380 WS2812B data pin must be P0.13 in default pinctrl"
+              assert re.search(
+                  r"\bpsels\s*=\s*<\s*NRF_PSEL\s*\(\s*SPIM_MOSI\s*,\s*0\s*,\s*13\s*\)\s*>\s*;",
+                  extract_labeled_node(dts, "spi3_sleep", "spi3_sleep"),
+              ), "K380 WS2812B data pin must be P0.13 in sleep pinctrl"
+
+              ws = extract_labeled_node(dts, "k380_ws2812", "ws2812@0")
+              assert re.search(
+                  r'\bcompatible\s*=\s*"worldsemi,ws2812-spi"\s*;',
+                  ws,
+              ), "K380 WS2812B compatible must be worldsemi,ws2812-spi"
+              assert re.search(r"\bchain-length\s*=\s*<\s*4\s*>\s*;", ws), (
+                  "K380 WS2812B chain length must be 4"
+              )
+              assert "LED_COLOR_ID_GREEN" in ws and "LED_COLOR_ID_RED" in ws and (
+                  "LED_COLOR_ID_BLUE" in ws
+              ), "K380 WS2812B color mapping must be present"
+
+          assert_ws2812_source_contract(source_without_comments)
 
           def parse_gpio_property(node_body, property_name):
               value = parse_direct_property(node_body, property_name)

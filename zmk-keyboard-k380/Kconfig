@@ -2,4 +2,12 @@ menu "K380 keyboard module"
 
 rsource "drivers/kscan/Kconfig"
 
+config K380_STATUS_INDICATOR
+    bool "K380 WS2812B status indicator"
+    default n
+    select LED_STRIP
+    help
+      Enables the K380 status indicator policy for the four board WS2812B
+      pixels.
+
 endmenu

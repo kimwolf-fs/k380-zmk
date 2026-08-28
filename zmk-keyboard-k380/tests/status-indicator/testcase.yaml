@@ -1,0 +1,7 @@
+tests:
+  k380.status_indicator:
+    platform_allow:
+      - native_sim
+    tags:
+      - k380
+      - unit

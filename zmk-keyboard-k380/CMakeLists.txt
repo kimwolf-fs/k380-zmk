@@ -1,2 +1,5 @@
 zephyr_include_directories(include)
+if(CONFIG_K380_STATUS_INDICATOR)
+  target_sources(app PRIVATE src/status_indicator.c)
+endif()
 add_subdirectory(drivers/kscan)
