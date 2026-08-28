@@ -37,9 +37,14 @@ static uint8_t low_battery_recovery_hits;
 static uint8_t soft_off_hits;
 static uint8_t soft_off_recovery_hits;
 static enum k380_power_state power_state = K380_POWER_NORMAL;
+K_MUTEX_DEFINE(battery_policy_lock);
 
 static uint16_t average_mv(void) {
     uint32_t sum = 0;
+
+    if (sample_count == 0U) {
+        return 0;
+    }
 
     for (uint8_t i = 0; i < sample_count; i++) {
         sum += samples[i];
@@ -91,6 +96,8 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
         return -EINVAL;
     }
 
+    k_mutex_lock(&battery_policy_lock, K_FOREVER);
+
     samples[next_sample] = vddh_mv;
     next_sample = (next_sample + 1U) % K380_BATTERY_WINDOW_SIZE;
     if (sample_count < K380_BATTERY_WINDOW_SIZE) {
@@ -103,6 +110,7 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
         soft_off_hits = 0;
         soft_off_recovery_hits = 0;
         set_power_state(K380_POWER_CHARGING);
+        k_mutex_unlock(&battery_policy_lock);
         return 0;
     }
 
@@ -160,10 +168,17 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
         break;
     }
 
+    k_mutex_unlock(&battery_policy_lock);
     return 0;
 }
 
-enum k380_power_state k380_battery_policy_state(void) { return power_state; }
+enum k380_power_state k380_battery_policy_state(void) {
+    k_mutex_lock(&battery_policy_lock, K_FOREVER);
+    const enum k380_power_state state = power_state;
+    k_mutex_unlock(&battery_policy_lock);
+
+    return state;
+}
 
 #if IS_ENABLED(CONFIG_K380_BATTERY_POLICY_RUNTIME)
 static const struct device *const battery = DEVICE_DT_GET(DT_CHOSEN(zmk_battery));

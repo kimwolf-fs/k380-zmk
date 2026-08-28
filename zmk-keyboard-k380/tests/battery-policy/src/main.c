@@ -37,6 +37,8 @@ ZTEST(k380_battery_policy, test_vddh_average_debounce_and_charging_override) {
     zassert_equal(k380_battery_policy_state(), K380_POWER_LOW_BATTERY);
     submit_samples(3190, 2);
     zassert_equal(k380_battery_policy_state(), K380_POWER_LOW_BATTERY);
+    zassert_equal(k380_battery_policy_submit_mv(0), -EINVAL);
+    zassert_equal(k380_battery_policy_state(), K380_POWER_LOW_BATTERY);
     zassert_ok(k380_battery_policy_submit_mv(3190));
     zassert_equal(k380_battery_policy_state(), K380_POWER_SOFT_OFF_WARNING_REQUESTED);
     zassert_equal(k380_status_indicator_current(), K380_STATUS_Z4_SOFT_OFF_WARNING);
@@ -54,9 +56,6 @@ ZTEST(k380_battery_policy, test_vddh_average_debounce_and_charging_override) {
     zassert_equal(k380_battery_policy_state(), K380_POWER_CHARGING);
     zassert_equal(k380_status_indicator_current(), K380_STATUS_Z2_CHARGING);
 
-    /* Invalid values must leave the window, debounce counters, and state untouched. */
-    zassert_equal(k380_battery_policy_submit_mv(0), -EINVAL);
-    zassert_equal(k380_battery_policy_state(), K380_POWER_CHARGING);
 }
 
 ZTEST_SUITE(k380_battery_policy, NULL, NULL, NULL, NULL, NULL);
