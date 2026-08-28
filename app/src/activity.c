@@ -85,9 +85,9 @@ void activity_work_handler(struct k_work *work) {
         }
     } else
 #endif /* IS_ENABLED(CONFIG_ZMK_SLEEP) */
-    if (inactive_time > MAX_IDLE_MS) {
-        set_state(ZMK_ACTIVITY_IDLE);
-    }
+        if (inactive_time > MAX_IDLE_MS) {
+            set_state(ZMK_ACTIVITY_IDLE);
+        }
 }
 
 K_WORK_DEFINE(activity_work, activity_work_handler);

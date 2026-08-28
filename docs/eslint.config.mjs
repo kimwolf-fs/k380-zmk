@@ -10,7 +10,6 @@ export default defineConfig([
     ".cache-loader/",
     ".docusaurus/",
     "build/",
-    "src/hardware-metadata.d.ts",
   ]),
   { files: ["**/*.{js,jsx,ts,tsx,md,mdx}"] },
   jseslint.configs.recommended,

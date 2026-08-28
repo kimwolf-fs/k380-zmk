@@ -22,21 +22,19 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/events/activity_state_changed.h>
 #include <zmk/activity.h>
 #include <zmk/pm.h>
-#include <zmk/usb.h>
 #include <zmk/workqueue.h>
 
 static uint8_t last_state_of_charge = 0;
 static uint16_t last_voltage_mv = 0;
 
 #define K380_BATTERY_WARN_MV 3400
-#define K380_BATTERY_LIMIT_MV 3300
 #define K380_BATTERY_CUTOFF_MV 3200
+#define K380_USB_POWER_PRESENT_MV 4500
 #define K380_BATTERY_CUTOFF_SAMPLES 3
 
 enum k380_battery_policy {
     K380_BATTERY_POLICY_NORMAL,
     K380_BATTERY_POLICY_WARN,
-    K380_BATTERY_POLICY_LIMIT,
     K380_BATTERY_POLICY_CRITICAL,
 };
 
@@ -73,10 +71,12 @@ static uint8_t lithium_ion_mv_to_pct(int16_t bat_mv) {
 static void zmk_battery_apply_policy(uint16_t mv) {
     enum k380_battery_policy new_policy = K380_BATTERY_POLICY_NORMAL;
 
-    if (mv <= K380_BATTERY_CUTOFF_MV) {
+    if (mv > K380_USB_POWER_PRESENT_MV) {
+        critical_voltage_hits = 0;
+        shutdown_requested = false;
+        new_policy = K380_BATTERY_POLICY_NORMAL;
+    } else if (mv <= K380_BATTERY_CUTOFF_MV) {
         new_policy = K380_BATTERY_POLICY_CRITICAL;
-    } else if (mv <= K380_BATTERY_LIMIT_MV) {
-        new_policy = K380_BATTERY_POLICY_LIMIT;
     } else if (mv < K380_BATTERY_WARN_MV) {
         new_policy = K380_BATTERY_POLICY_WARN;
     }
@@ -89,9 +89,6 @@ static void zmk_battery_apply_policy(uint16_t mv) {
         case K380_BATTERY_POLICY_WARN:
             LOG_WRN("Battery low at %u mV", mv);
             break;
-        case K380_BATTERY_POLICY_LIMIT:
-            LOG_WRN("Battery limited at %u mV", mv);
-            break;
         case K380_BATTERY_POLICY_CRITICAL:
             LOG_WRN("Battery critical at %u mV", mv);
             break;
@@ -99,7 +96,7 @@ static void zmk_battery_apply_policy(uint16_t mv) {
         battery_policy = new_policy;
     }
 
-    if (new_policy == K380_BATTERY_POLICY_NORMAL || zmk_usb_is_powered()) {
+    if (new_policy == K380_BATTERY_POLICY_NORMAL) {
         critical_voltage_hits = 0;
         shutdown_requested = false;
         return;
@@ -119,8 +116,7 @@ static void zmk_battery_apply_policy(uint16_t mv) {
     }
 
     shutdown_requested = true;
-    LOG_WRN("Battery below %u mV for %u samples, entering soft off", mv,
-            critical_voltage_hits);
+    LOG_WRN("Battery below %u mV for %u samples, entering soft off", mv, critical_voltage_hits);
 
     if (zmk_pm_soft_off() < 0) {
         LOG_ERR("Soft off failed, forcing system off");
