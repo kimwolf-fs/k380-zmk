@@ -234,8 +234,6 @@ jobs:
           ), "reg1 must enable DCDC"
 
           for forbidden in (
-              "zmk,battery",
-              "battery",
               "pwm-leds",
           ):
               assert forbidden not in normalized, f"forbidden source content: {forbidden}"
@@ -243,6 +241,10 @@ jobs:
           assert chosen_source and "zmk,matrix-transform" not in chosen_source.group("body"), (
               "chosen zmk,matrix-transform must not be used; K380 uses the physical layout transform"
           )
+          assert re.search(
+              r"\bzmk,battery\s*=\s*&k380_vddh_battery\s*;",
+              chosen_source.group("body"),
+          ), "chosen zmk,battery must point to the K380 VDDH SAADC battery"
           assert re.search(
               r"\bzmk,underglow\s*=\s*&k380_ws2812\s*;",
               chosen_source.group("body"),
@@ -417,6 +419,24 @@ jobs:
               assert "LED_COLOR_ID_GREEN" in ws and "LED_COLOR_ID_RED" in ws and (
                   "LED_COLOR_ID_BLUE" in ws
               ), "K380 WS2812B color mapping must be present"
+
+              p013_psels = re.findall(
+                  r"NRF_PSEL\s*\(\s*([^,]+)\s*,\s*0\s*,\s*13\s*\)", dts
+              )
+              assert p013_psels == ["SPIM_MOSI", "SPIM_MOSI"], (
+                  "P0.13 source ownership must be limited to the two WS2812B SPIM_MOSI pinctrl states"
+              )
+
+          vddh_battery = extract_root_node(
+              source_without_comments, "battery", required_label="k380_vddh_battery"
+          )
+          assert re.fullmatch(
+              r'\s*"zmk,battery-nrf-vddh"\s*',
+              parse_direct_property(vddh_battery, "compatible"),
+          ), "K380 battery must use the VDDH SAADC compatible"
+          assert re.fullmatch(
+              r'\s*"okay"\s*', parse_direct_property(vddh_battery, "status")
+          ), "K380 VDDH SAADC battery must be enabled"
 
           assert_ws2812_source_contract(source_without_comments)
 
@@ -759,6 +779,7 @@ jobs:
             build/k380-board/**/zephyr/zephyr.dts
             build/k380-board/**/zephyr/zmk.elf
             build/k380-board/**/zephyr/zephyr.elf
+            build/k380-board/**/zephyr/zmk.map
             build/k380-board/**/zephyr/zephyr.map
             build/k380-board/**/zephyr/zmk.hex
             build/k380-board/**/zephyr/zmk.uf2

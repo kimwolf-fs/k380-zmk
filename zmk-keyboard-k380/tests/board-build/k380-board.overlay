@@ -6,3 +6,11 @@
         default_layer { bindings = <&none>; };
     };
 };
+
+&k380_vddh_battery {
+    status = "okay";
+};
+
+&k380_ws2812 {
+    status = "okay";
+};
