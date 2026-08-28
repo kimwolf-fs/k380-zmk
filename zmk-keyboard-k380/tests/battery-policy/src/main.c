@@ -32,6 +32,12 @@ ZTEST(k380_battery_policy, test_vddh_average_debounce_and_charging_override) {
     zassert_ok(k380_battery_policy_submit_mv(3500));
     zassert_equal(k380_battery_policy_state(), K380_POWER_NORMAL);
 
+    /* An invalid sample must not displace a valid 3.5 V window entry. */
+    submit_samples(3390, 2);
+    zassert_equal(k380_battery_policy_submit_mv(0), -EINVAL);
+    submit_samples(3390, 3);
+    zassert_equal(k380_battery_policy_state(), K380_POWER_NORMAL);
+
     /* Critical voltage requests only the Task 4 warning, never soft-off itself. */
     submit_samples(3190, 4);
     zassert_equal(k380_battery_policy_state(), K380_POWER_LOW_BATTERY);
