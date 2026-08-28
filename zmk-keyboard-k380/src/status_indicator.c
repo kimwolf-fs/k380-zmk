@@ -62,6 +62,11 @@ int k380_status_indicator_set(enum k380_status_id status) {
     const bool current_bootloader = is_bootloader_status(current_status);
     const bool current_zmk = is_zmk_status(current_status);
 
+    if (current_status == K380_STATUS_Z6_BLE_CONNECTED && status == K380_STATUS_Z1_NORMAL) {
+        current_status = status;
+        return 0;
+    }
+
     if ((new_bootloader && !current_bootloader) || (new_zmk && !current_zmk)) {
         current_status = status;
         return 0;

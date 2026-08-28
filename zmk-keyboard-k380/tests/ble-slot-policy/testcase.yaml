@@ -1,0 +1,7 @@
+tests:
+  k380.ble_slot_policy:
+    platform_allow:
+      - native_sim
+    tags:
+      - k380
+      - unit

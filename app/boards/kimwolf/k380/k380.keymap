@@ -10,7 +10,42 @@
 #define DEFAULT 0
 #define FN      1
 
+#define K380_BLE_SLOT_SELECT 0
+#define K380_BLE_SLOT_PAIR   1
+
 / {
+    behaviors {
+        k380_ble: k380_ble_slot {
+            compatible = "k380,behavior-ble-slot";
+            #binding-cells = <2>;
+            display-name = "K380 BLE Slot";
+        };
+
+        k380_bt_1: k380_bt_1 {
+            compatible = "zmk,behavior-hold-tap";
+            #binding-cells = <0>;
+            flavor = "tap-preferred";
+            tapping-term-ms = <500>;
+            bindings = <&k380_ble K380_BLE_SLOT_PAIR 1>, <&k380_ble K380_BLE_SLOT_SELECT 1>;
+        };
+
+        k380_bt_2: k380_bt_2 {
+            compatible = "zmk,behavior-hold-tap";
+            #binding-cells = <0>;
+            flavor = "tap-preferred";
+            tapping-term-ms = <500>;
+            bindings = <&k380_ble K380_BLE_SLOT_PAIR 2>, <&k380_ble K380_BLE_SLOT_SELECT 2>;
+        };
+
+        k380_bt_3: k380_bt_3 {
+            compatible = "zmk,behavior-hold-tap";
+            #binding-cells = <0>;
+            flavor = "tap-preferred";
+            tapping-term-ms = <500>;
+            bindings = <&k380_ble K380_BLE_SLOT_PAIR 3>, <&k380_ble K380_BLE_SLOT_SELECT 3>;
+        };
+    };
+
     keymap {
         compatible = "zmk,keymap";
 
@@ -27,7 +62,7 @@
 
         fn_layer {
             bindings = <
-                &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &bootloader
+                &trans      &k380_bt_1 &k380_bt_2 &k380_bt_3 &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &bootloader
                 &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &trans   &trans
                 &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &trans   &trans
                 &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &trans

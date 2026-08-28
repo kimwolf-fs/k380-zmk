@@ -10,4 +10,12 @@ config K380_STATUS_INDICATOR
       Enables the K380 status indicator policy for the four board WS2812B
       pixels.
 
+config K380_BLE_SLOT_POLICY
+    bool "K380 BLE slot policy"
+    default n
+    depends on ZMK_BLE
+    select K380_STATUS_INDICATOR
+    help
+      Enables the K380 three-slot BLE policy and status indicator mapping.
+
 endmenu
