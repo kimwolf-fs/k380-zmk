@@ -11,5 +11,6 @@ uint8_t k380_ble_slot_current(void);
 
 #ifdef CONFIG_ZTEST
 void k380_ble_slot_policy_reset_for_test(void);
+void k380_ble_slot_active_profile_changed_for_test(void);
 void k380_ble_slot_connected_prompt_expire_for_test(void);
 #endif

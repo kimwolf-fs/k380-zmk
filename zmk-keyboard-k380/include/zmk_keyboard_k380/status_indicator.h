@@ -19,4 +19,5 @@ enum k380_status_id {
 };
 
 int k380_status_indicator_set(enum k380_status_id status);
+void k380_status_indicator_clear(enum k380_status_id status);
 enum k380_status_id k380_status_indicator_current(void);

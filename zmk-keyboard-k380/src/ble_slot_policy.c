@@ -11,6 +11,10 @@
 #include <drivers/behavior.h>
 #include <zmk/behavior.h>
 #include <zmk/ble.h>
+#ifndef CONFIG_ZTEST
+#include <zmk/event_manager.h>
+#include <zmk/events/ble_active_profile_changed.h>
+#endif
 
 #include <zmk_keyboard_k380/ble_slot_policy.h>
 #include <zmk_keyboard_k380/status_indicator.h>
@@ -32,8 +36,21 @@ static bool is_valid_slot(uint8_t slot) { return slot >= 1 && slot <= K380_BLE_S
 
 static uint8_t profile_index_for_slot(uint8_t slot) { return slot - 1; }
 
-static int set_slot_status(uint8_t slot, enum k380_status_id waiting_status) {
-    const uint8_t profile = profile_index_for_slot(slot);
+static void clear_ble_slot_statuses(void) {
+    k380_status_indicator_clear(K380_STATUS_Z5_BLE_WAITING);
+    k380_status_indicator_clear(K380_STATUS_Z6_BLE_CONNECTED);
+    k380_status_indicator_clear(K380_STATUS_Z7_BLE_PAIRING);
+}
+
+static int update_active_slot_status(void) {
+    const int profile = zmk_ble_active_profile_index();
+
+    if (profile < 0 || profile >= K380_BLE_SLOT_COUNT) {
+        return 0;
+    }
+
+    k_work_cancel_delayable(&connected_prompt_work);
+    clear_ble_slot_statuses();
 
     if (zmk_ble_profile_is_connected(profile)) {
         int err = k380_status_indicator_set(K380_STATUS_Z6_BLE_CONNECTED);
@@ -45,7 +62,7 @@ static int set_slot_status(uint8_t slot, enum k380_status_id waiting_status) {
                                  K_MSEC(K380_BLE_CONNECTED_PROMPT_MS));
     }
 
-    return k380_status_indicator_set(waiting_status);
+    return k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING);
 }
 
 int k380_ble_slot_select(uint8_t slot) {
@@ -58,7 +75,7 @@ int k380_ble_slot_select(uint8_t slot) {
         return err;
     }
 
-    return set_slot_status(slot, K380_STATUS_Z5_BLE_WAITING);
+    return update_active_slot_status();
 }
 
 int k380_ble_slot_pair(uint8_t slot) {
@@ -83,7 +100,19 @@ uint8_t k380_ble_slot_current(void) {
 
 #ifdef CONFIG_ZTEST
 void k380_ble_slot_policy_reset_for_test(void) {}
+void k380_ble_slot_active_profile_changed_for_test(void) { update_active_slot_status(); }
 void k380_ble_slot_connected_prompt_expire_for_test(void) { connected_prompt_expired(NULL); }
+#endif
+
+#ifndef CONFIG_ZTEST
+static int k380_ble_slot_event_listener(const zmk_event_t *eh) {
+    ARG_UNUSED(eh);
+
+    return update_active_slot_status();
+}
+
+ZMK_LISTENER(k380_ble_slot_event_listener, k380_ble_slot_event_listener);
+ZMK_SUBSCRIPTION(k380_ble_slot_event_listener, zmk_ble_active_profile_changed);
 #endif
 
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)

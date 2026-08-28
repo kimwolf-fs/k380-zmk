@@ -79,4 +79,11 @@ int k380_status_indicator_set(enum k380_status_id status) {
     return 0;
 }
 
+void k380_status_indicator_clear(enum k380_status_id status) {
+    if (current_status == status) {
+        current_status =
+            is_bootloader_status(status) ? K380_STATUS_B1_BOOTLOADER_WAITING : K380_STATUS_Z1_NORMAL;
+    }
+}
+
 enum k380_status_id k380_status_indicator_current(void) { return current_status; }

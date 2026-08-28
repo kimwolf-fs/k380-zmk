@@ -1,3 +1,5 @@
+#include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <zephyr/sys/util.h>
@@ -63,13 +65,26 @@ ZTEST(k380_ble_slot_policy, test_connect_slot_2_shows_connected_prompt) {
     zassert_equal(k380_status_indicator_current(), K380_STATUS_Z1_NORMAL);
 }
 
-ZTEST(k380_ble_slot_policy, test_select_slot_3_replaces_slot_2_waiting) {
-    zassert_ok(k380_ble_slot_select(2));
+ZTEST(k380_ble_slot_policy, test_select_slot_3_replaces_slot_2_pairing) {
+    zassert_ok(k380_ble_slot_pair(2));
     zassert_ok(k380_ble_slot_select(3));
 
     zassert_equal(k380_ble_slot_current(), 3);
     zassert_equal(selected_profile, 2);
     zassert_equal(k380_status_indicator_current(), K380_STATUS_Z5_BLE_WAITING);
+}
+
+ZTEST(k380_ble_slot_policy, test_active_slot_connection_shows_connected_prompt) {
+    zassert_ok(k380_ble_slot_select(2));
+    connected_profiles[1] = true;
+
+    k380_ble_slot_active_profile_changed_for_test();
+
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z6_BLE_CONNECTED);
+
+    k380_ble_slot_connected_prompt_expire_for_test();
+
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z1_NORMAL);
 }
 
 ZTEST(k380_ble_slot_policy, test_current_slot_follows_persisted_zmk_profile) {
