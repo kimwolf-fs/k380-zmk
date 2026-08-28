@@ -24,9 +24,11 @@ static char last_shutdown_reason[sizeof(K380_SOFT_OFF_REASON_LOW_VOLTAGE)];
 
 #ifdef CONFIG_ZTEST
 extern void k380_soft_off_test_record(int call);
+extern int k380_soft_off_test_start_warning(void);
 extern int k380_soft_off_test_wait_warning(void);
 extern int k380_soft_off_test_save_reason(const char *name, const char *value, size_t len);
 extern int k380_soft_off_test_confirm_ble_settings(void);
+extern int k380_soft_off_test_active_ble_slot(void);
 extern int k380_soft_off_test_clear_hid(void);
 extern int k380_soft_off_test_disconnect_ble(int index);
 extern int k380_soft_off_test_system_off(void);
@@ -42,15 +44,26 @@ static int save_shutdown_reason(void) {
 #endif
 }
 
-static int selected_ble_slot(void) {
+static int start_warning(void) {
+#ifdef CONFIG_ZTEST
+    return k380_soft_off_test_start_warning();
+#else
+    return k380_status_indicator_set(K380_STATUS_Z4_SOFT_OFF_WARNING);
+#endif
+}
+
+static int confirm_ble_settings(void) {
 #ifdef CONFIG_ZTEST
     return k380_soft_off_test_confirm_ble_settings();
 #else
-    const int err = zmk_ble_save_active_profile();
-    if (err < 0) {
-        return err;
-    }
+    return zmk_ble_save_active_profile();
+#endif
+}
 
+static int selected_ble_slot(void) {
+#ifdef CONFIG_ZTEST
+    return k380_soft_off_test_active_ble_slot();
+#else
     return zmk_ble_active_profile_index();
 #endif
 }
@@ -94,6 +107,10 @@ void k380_soft_off_clear_last_reason(void) {
 #endif
 }
 
+#ifdef CONFIG_ZTEST
+char *k380_soft_off_test_last_reason_storage(void) { return last_shutdown_reason; }
+#endif
+
 static int complete_low_voltage_soft_off(void) {
     int err;
 
@@ -112,9 +129,14 @@ static int complete_low_voltage_soft_off(void) {
         LOG_ERR("Failed to save shutdown reason (%d)", err);
     }
 
+    err = confirm_ble_settings();
+    if (err < 0) {
+        LOG_ERR("Failed to confirm BLE settings (%d)", err);
+    }
+
     const int slot = selected_ble_slot();
     if (slot < 0) {
-        LOG_ERR("Failed to confirm BLE settings (%d)", slot);
+        LOG_ERR("Failed to get active BLE slot (%d)", slot);
     }
 
     err = clear_hid_reports();
@@ -147,9 +169,10 @@ int k380_soft_off_request_low_voltage(void) {
 #ifdef CONFIG_ZTEST
     k380_soft_off_test_record(0);
 #endif
-    err = k380_status_indicator_set(K380_STATUS_Z4_SOFT_OFF_WARNING);
+    err = start_warning();
     if (err < 0) {
         LOG_ERR("Failed to start soft-off warning (%d)", err);
+        return err;
     }
 
 #ifdef CONFIG_ZTEST
@@ -179,14 +202,6 @@ static int k380_soft_off_settings_set(const char *name, size_t len, settings_rea
 }
 
 static int k380_soft_off_settings_commit(void) {
-    if (k380_soft_off_last_reason() != NULL) {
-        /* The persisted marker is consumed once; RAM keeps it observable during this boot. */
-        const int err = settings_delete(K380_SOFT_OFF_REASON_SETTING);
-        if (err < 0) {
-            LOG_ERR("Failed to consume shutdown reason (%d)", err);
-        }
-    }
-
     return 0;
 }
 
