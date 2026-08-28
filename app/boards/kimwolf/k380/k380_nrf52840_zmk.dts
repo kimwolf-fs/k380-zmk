@@ -19,13 +19,8 @@
         zephyr,code-partition = &code_partition;
         zephyr,sram = &sram0;
         zephyr,flash = &flash0;
-        zmk,battery = &vbatt;
         zmk,physical-layout = &physical_layout0;
         zmk,kscan = &k380_kscan;
-    };
-
-    vbatt: vbatt {
-        compatible = "zmk,battery-nrf-vddh";
     };
 
     k380_kscan: k380_kscan {
