@@ -54,6 +54,7 @@ jobs:
       - run: west update --fetch-opt=--filter=tree:0
       - run: west zephyr-export
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
+      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/status-indicator -p native_sim
       - if: always()
         uses: actions/upload-artifact@v7
         with:

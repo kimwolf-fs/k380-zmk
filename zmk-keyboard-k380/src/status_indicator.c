@@ -62,17 +62,12 @@ int k380_status_indicator_set(enum k380_status_id status) {
     const bool current_bootloader = is_bootloader_status(current_status);
     const bool current_zmk = is_zmk_status(current_status);
 
-    if (status == K380_STATUS_B1_BOOTLOADER_WAITING || status == K380_STATUS_Z1_NORMAL) {
-        current_status = status;
-        return 0;
-    }
-
     if ((new_bootloader && !current_bootloader) || (new_zmk && !current_zmk)) {
         current_status = status;
         return 0;
     }
 
-    if (status_priority(status) >= status_priority(current_status)) {
+    if (status_priority(status) > status_priority(current_status)) {
         current_status = status;
     }
 
