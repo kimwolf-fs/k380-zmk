@@ -201,6 +201,7 @@ jobs:
             -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/board-build/k380-board.conf" \
             -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/board-build/k380-board.overlay"
       - name: Validate K380 board contract
+        shell: bash
         run: |
           set +e
           python3 - <<'PY' 2>contract_failure.log

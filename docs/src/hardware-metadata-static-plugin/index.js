@@ -7,7 +7,7 @@
 //@ts-check
 "use strict";
 
-/** @typedef {import('../hardware-metadata').HardwareMetadata} HardwareMetadata */
+/** @typedef {import('../hardware-types').HardwareMetadata} HardwareMetadata */
 /** @typedef {HardwareMetadata & { directory: string}} LocatedHardwareMetadata */
 
 const fs = require("fs").promises;

@@ -1,7 +1,7 @@
 import Tabs from "@theme/Tabs";
 import TabItem from "@theme/TabItem";
 
-import { HardwareMetadata, Interconnect } from "../hardware-metadata";
+import { HardwareMetadata, Interconnect } from "../hardware-types";
 import { groupedMetadata } from "./hardware-utils";
 
 interface InterconnectTabsProps {
