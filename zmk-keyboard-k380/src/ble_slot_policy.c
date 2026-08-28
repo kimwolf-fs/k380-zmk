@@ -8,10 +8,10 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
 
-#include <drivers/behavior.h>
-#include <zmk/behavior.h>
 #include <zmk/ble.h>
 #ifndef CONFIG_ZTEST
+#include <drivers/behavior.h>
+#include <zmk/behavior.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/ble_active_profile_changed.h>
 #endif
@@ -115,7 +115,7 @@ ZMK_LISTENER(k380_ble_slot_event_listener, k380_ble_slot_event_listener);
 ZMK_SUBSCRIPTION(k380_ble_slot_event_listener, zmk_ble_active_profile_changed);
 #endif
 
-#if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
+#if !defined(CONFIG_ZTEST) && DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
 
 static int k380_ble_slot_behavior_pressed(struct zmk_behavior_binding *binding,
                                           struct zmk_behavior_binding_event event) {

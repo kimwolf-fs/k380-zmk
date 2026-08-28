@@ -23,7 +23,7 @@
 
         k380_bt_1: k380_bt_1 {
             compatible = "zmk,behavior-hold-tap";
-            #binding-cells = <0>;
+            #binding-cells = <2>;
             flavor = "tap-preferred";
             tapping-term-ms = <500>;
             bindings = <&k380_ble_pair_1 &k380_ble_select_1>;
@@ -31,7 +31,7 @@
 
         k380_bt_2: k380_bt_2 {
             compatible = "zmk,behavior-hold-tap";
-            #binding-cells = <0>;
+            #binding-cells = <2>;
             flavor = "tap-preferred";
             tapping-term-ms = <500>;
             bindings = <&k380_ble_pair_2 &k380_ble_select_2>;
@@ -39,7 +39,7 @@
 
         k380_bt_3: k380_bt_3 {
             compatible = "zmk,behavior-hold-tap";
-            #binding-cells = <0>;
+            #binding-cells = <2>;
             flavor = "tap-preferred";
             tapping-term-ms = <500>;
             bindings = <&k380_ble_pair_3 &k380_ble_select_3>;
@@ -100,7 +100,7 @@
 
         fn_layer {
             bindings = <
-                &trans      &k380_bt_1 &k380_bt_2 &k380_bt_3 &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &bootloader
+                &trans      &k380_bt_1 0 0 &k380_bt_2 0 0 &k380_bt_3 0 0 &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &bootloader
                 &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &trans   &trans
                 &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &trans   &trans
                 &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &trans
