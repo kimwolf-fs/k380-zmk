@@ -58,8 +58,9 @@ static int update_active_slot_status(void) {
             return err;
         }
 
-        return k_work_reschedule(&connected_prompt_work,
-                                 K_MSEC(K380_BLE_CONNECTED_PROMPT_MS));
+        int schedule_result = k_work_reschedule(&connected_prompt_work,
+                                                K_MSEC(K380_BLE_CONNECTED_PROMPT_MS));
+        return MIN(schedule_result, 0);
     }
 
     return k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING);
