@@ -152,13 +152,13 @@ ZTEST(k380_soft_off, test_ble_settings_failure_still_disconnects_active_slot) {
     zassert_mem_equal(calls, expected, sizeof(expected));
 }
 
-ZTEST(k380_soft_off, test_last_reason_remains_until_explicitly_cleared) {
+ZTEST(k380_soft_off, test_successful_boot_consumes_loaded_last_reason) {
     reset_fakes();
     k380_soft_off_test_restore_reason("low_voltage_protection");
 
     zassert_equal(strcmp(k380_soft_off_last_reason(), "low_voltage_protection"), 0);
     zassert_equal(strcmp(k380_soft_off_last_reason(), "low_voltage_protection"), 0);
-    k380_soft_off_clear_last_reason();
+    k380_soft_off_handle_successful_boot();
     zassert_is_null(k380_soft_off_last_reason());
 }
 

@@ -107,6 +107,12 @@ void k380_soft_off_clear_last_reason(void) {
 #endif
 }
 
+void k380_soft_off_handle_successful_boot(void) {
+    if (k380_soft_off_last_reason() != NULL) {
+        k380_soft_off_clear_last_reason();
+    }
+}
+
 #ifdef CONFIG_ZTEST
 char *k380_soft_off_test_last_reason_storage(void) { return last_shutdown_reason; }
 #endif
