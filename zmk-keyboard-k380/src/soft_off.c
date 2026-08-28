@@ -172,9 +172,6 @@ K_WORK_DELAYABLE_DEFINE(k380_soft_off_warning_work, k380_soft_off_warning_expire
 int k380_soft_off_request_low_voltage(void) {
     int err;
 
-#ifdef CONFIG_ZTEST
-    k380_soft_off_test_record(0);
-#endif
     err = start_warning();
     if (err < 0) {
         LOG_ERR("Failed to start soft-off warning (%d)", err);
