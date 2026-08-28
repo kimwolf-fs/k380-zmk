@@ -30,6 +30,10 @@
 #include <zmk/debounce.h>
 #include <zmk_keyboard_k380/ghost_filter.h>
 
+#if IS_ENABLED(CONFIG_K380_STATUS_INDICATOR)
+#include <zmk_keyboard_k380/status_indicator.h>
+#endif
+
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
 #include <SEGGER_RTT.h>
 
@@ -46,6 +50,7 @@ struct k380_kscan_diag_snapshot {
     uint32_t heartbeat_count;
     uint32_t heartbeat_write_ret;
     uint32_t matrix_event_count;
+    uint32_t raw_matrix_event_count;
     uint32_t matrix_write_ret;
     uint32_t last_row;
     uint32_t last_col;
@@ -167,6 +172,9 @@ struct k380_kscan_data {
 #endif
     int64_t scan_time;
     struct zmk_debounce_state *matrix_state;
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+    uint16_t raw_matrix[K380_KSCAN_ROWS];
+#endif
 };
 
 struct k380_kscan_config {
@@ -175,6 +183,13 @@ struct k380_kscan_config {
     int32_t debounce_scan_period_ms;
     int32_t poll_period_ms;
 };
+
+static void k380_kscan_mark_fault(const char *stage, int err) {
+    LOG_ERR("K380 matrix fault during %s: %i", stage, err);
+#if IS_ENABLED(CONFIG_K380_STATUS_INDICATOR)
+    (void)k380_status_indicator_set(K380_STATUS_Z9_MATRIX_FAULT);
+#endif
+}
 
 static int k380_kscan_compare_ports(const void *left, const void *right) {
     const struct k380_kscan_gpio *left_gpio = left;
@@ -270,6 +285,27 @@ static void k380_kscan_diagnostic_direct_report(uint32_t row, uint32_t col, bool
 #endif
 }
 
+static void k380_kscan_diagnostic_raw_report(uint32_t row, uint32_t col, bool pressed) {
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+    char line[84];
+
+    const int len = snprintk(line, sizeof(line), "K380_MATRIX_RAW row=%u col=%u key=%s state=%s\n",
+                             row, col, k380_kscan_diagnostic_key_name(row, col),
+                             pressed ? "down" : "up");
+    k380_kscan_diag_snapshot.raw_matrix_event_count++;
+    k380_kscan_diag_snapshot.last_row = row;
+    k380_kscan_diag_snapshot.last_col = col;
+    k380_kscan_diag_snapshot.last_pressed = pressed ? 1U : 0U;
+    if (len > 0) {
+        k380_kscan_diag_snapshot.matrix_write_ret = k380_kscan_direct_rtt_write(line);
+    }
+#else
+    ARG_UNUSED(row);
+    ARG_UNUSED(col);
+    ARG_UNUSED(pressed);
+#endif
+}
+
 static void k380_kscan_diagnostic_report(uint32_t row, uint32_t col, bool pressed) {
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
     k380_kscan_diagnostic_direct_report(row, col, pressed);
@@ -324,6 +360,7 @@ static int k380_kscan_set_all_outputs(const struct device *dev, const int value)
 
         if (err) {
             LOG_ERR("Failed to set output %i to %i: %i", i, value, err);
+            k380_kscan_mark_fault("output set", err);
             return err;
         }
     }
@@ -341,6 +378,7 @@ static int k380_kscan_interrupt_configure(const struct device *dev, const gpio_f
 
         if (err) {
             LOG_ERR("Unable to configure interrupt for pin %u on %s", gpio->pin, gpio->port->name);
+            k380_kscan_mark_fault("interrupt configuration", err);
             return err;
         }
     }
@@ -384,7 +422,11 @@ static void k380_kscan_read_continue(const struct device *dev) {
 
 static void k380_kscan_read_end(const struct device *dev) {
 #if USE_INTERRUPTS
-    k380_kscan_interrupt_enable(dev);
+    const int err = k380_kscan_interrupt_enable(dev);
+
+    if (err) {
+        k380_kscan_mark_fault("scan recovery", err);
+    }
 #else
     struct k380_kscan_data *data = dev->data;
     const struct k380_kscan_config *config = dev->config;
@@ -408,6 +450,7 @@ static int k380_kscan_read(const struct device *dev) {
 
         if (err) {
             LOG_ERR("Failed to set output %i active: %i", out_gpio->index, err);
+            k380_kscan_mark_fault("scan output activation", err);
             return err;
         }
 
@@ -422,6 +465,7 @@ static int k380_kscan_read(const struct device *dev) {
 
             if (active < 0) {
                 LOG_ERR("Failed to read port %s: %i", in_gpio->spec.port->name, active);
+                k380_kscan_mark_fault("matrix input read", active);
                 return active;
             }
 
@@ -433,6 +477,7 @@ static int k380_kscan_read(const struct device *dev) {
         err = gpio_pin_set_dt(&out_gpio->spec, 0);
         if (err) {
             LOG_ERR("Failed to set output %i inactive: %i", out_gpio->index, err);
+            k380_kscan_mark_fault("scan output deactivation", err);
             return err;
         }
 
@@ -450,6 +495,20 @@ static int k380_kscan_read(const struct device *dev) {
             }
         }
     }
+
+#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
+    for (int row = 0; row < K380_KSCAN_ROWS; row++) {
+        const uint16_t changed = raw[row] ^ data->raw_matrix[row];
+
+        for (int col = 0; col < K380_KSCAN_COLS; col++) {
+            if ((changed & BIT(col)) != 0U) {
+                k380_kscan_diagnostic_raw_report(row, col, (raw[row] & BIT(col)) != 0U);
+            }
+        }
+
+        data->raw_matrix[row] = raw[row];
+    }
+#endif
 
     k380_ghost_filter_apply(raw, accepted, filtered, ambiguous);
 
@@ -492,7 +551,11 @@ static void k380_kscan_work_handler(struct k_work *work) {
     struct k_work_delayable *dwork = k_work_delayable_from_work(work);
     struct k380_kscan_data *data = CONTAINER_OF(dwork, struct k380_kscan_data, work);
 
-    k380_kscan_read(data->dev);
+    const int err = k380_kscan_read(data->dev);
+
+    if (err) {
+        k380_kscan_mark_fault("scan recovery", err);
+    }
 }
 
 static int k380_kscan_configure(const struct device *dev, const kscan_callback_t callback) {
@@ -515,7 +578,13 @@ static int k380_kscan_enable(const struct device *dev) {
 
     k380_kscan_rtt_report("K380_KSCAN_INIT ready\n");
     data->scan_time = k_uptime_get();
-    return k380_kscan_read(dev);
+    const int err = k380_kscan_read(dev);
+
+    if (err) {
+        k380_kscan_mark_fault("scan enable", err);
+    }
+
+    return err;
 }
 
 static int k380_kscan_disable(const struct device *dev) {
@@ -523,7 +592,13 @@ static int k380_kscan_disable(const struct device *dev) {
 
     k_work_cancel_delayable(&data->work);
 #if USE_INTERRUPTS
-    return k380_kscan_interrupt_disable(dev);
+    const int err = k380_kscan_interrupt_disable(dev);
+
+    if (err) {
+        k380_kscan_mark_fault("scan disable", err);
+    }
+
+    return err;
 #else
     return 0;
 #endif
@@ -533,6 +608,7 @@ static int k380_kscan_init_input_inst(const struct device *dev,
                                       const struct k380_kscan_gpio *gpio) {
     if (!device_is_ready(gpio->spec.port)) {
         LOG_ERR("GPIO is not ready: %s", gpio->spec.port->name);
+        k380_kscan_mark_fault("input GPIO readiness", -ENODEV);
         return -ENODEV;
     }
 
@@ -540,6 +616,7 @@ static int k380_kscan_init_input_inst(const struct device *dev,
     if (err) {
         LOG_ERR("Unable to configure pin %u on %s for input", gpio->spec.pin,
                 gpio->spec.port->name);
+        k380_kscan_mark_fault("input GPIO configuration", err);
         return err;
     }
 
@@ -552,6 +629,7 @@ static int k380_kscan_init_input_inst(const struct device *dev,
     err = gpio_add_callback(gpio->spec.port, &irq->callback);
     if (err) {
         LOG_ERR("Error adding the callback to the input device: %i", err);
+        k380_kscan_mark_fault("input callback configuration", err);
         return err;
     }
 #endif
@@ -580,12 +658,14 @@ static int k380_kscan_init_outputs(const struct device *dev) {
 
         if (!device_is_ready(gpio->port)) {
             LOG_ERR("GPIO is not ready: %s", gpio->port->name);
+            k380_kscan_mark_fault("output GPIO readiness", -ENODEV);
             return -ENODEV;
         }
 
         const int err = gpio_pin_configure_dt(gpio, GPIO_OUTPUT);
         if (err) {
             LOG_ERR("Unable to configure pin %u on %s for output", gpio->pin, gpio->port->name);
+            k380_kscan_mark_fault("output GPIO configuration", err);
             return err;
         }
     }
@@ -600,6 +680,7 @@ static int k380_kscan_disconnect_inputs(const struct device *dev) {
     for (int i = 0; i < data->inputs.len; i++) {
         const int err = gpio_pin_configure_dt(&data->inputs.gpios[i].spec, GPIO_DISCONNECTED);
         if (err) {
+            k380_kscan_mark_fault("PM input disconnect", err);
             return err;
         }
     }
@@ -612,6 +693,7 @@ static int k380_kscan_disconnect_outputs(const struct device *dev) {
     for (int i = 0; i < config->outputs.len; i++) {
         const int err = gpio_pin_configure_dt(&config->outputs.gpios[i].spec, GPIO_DISCONNECTED);
         if (err) {
+            k380_kscan_mark_fault("PM output disconnect", err);
             return err;
         }
     }
@@ -619,10 +701,19 @@ static int k380_kscan_disconnect_outputs(const struct device *dev) {
 }
 #endif
 
-static void k380_kscan_setup_pins(const struct device *dev) {
-    k380_kscan_init_inputs(dev);
-    k380_kscan_init_outputs(dev);
-    k380_kscan_set_all_outputs(dev, 0);
+static int k380_kscan_setup_pins(const struct device *dev) {
+    int err = k380_kscan_init_inputs(dev);
+
+    if (err) {
+        return err;
+    }
+
+    err = k380_kscan_init_outputs(dev);
+    if (err) {
+        return err;
+    }
+
+    return k380_kscan_set_all_outputs(dev, 0);
 }
 
 static int k380_kscan_init(const struct device *dev) {
@@ -642,24 +733,46 @@ static int k380_kscan_init(const struct device *dev) {
     pm_device_runtime_enable(dev);
 #endif
 #else
-    k380_kscan_setup_pins(dev);
+    const int err = k380_kscan_setup_pins(dev);
+
+    if (err) {
+        k380_kscan_mark_fault("initial scan setup", err);
+    }
+
+    return err;
 #endif
     return 0;
 }
 
 #if IS_ENABLED(CONFIG_PM_DEVICE)
 static int k380_kscan_pm_action(const struct device *dev, enum pm_device_action action) {
+    int err;
+
     switch (action) {
     case PM_DEVICE_ACTION_SUSPEND:
-        k380_kscan_disconnect_inputs(dev);
-        k380_kscan_disconnect_outputs(dev);
-        return k380_kscan_disable(dev);
+        err = k380_kscan_disconnect_inputs(dev);
+        if (!err) {
+            err = k380_kscan_disconnect_outputs(dev);
+        }
+        if (!err) {
+            err = k380_kscan_disable(dev);
+        }
+        break;
     case PM_DEVICE_ACTION_RESUME:
-        k380_kscan_setup_pins(dev);
-        return k380_kscan_enable(dev);
+        err = k380_kscan_setup_pins(dev);
+        if (!err) {
+            err = k380_kscan_enable(dev);
+        }
+        break;
     default:
         return -ENOTSUP;
     }
+
+    if (err) {
+        k380_kscan_mark_fault("PM scan lifecycle", err);
+    }
+
+    return err;
 }
 #endif
 
