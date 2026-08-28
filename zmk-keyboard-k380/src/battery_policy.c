@@ -10,6 +10,7 @@
 #include <zephyr/sys/util.h>
 
 #include <zmk_keyboard_k380/battery_policy.h>
+#include <zmk_keyboard_k380/soft_off.h>
 #include <zmk_keyboard_k380/status_indicator.h>
 
 #if IS_ENABLED(CONFIG_K380_BATTERY_POLICY_RUNTIME)
@@ -96,7 +97,13 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
         return -EINVAL;
     }
 
+#if IS_ENABLED(CONFIG_K380_SOFT_OFF)
+    bool request_soft_off;
+#endif
     k_mutex_lock(&battery_policy_lock, K_FOREVER);
+#if IS_ENABLED(CONFIG_K380_SOFT_OFF)
+    const enum k380_power_state previous_state = power_state;
+#endif
 
     samples[next_sample] = vddh_mv;
     next_sample = (next_sample + 1U) % K380_BATTERY_WINDOW_SIZE;
@@ -168,7 +175,17 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
         break;
     }
 
+#if IS_ENABLED(CONFIG_K380_SOFT_OFF)
+    request_soft_off = previous_state != K380_POWER_SOFT_OFF_WARNING_REQUESTED &&
+                        power_state == K380_POWER_SOFT_OFF_WARNING_REQUESTED;
+#endif
     k_mutex_unlock(&battery_policy_lock);
+
+#if IS_ENABLED(CONFIG_K380_SOFT_OFF)
+    if (request_soft_off) {
+        (void)k380_soft_off_request_low_voltage();
+    }
+#endif
     return 0;
 }
 

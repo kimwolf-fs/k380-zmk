@@ -1,0 +1,7 @@
+tests:
+  k380.soft_off:
+    platform_allow:
+      - native_sim
+    tags:
+      - k380
+      - unit

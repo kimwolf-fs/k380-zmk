@@ -284,6 +284,15 @@ static int ble_save_profile(void) {
 #endif
 }
 
+int zmk_ble_save_active_profile(void) {
+#if IS_ENABLED(CONFIG_SETTINGS)
+    k_work_cancel_delayable(&ble_save_work);
+    return settings_save_one("ble/active_profile", &active_profile, sizeof(active_profile));
+#else
+    return 0;
+#endif
+}
+
 int zmk_ble_prof_select(uint8_t index) {
     if (index >= ZMK_BLE_PROFILE_COUNT) {
         return -ERANGE;

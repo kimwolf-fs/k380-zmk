@@ -23,8 +23,18 @@ config K380_BATTERY_POLICY
     default n
     depends on ZMK_BATTERY_REPORTING
     select K380_STATUS_INDICATOR
+    select K380_SOFT_OFF
     help
       Enables K380 VDDH moving-average battery policy and status mapping.
+
+config K380_SOFT_OFF
+    bool "K380 low-voltage soft-off handling"
+    default n
+    depends on ZMK_PM_SOFT_OFF
+    select SETTINGS
+    select K380_STATUS_INDICATOR
+    help
+      Saves a one-time low-voltage shutdown reason and enters ZMK soft-off.
 
 config K380_BATTERY_POLICY_RUNTIME
     bool
