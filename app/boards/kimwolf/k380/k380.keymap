@@ -26,7 +26,7 @@
             #binding-cells = <0>;
             flavor = "tap-preferred";
             tapping-term-ms = <500>;
-            bindings = <&k380_ble K380_BLE_SLOT_PAIR 1>, <&k380_ble K380_BLE_SLOT_SELECT 1>;
+            bindings = <&k380_ble_pair_1 &k380_ble_select_1>;
         };
 
         k380_bt_2: k380_bt_2 {
@@ -34,7 +34,7 @@
             #binding-cells = <0>;
             flavor = "tap-preferred";
             tapping-term-ms = <500>;
-            bindings = <&k380_ble K380_BLE_SLOT_PAIR 2>, <&k380_ble K380_BLE_SLOT_SELECT 2>;
+            bindings = <&k380_ble_pair_2 &k380_ble_select_2>;
         };
 
         k380_bt_3: k380_bt_3 {
@@ -42,7 +42,45 @@
             #binding-cells = <0>;
             flavor = "tap-preferred";
             tapping-term-ms = <500>;
-            bindings = <&k380_ble K380_BLE_SLOT_PAIR 3>, <&k380_ble K380_BLE_SLOT_SELECT 3>;
+            bindings = <&k380_ble_pair_3 &k380_ble_select_3>;
+        };
+    };
+
+    macros {
+        k380_ble_pair_1: k380_ble_pair_1 {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&k380_ble K380_BLE_SLOT_PAIR 1>;
+        };
+
+        k380_ble_select_1: k380_ble_select_1 {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&k380_ble K380_BLE_SLOT_SELECT 1>;
+        };
+
+        k380_ble_pair_2: k380_ble_pair_2 {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&k380_ble K380_BLE_SLOT_PAIR 2>;
+        };
+
+        k380_ble_select_2: k380_ble_select_2 {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&k380_ble K380_BLE_SLOT_SELECT 2>;
+        };
+
+        k380_ble_pair_3: k380_ble_pair_3 {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&k380_ble K380_BLE_SLOT_PAIR 3>;
+        };
+
+        k380_ble_select_3: k380_ble_select_3 {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&k380_ble K380_BLE_SLOT_SELECT 3>;
         };
     };
 

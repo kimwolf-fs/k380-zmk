@@ -120,7 +120,7 @@ ZTEST(k380_ghost_filter, test_release_is_not_blocked_by_ambiguity) {
         BIT(1) | BIT(2), BIT(1) | BIT(2), 0, 0, 0, 0, 0, 0,
     };
     const uint16_t accepted[K380_GHOST_FILTER_ROWS] = {
-        BIT(2), 0, 0, 0, 0, 0, 0, 0,
+        BIT(9), 0, 0, 0, 0, 0, 0, 0,
     };
     const uint16_t expected[K380_GHOST_FILTER_ROWS] = {0};
     uint16_t filtered[K380_GHOST_FILTER_ROWS];
