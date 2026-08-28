@@ -9,7 +9,6 @@
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/sensor.h>
-#include <zephyr/sys/poweroff.h>
 #include <zephyr/bluetooth/services/bas.h>
 
 #include <zephyr/logging/log.h>
@@ -21,26 +20,12 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/events/battery_state_changed.h>
 #include <zmk/events/activity_state_changed.h>
 #include <zmk/activity.h>
-#include <zmk/pm.h>
 #include <zmk/workqueue.h>
 
 static uint8_t last_state_of_charge = 0;
-static uint16_t last_voltage_mv = 0;
-
-#define K380_BATTERY_WARN_MV 3400
-#define K380_BATTERY_CUTOFF_MV 3200
-#define K380_USB_POWER_PRESENT_MV 4500
-#define K380_BATTERY_CUTOFF_SAMPLES 3
-
-enum k380_battery_policy {
-    K380_BATTERY_POLICY_NORMAL,
-    K380_BATTERY_POLICY_WARN,
-    K380_BATTERY_POLICY_CRITICAL,
-};
-
-static enum k380_battery_policy battery_policy = K380_BATTERY_POLICY_NORMAL;
-static uint8_t critical_voltage_hits;
-static bool shutdown_requested;
+#if IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
+#include <zmk_keyboard_k380/battery_policy.h>
+#endif
 
 uint8_t zmk_battery_state_of_charge(void) { return last_state_of_charge; }
 
@@ -67,62 +52,6 @@ static uint8_t lithium_ion_mv_to_pct(int16_t bat_mv) {
 }
 
 #endif // IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING_FETCH_MODE_LITHIUM_VOLTAGE)
-
-static void zmk_battery_apply_policy(uint16_t mv) {
-    enum k380_battery_policy new_policy = K380_BATTERY_POLICY_NORMAL;
-
-    if (mv > K380_USB_POWER_PRESENT_MV) {
-        critical_voltage_hits = 0;
-        shutdown_requested = false;
-        new_policy = K380_BATTERY_POLICY_NORMAL;
-    } else if (mv <= K380_BATTERY_CUTOFF_MV) {
-        new_policy = K380_BATTERY_POLICY_CRITICAL;
-    } else if (mv < K380_BATTERY_WARN_MV) {
-        new_policy = K380_BATTERY_POLICY_WARN;
-    }
-
-    if (new_policy != battery_policy) {
-        switch (new_policy) {
-        case K380_BATTERY_POLICY_NORMAL:
-            LOG_INF("Battery recovered to %u mV", mv);
-            break;
-        case K380_BATTERY_POLICY_WARN:
-            LOG_WRN("Battery low at %u mV", mv);
-            break;
-        case K380_BATTERY_POLICY_CRITICAL:
-            LOG_WRN("Battery critical at %u mV", mv);
-            break;
-        }
-        battery_policy = new_policy;
-    }
-
-    if (new_policy == K380_BATTERY_POLICY_NORMAL) {
-        critical_voltage_hits = 0;
-        shutdown_requested = false;
-        return;
-    }
-
-    if (new_policy != K380_BATTERY_POLICY_CRITICAL) {
-        critical_voltage_hits = 0;
-        return;
-    }
-
-    if (shutdown_requested) {
-        return;
-    }
-
-    if (++critical_voltage_hits < K380_BATTERY_CUTOFF_SAMPLES) {
-        return;
-    }
-
-    shutdown_requested = true;
-    LOG_WRN("Battery below %u mV for %u samples, entering soft off", mv, critical_voltage_hits);
-
-    if (zmk_pm_soft_off() < 0) {
-        LOG_ERR("Soft off failed, forcing system off");
-        sys_poweroff();
-    }
-}
 
 static int zmk_battery_update(const struct device *battery) {
     struct sensor_value state_of_charge;
@@ -158,7 +87,6 @@ static int zmk_battery_update(const struct device *battery) {
     }
 
     uint16_t mv = voltage.val1 * 1000 + (voltage.val2 / 1000);
-    last_voltage_mv = mv;
     state_of_charge.val1 = lithium_ion_mv_to_pct(mv);
 
     LOG_DBG("State of change %d from %d mv", state_of_charge.val1, mv);
@@ -192,7 +120,9 @@ static int zmk_battery_update(const struct device *battery) {
 #endif
 
 #if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING_FETCH_MODE_LITHIUM_VOLTAGE)
-    zmk_battery_apply_policy(last_voltage_mv);
+#if IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
+    (void)k380_battery_policy_submit_mv(mv);
+#endif
 #endif
 
     return rc;

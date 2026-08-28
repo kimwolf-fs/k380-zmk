@@ -23,6 +23,12 @@
         zmk,physical-layout = &physical_layout0;
         zmk,kscan = &k380_kscan;
         zmk,underglow = &k380_ws2812;
+        zmk,battery = &k380_vddh_battery;
+    };
+
+    k380_vddh_battery: battery {
+        compatible = "zmk,battery-nrf-vddh";
+        status = "okay";
     };
 
     k380_kscan: k380_kscan {

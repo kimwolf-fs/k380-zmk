@@ -56,6 +56,7 @@ jobs:
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/status-indicator -p native_sim
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ble-slot-policy -p native_sim
+      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/battery-policy -p native_sim
       - if: always()
         uses: actions/upload-artifact@v7
         with:

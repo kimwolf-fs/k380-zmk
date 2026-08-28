@@ -18,4 +18,19 @@ config K380_BLE_SLOT_POLICY
     help
       Enables the K380 three-slot BLE policy and status indicator mapping.
 
+config K380_BATTERY_POLICY
+    bool "K380 VDDH battery policy"
+    default n
+    depends on ZMK_BATTERY_REPORTING
+    select K380_STATUS_INDICATOR
+    help
+      Enables K380 VDDH moving-average battery policy and status mapping.
+
+config K380_BATTERY_POLICY_RUNTIME
+    bool
+    default y if K380_BATTERY_POLICY
+    depends on K380_BATTERY_POLICY
+    help
+      Enables immediate K380 VDDH sampling on boot, wake, and USB state changes.
+
 endmenu
