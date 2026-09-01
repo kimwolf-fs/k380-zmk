@@ -24,8 +24,14 @@ static const struct device *status_led_strip;
 #endif
 
 #ifdef CONFIG_ZTEST
-extern void k380_status_indicator_test_render(enum k380_status_id status,
-                                              const struct led_rgb *pixels, size_t pixel_count);
+__weak void k380_status_indicator_test_render(enum k380_status_id status,
+                                              const struct led_rgb *pixels, size_t pixel_count) {
+    ARG_UNUSED(status);
+    ARG_UNUSED(pixels);
+    ARG_UNUSED(pixel_count);
+}
+
+__weak uint8_t k380_ble_slot_current(void) { return 1U; }
 #endif
 
 static struct led_rgb rgb(uint8_t r, uint8_t g, uint8_t b) {
