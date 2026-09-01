@@ -1,7 +1,27 @@
+#include <string.h>
+
+#include <zephyr/drivers/led_strip.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/ztest.h>
 
 #include <zmk_keyboard_k380/status_indicator.h>
+
+static enum k380_status_id last_rendered_status;
+static struct led_rgb last_rendered_pixels[4];
+static size_t last_rendered_pixel_count;
+static size_t rendered_frame_count;
+
+uint8_t k380_ble_slot_current(void) { return 1; }
+
+void k380_status_indicator_test_render(enum k380_status_id status, const struct led_rgb *pixels,
+                                       size_t pixel_count) {
+    last_rendered_status = status;
+    last_rendered_pixel_count = pixel_count;
+    memset(last_rendered_pixels, 0, sizeof(last_rendered_pixels));
+    memcpy(last_rendered_pixels, pixels, MIN(pixel_count, ARRAY_SIZE(last_rendered_pixels)) *
+                                              sizeof(*pixels));
+    rendered_frame_count++;
+}
 
 ZTEST(k380_status_indicator, test_status_priority_order) {
     const enum k380_status_id zmk_low_to_high[] = {
@@ -54,6 +74,28 @@ ZTEST(k380_status_indicator, test_status_priority_order) {
                       "lower bootloader status unexpectedly replaced B3 at index %u",
                       (unsigned int)i);
     }
+
+    rendered_frame_count = 0;
+    memset(last_rendered_pixels, 0, sizeof(last_rendered_pixels));
+    last_rendered_pixel_count = 0;
+
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z2_CHARGING));
+
+    zassert_equal(rendered_frame_count, 1U, "status change should render a WS2812B frame");
+    zassert_equal(last_rendered_status, K380_STATUS_Z2_CHARGING);
+    zassert_equal(last_rendered_pixel_count, ARRAY_SIZE(last_rendered_pixels));
+    zassert_equal(last_rendered_pixels[0].r, 0);
+    zassert_equal(last_rendered_pixels[0].g, 0);
+    zassert_equal(last_rendered_pixels[0].b, 0);
+    zassert_equal(last_rendered_pixels[1].r, 0);
+    zassert_equal(last_rendered_pixels[1].g, 0);
+    zassert_equal(last_rendered_pixels[1].b, 0);
+    zassert_equal(last_rendered_pixels[2].r, 0);
+    zassert_equal(last_rendered_pixels[2].g, 0);
+    zassert_equal(last_rendered_pixels[2].b, 0);
+    zassert_equal(last_rendered_pixels[3].r, 0);
+    zassert_not_equal(last_rendered_pixels[3].g, 0);
+    zassert_not_equal(last_rendered_pixels[3].b, 0);
 }
 
 ZTEST_SUITE(k380_status_indicator, NULL, NULL, NULL, NULL, NULL);
