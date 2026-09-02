@@ -143,9 +143,19 @@ jobs:
           import re
 
           source = Path("app/boards/kimwolf/k380/k380_nrf52840_zmk.dts").read_text()
+          kscan_kconfig = Path("zmk-keyboard-k380/drivers/kscan/Kconfig").read_text()
           source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
           source = re.sub(r"//[^\n]*", "", source)
           normalized = re.sub(r"\s+", "", source)
+
+          for symbol in (
+              "ZMK_KSCAN_MATRIX_WAIT_BEFORE_INPUTS",
+              "ZMK_KSCAN_MATRIX_WAIT_BETWEEN_OUTPUTS",
+          ):
+              assert re.search(rf"(?m)^\s*config\s+{symbol}\s*$", kscan_kconfig), (
+                  f"K380 custom matrix driver must define {symbol}; "
+                  "defconfig assignments are not sufficient if the symbol is not visible"
+              )
 
           transform = re.search(
               r"k380_transform\s*:\s*keymap_transform_0\s*\{(?P<body>.*?)\n\s*\};",
@@ -817,7 +827,24 @@ jobs:
           import re
 
           dts = Path("build/k380-firmware/zephyr/zephyr.dts").read_text()
+          config = Path("build/k380-firmware/zephyr/.config").read_text()
           keymap = Path("app/boards/kimwolf/k380/k380.keymap").read_text()
+
+          required_config = {
+              "CONFIG_ZMK_KSCAN_MATRIX_WAIT_BEFORE_INPUTS": "5",
+              "CONFIG_ZMK_KSCAN_MATRIX_WAIT_BETWEEN_OUTPUTS": "50",
+          }
+          for name, value in required_config.items():
+              assert re.search(rf"(?m)^{name}={value}$", config), (
+                  f"formal K380 firmware must set {name}={value}; "
+                  "missing values mean the custom matrix settle delay is not active"
+              )
+          assert re.search(r"(?m)^# CONFIG_K380_MATRIX_DIAGNOSTICS_RTT is not set$", config), (
+              "formal K380 firmware must not enable RTT matrix diagnostics"
+          )
+          assert re.search(r"(?m)^# CONFIG_ZMK_KSCAN_MATRIX_POLLING is not set$", config), (
+              "formal K380 firmware must use interrupt-driven scan wake, not matrix polling"
+          )
 
           default = re.search(r"default_layer\s*\{(?P<body>.*?)\n\s*\};", dts, re.S)
           assert default, "generated firmware DTS is missing default_layer"
