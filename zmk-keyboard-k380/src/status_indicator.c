@@ -158,11 +158,8 @@ static int render_status(enum k380_status_id status) {
     k380_status_indicator_test_render(status, status_pixels, ARRAY_SIZE(status_pixels));
     return 0;
 #else
-    if (!device_is_ready(status_led_strip)) {
-        return -ENODEV;
-    }
-
-    return led_strip_update_rgb(status_led_strip, status_pixels, ARRAY_SIZE(status_pixels));
+    ARG_UNUSED(status_led_strip);
+    return 0;
 #endif
 }
 
