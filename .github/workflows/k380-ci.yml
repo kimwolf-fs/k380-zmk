@@ -785,6 +785,85 @@ jobs:
             build/k380-board/**/zephyr/zmk.uf2
           if-no-files-found: ignore
 
+  firmware-build:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-build-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - run: |
+          west build -s app -d build/k380-firmware -p always -b k380/nrf52840/zmk -- \
+            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380"
+      - name: Validate K380 firmware keymap
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          dts = Path("build/k380-firmware/zephyr/zephyr.dts").read_text()
+          keymap = Path("app/boards/kimwolf/k380/k380.keymap").read_text()
+
+          default = re.search(r"default_layer\s*\{(?P<body>.*?)\n\s*\};", dts, re.S)
+          assert default, "generated firmware DTS is missing default_layer"
+          default_bindings = re.search(r"bindings\s*=\s*<(?P<value>.*?)>\s*;", default.group("body"), re.S)
+          assert default_bindings, "generated firmware default_layer is missing bindings"
+          normalized_default = re.sub(r"\s+", " ", default_bindings.group("value")).strip()
+          assert normalized_default != "&none", (
+              "formal K380 firmware default_layer resolved to <&none>; "
+              "do not flash board-build or diagnostic test artifacts as application firmware"
+          )
+          assert normalized_default.count("&kp") >= 60, "formal K380 firmware must carry the typing key layer"
+          assert "&mo 0x1" in normalized_default, "formal K380 firmware must bind Fn as momentary layer 1"
+
+          fn = re.search(r"fn_layer\s*\{(?P<body>.*?)\n\s*\};", dts, re.S)
+          assert fn, "generated firmware DTS is missing fn_layer"
+          fn_bindings = re.search(r"bindings\s*=\s*<(?P<value>.*?)>\s*;", fn.group("body"), re.S)
+          assert fn_bindings, "generated firmware fn_layer is missing bindings"
+          normalized_fn = re.sub(r"\s+", " ", fn_bindings.group("value")).strip()
+          assert "&bootloader" in normalized_fn, "formal K380 firmware must keep Fn+Del bootloader binding"
+          for node in ("k380_bt_1", "k380_bt_2", "k380_bt_3"):
+              assert f"&{node}" in normalized_fn, f"formal K380 firmware must keep {node} binding"
+
+          assert "default_layer" in keymap and "&kp ESC" in keymap and "&kp DEL" in keymap, (
+              "source K380 keymap must carry the normal typing layer"
+          )
+          PY
+      - if: failure()
+        run: |
+          find build/k380-firmware -type f -name '*.log' -print -exec tail -n 200 {} \;
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k380-zmk-firmware
+          include-hidden-files: true
+          path: |
+            build/k380-firmware/**/*.log
+            build/k380-firmware/**/zephyr/.config
+            build/k380-firmware/**/zephyr/zephyr.dts
+            build/k380-firmware/**/zephyr/zmk.elf
+            build/k380-firmware/**/zephyr/zephyr.elf
+            build/k380-firmware/**/zephyr/zmk.map
+            build/k380-firmware/**/zephyr/zephyr.map
+            build/k380-firmware/**/zephyr/zmk.hex
+            build/k380-firmware/**/zephyr/zmk.uf2
+          if-no-files-found: ignore
+
   matrix-rtt-diagnostics:
     needs: module-metadata
     if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
