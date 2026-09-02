@@ -140,7 +140,8 @@ static int render_zmk_status(enum k380_status_id status) {
 static int render_status(enum k380_status_id status) {
     clear_pixels();
 
-    if (status >= K380_STATUS_B1_BOOTLOADER_WAITING && status <= K380_STATUS_B6_BOOTLOADER_LOW_POWER) {
+    if (status >= K380_STATUS_B1_BOOTLOADER_WAITING &&
+        status <= K380_STATUS_B6_BOOTLOADER_LOW_POWER) {
         int err = render_bootloader_status(status);
         if (err < 0) {
             return err;
@@ -243,8 +244,8 @@ int k380_status_indicator_set(enum k380_status_id status) {
 
 void k380_status_indicator_clear(enum k380_status_id status) {
     if (current_status == status) {
-        current_status =
-            is_bootloader_status(status) ? K380_STATUS_B1_BOOTLOADER_WAITING : K380_STATUS_Z1_NORMAL;
+        current_status = is_bootloader_status(status) ? K380_STATUS_B1_BOOTLOADER_WAITING
+                                                      : K380_STATUS_Z1_NORMAL;
         (void)render_status(current_status);
     }
 }

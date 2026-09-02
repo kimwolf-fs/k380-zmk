@@ -289,9 +289,9 @@ static void k380_kscan_diagnostic_raw_report(uint32_t row, uint32_t col, bool pr
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
     char line[84];
 
-    const int len = snprintk(line, sizeof(line), "K380_MATRIX_RAW row=%u col=%u key=%s state=%s\n",
-                             row, col, k380_kscan_diagnostic_key_name(row, col),
-                             pressed ? "down" : "up");
+    const int len =
+        snprintk(line, sizeof(line), "K380_MATRIX_RAW row=%u col=%u key=%s state=%s\n", row, col,
+                 k380_kscan_diagnostic_key_name(row, col), pressed ? "down" : "up");
     k380_kscan_diag_snapshot.raw_matrix_event_count++;
     k380_kscan_diag_snapshot.last_row = row;
     k380_kscan_diag_snapshot.last_col = col;
