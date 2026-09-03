@@ -229,7 +229,11 @@ static void animation_timer_handler(struct k_timer *timer) {
 
 K_TIMER_DEFINE(animation_timer, animation_timer_handler, NULL);
 
-static void update_animation_timer(bool animate) {
+static void update_animation_timer(void) {
+    k_spinlock_key_t key = k_spin_lock(&status_lock);
+    const bool animate = model_uses_animation(&status_model);
+    k_spin_unlock(&status_lock, key);
+
     if (animate) {
         k_timer_start(&animation_timer, K_MSEC(50), K_MSEC(50));
     } else {
@@ -237,7 +241,7 @@ static void update_animation_timer(bool animate) {
     }
 }
 #else
-static void update_animation_timer(bool animate) { ARG_UNUSED(animate); }
+static void update_animation_timer(void) {}
 #endif
 
 void k380_status_indicator_animation_step(void) {
@@ -454,7 +458,6 @@ int k380_status_indicator_set(enum k380_status_id status) {
         return -EINVAL;
     }
 
-    bool animate;
     bool changed = false;
     bool reset_animation = false;
     const uint8_t ble_slot = is_ble_status(status) ? k380_ble_slot_current() : 1U;
@@ -484,18 +487,16 @@ int k380_status_indicator_set(enum k380_status_id status) {
                           previous.power != status_model.power;
     }
 
-    animate = model_uses_animation(&status_model);
     if (changed) {
         mark_render_needed(reset_animation);
     }
     k_spin_unlock(&status_lock, key);
 
-    update_animation_timer(animate);
+    update_animation_timer();
     return changed ? submit_status_render() : 0;
 }
 
 void k380_status_indicator_clear(enum k380_status_id status) {
-    bool animate;
     bool changed = false;
     bool reset_animation = false;
     k_spinlock_key_t key = k_spin_lock(&status_lock);
@@ -527,13 +528,12 @@ void k380_status_indicator_clear(enum k380_status_id status) {
         reset_animation = true;
     }
 
-    animate = model_uses_animation(&status_model);
     if (changed) {
         mark_render_needed(reset_animation);
     }
     k_spin_unlock(&status_lock, key);
 
-    update_animation_timer(animate);
+    update_animation_timer();
     if (changed) {
         (void)submit_status_render();
     }

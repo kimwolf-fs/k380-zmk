@@ -52,6 +52,22 @@ ZTEST(k380_status_indicator, test_status_priority_order) {
     }
 
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z1_NORMAL));
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z9_MATRIX_FAULT));
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z8_BOOTLOADER_REQUEST));
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z9_MATRIX_FAULT,
+                  "lower system status unexpectedly replaced Z9");
+
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z1_NORMAL));
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z7_BLE_PAIRING));
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING));
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z7_BLE_PAIRING,
+                  "lower BLE status unexpectedly replaced Z7");
+    k380_status_indicator_clear(K380_STATUS_Z7_BLE_PAIRING);
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING));
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z5_BLE_WAITING,
+                  "explicit clear should allow a lower BLE status");
+
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z1_NORMAL));
     zassert_equal(k380_status_indicator_current(), K380_STATUS_Z1_NORMAL);
 
     const enum k380_status_id bootloader_low_to_high[] = {
