@@ -117,4 +117,36 @@ ZTEST(k380_status_indicator, test_status_priority_order) {
                  "charging breathe period should be longer than 2 seconds");
 }
 
+ZTEST(k380_status_indicator, test_charging_and_ble_slot_status_are_composed) {
+    rendered_frame_count = 0;
+    memset(last_rendered_pixels, 0, sizeof(last_rendered_pixels));
+
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z2_CHARGING));
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING));
+
+    zassert_equal(last_rendered_status, K380_STATUS_Z2_CHARGING);
+    zassert_equal(last_rendered_pixel_count, ARRAY_SIZE(last_rendered_pixels));
+    zassert_equal(last_rendered_pixels[0].r, 0);
+    zassert_equal(last_rendered_pixels[0].g, 0);
+    zassert_equal(last_rendered_pixels[0].b, 0);
+    zassert_equal(last_rendered_pixels[1].r, 0);
+    zassert_equal(last_rendered_pixels[1].g, 0);
+    zassert_equal(last_rendered_pixels[1].b, 0);
+    zassert_equal(last_rendered_pixels[2].r, 0);
+    zassert_equal(last_rendered_pixels[2].g, 0);
+    zassert_equal(last_rendered_pixels[2].b, 24);
+    zassert_equal(last_rendered_pixels[3].r, 0);
+    zassert_not_equal(last_rendered_pixels[3].g, 0);
+    zassert_equal(last_rendered_pixels[3].g, last_rendered_pixels[3].b);
+
+    const uint8_t first_green = last_rendered_pixels[3].g;
+    k380_status_indicator_animation_step();
+
+    zassert_equal(last_rendered_pixels[2].r, 0);
+    zassert_equal(last_rendered_pixels[2].g, 0);
+    zassert_equal(last_rendered_pixels[2].b, 24);
+    zassert_not_equal(last_rendered_pixels[3].g, first_green);
+    zassert_equal(last_rendered_pixels[3].g, last_rendered_pixels[3].b);
+}
+
 ZTEST_SUITE(k380_status_indicator, NULL, NULL, NULL, NULL, NULL);
