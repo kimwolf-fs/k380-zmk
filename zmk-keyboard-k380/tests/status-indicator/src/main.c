@@ -183,7 +183,8 @@ ZTEST(k380_status_indicator, test_charging_and_ble_slot_status_are_composed) {
         }
     }
 
-    zassert_true(saw_breath_change, "charging status should breathe while BLE slot remains visible");
+    zassert_true(saw_breath_change,
+                 "charging status should breathe while BLE slot remains visible");
 }
 
 ZTEST_SUITE(k380_status_indicator, NULL, NULL, NULL, NULL, NULL);

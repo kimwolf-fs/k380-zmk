@@ -80,8 +80,7 @@ static void clear_pixels(void) {
 static uint8_t charging_breath_brightness(uint8_t animation_step) {
     const uint8_t step = animation_step % K380_CHARGING_BREATH_TICKS;
     const uint8_t position =
-        step < K380_CHARGING_BREATH_HALF_TICKS ? step
-                                               : K380_CHARGING_BREATH_TICKS - step - 1U;
+        step < K380_CHARGING_BREATH_HALF_TICKS ? step : K380_CHARGING_BREATH_TICKS - step - 1U;
 
     return K380_CHARGING_BREATH_MIN +
            ((K380_CHARGING_BREATH_MAX - K380_CHARGING_BREATH_MIN) * position) /
@@ -466,7 +465,8 @@ int k380_status_indicator_set(enum k380_status_id status) {
 
     if (is_bootloader_status(status)) {
         if (!status_model.bootloader_active ||
-            bootloader_status_priority(status) > bootloader_status_priority(status_model.bootloader)) {
+            bootloader_status_priority(status) >
+                bootloader_status_priority(status_model.bootloader)) {
             status_model.bootloader_active = true;
             status_model.bootloader = status;
             changed = true;
