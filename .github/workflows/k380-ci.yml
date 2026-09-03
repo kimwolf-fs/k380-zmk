@@ -834,6 +834,9 @@ jobs:
           keymap = Path("app/boards/kimwolf/k380/k380.keymap").read_text()
 
           required_config = {
+              "CONFIG_ZMK_KEYBOARD_NAME": '"K380-ZMK"',
+              "CONFIG_BT_DEVICE_NAME": '"K380-ZMK"',
+              "CONFIG_USB_DEVICE_PRODUCT": '"K380-ZMK"',
               "CONFIG_ZMK_KSCAN_MATRIX_WAIT_BEFORE_INPUTS": "5",
               "CONFIG_ZMK_KSCAN_MATRIX_WAIT_BETWEEN_OUTPUTS": "50",
           }
