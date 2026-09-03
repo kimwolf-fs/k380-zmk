@@ -44,11 +44,14 @@ ZTEST(k380_status_indicator, test_status_priority_order) {
     }
 
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z4_SOFT_OFF_WARNING));
-    for (size_t i = 0; i < ARRAY_SIZE(zmk_low_to_high) - 1; i++) {
+    for (size_t i = 1; i < ARRAY_SIZE(zmk_low_to_high) - 1; i++) {
         zassert_ok(k380_status_indicator_set(zmk_low_to_high[i]));
         zassert_equal(k380_status_indicator_current(), K380_STATUS_Z4_SOFT_OFF_WARNING,
                       "lower ZMK status unexpectedly replaced Z4 at index %u", (unsigned int)i);
     }
+
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z1_NORMAL));
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z1_NORMAL);
 
     const enum k380_status_id bootloader_low_to_high[] = {
         K380_STATUS_B1_BOOTLOADER_WAITING,       K380_STATUS_B2_BOOTLOADER_CDC_ONLY,

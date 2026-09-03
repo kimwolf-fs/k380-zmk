@@ -25,9 +25,7 @@
 static void connected_prompt_expired(struct k_work *work) {
     ARG_UNUSED(work);
 
-    if (k380_status_indicator_current() == K380_STATUS_Z6_BLE_CONNECTED) {
-        k380_status_indicator_set(K380_STATUS_Z1_NORMAL);
-    }
+    k380_status_indicator_clear(K380_STATUS_Z6_BLE_CONNECTED);
 }
 
 static K_WORK_DELAYABLE_DEFINE(connected_prompt_work, connected_prompt_expired);

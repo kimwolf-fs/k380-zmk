@@ -426,6 +426,9 @@ jobs:
               assert re.search(r"\bchain-length\s*=\s*<\s*4\s*>\s*;", ws), (
                   "K380 WS2812B chain length must be 4"
               )
+              assert re.search(r"\breset-delay\s*=\s*<\s*80\s*>\s*;", ws), (
+                  "K380 WS2812B reset delay must be explicitly set to 80 us"
+              )
               assert "LED_COLOR_ID_GREEN" in ws and "LED_COLOR_ID_RED" in ws and (
                   "LED_COLOR_ID_BLUE" in ws
               ), "K380 WS2812B color mapping must be present"
@@ -845,8 +848,14 @@ jobs:
           assert re.search(r"(?m)^# CONFIG_ZMK_RGB_UNDERGLOW is not set$", config), (
               "formal K380 firmware must keep the standard ZMK RGB underglow owner disabled"
           )
+          assert re.search(r"(?m)^CONFIG_K380_STATUS_INDICATOR=y$", config), (
+              "formal K380 firmware must enable the K380 status indicator owner"
+          )
           assert re.search(r"(?m)^# CONFIG_ZMK_KSCAN_MATRIX_POLLING is not set$", config), (
               "formal K380 firmware must use interrupt-driven scan wake, not matrix polling"
+          )
+          assert re.search(r"reset-delay\s*=\s*<\s*0x50\s*>\s*;", dts), (
+              "formal K380 firmware must preserve an 80 us WS2812B reset delay"
           )
 
           default = re.search(r"default_layer\s*\{(?P<body>.*?)\n\s*\};", dts, re.S)
