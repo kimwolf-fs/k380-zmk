@@ -7,6 +7,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/led_strip.h>
 #include <zephyr/init.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
 
 #include <zmk_keyboard_k380/status_indicator.h>
@@ -14,6 +15,14 @@
 
 static enum k380_status_id current_status = K380_STATUS_Z1_NORMAL;
 static struct led_rgb status_pixels[4];
+static uint8_t animation_step;
+
+#define K380_CHARGING_BREATH_TICKS 40U
+#define K380_CHARGING_BREATH_HALF_TICKS (K380_CHARGING_BREATH_TICKS / 2U)
+#define K380_CHARGING_BREATH_MIN 2U
+#define K380_CHARGING_BREATH_MAX 24U
+
+static int render_status(enum k380_status_id status);
 
 #if !IS_ENABLED(CONFIG_ZTEST)
 #if !DT_HAS_CHOSEN(zmk_underglow)
@@ -46,6 +55,17 @@ static void clear_pixels(void) {
     for (size_t i = 0; i < ARRAY_SIZE(status_pixels); i++) {
         status_pixels[i] = rgb(0, 0, 0);
     }
+}
+
+static uint8_t charging_breath_brightness(void) {
+    const uint8_t step = animation_step % K380_CHARGING_BREATH_TICKS;
+    const uint8_t position =
+        step < K380_CHARGING_BREATH_HALF_TICKS ? step
+                                               : K380_CHARGING_BREATH_TICKS - step - 1U;
+
+    return K380_CHARGING_BREATH_MIN +
+           ((K380_CHARGING_BREATH_MAX - K380_CHARGING_BREATH_MIN) * position) /
+               (K380_CHARGING_BREATH_HALF_TICKS - 1U);
 }
 
 static uint8_t slot_led_index(void) {
@@ -105,7 +125,7 @@ static int render_zmk_status(enum k380_status_id status) {
     case K380_STATUS_Z1_NORMAL:
         return 0;
     case K380_STATUS_Z2_CHARGING:
-        status_pixels[3] = rgb(0, 24, 24);
+        status_pixels[3] = rgb(0, charging_breath_brightness(), charging_breath_brightness());
         return 0;
     case K380_STATUS_Z3_LOW_BATTERY:
         status_pixels[3] = rgb(24, 0, 0);
@@ -135,6 +155,48 @@ static int render_zmk_status(enum k380_status_id status) {
     default:
         return -EINVAL;
     }
+}
+
+static bool status_uses_animation(enum k380_status_id status) {
+    return status == K380_STATUS_Z2_CHARGING;
+}
+
+#if !IS_ENABLED(CONFIG_ZTEST)
+static void animation_work_handler(struct k_work *work) {
+    ARG_UNUSED(work);
+    k380_status_indicator_animation_step();
+}
+
+K_WORK_DEFINE(animation_work, animation_work_handler);
+
+static void animation_timer_handler(struct k_timer *timer) {
+    ARG_UNUSED(timer);
+
+    if (status_uses_animation(current_status)) {
+        k_work_submit(&animation_work);
+    }
+}
+
+K_TIMER_DEFINE(animation_timer, animation_timer_handler, NULL);
+
+static void update_animation_timer(void) {
+    if (status_uses_animation(current_status)) {
+        k_timer_start(&animation_timer, K_MSEC(50), K_MSEC(50));
+    } else {
+        k_timer_stop(&animation_timer);
+    }
+}
+#else
+static void update_animation_timer(void) {}
+#endif
+
+void k380_status_indicator_animation_step(void) {
+    if (!status_uses_animation(current_status)) {
+        return;
+    }
+
+    animation_step = (animation_step + 1U) % K380_CHARGING_BREATH_TICKS;
+    (void)render_status(current_status);
 }
 
 static int render_status(enum k380_status_id status) {
@@ -226,16 +288,22 @@ int k380_status_indicator_set(enum k380_status_id status) {
 
     if (current_status == K380_STATUS_Z6_BLE_CONNECTED && status == K380_STATUS_Z1_NORMAL) {
         current_status = status;
+        animation_step = 0U;
+        update_animation_timer();
         return render_status(current_status);
     }
 
     if ((new_bootloader && !current_bootloader) || (new_zmk && !current_zmk)) {
         current_status = status;
+        animation_step = 0U;
+        update_animation_timer();
         return render_status(current_status);
     }
 
     if (status_priority(status) > status_priority(current_status)) {
         current_status = status;
+        animation_step = 0U;
+        update_animation_timer();
         return render_status(current_status);
     }
 
@@ -246,6 +314,8 @@ void k380_status_indicator_clear(enum k380_status_id status) {
     if (current_status == status) {
         current_status = is_bootloader_status(status) ? K380_STATUS_B1_BOOTLOADER_WAITING
                                                       : K380_STATUS_Z1_NORMAL;
+        animation_step = 0U;
+        update_animation_timer();
         (void)render_status(current_status);
     }
 }

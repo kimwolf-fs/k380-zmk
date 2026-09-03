@@ -92,6 +92,27 @@ ZTEST(k380_status_indicator, test_status_priority_order) {
     zassert_equal(last_rendered_pixels[3].r, 0);
     zassert_not_equal(last_rendered_pixels[3].g, 0);
     zassert_not_equal(last_rendered_pixels[3].b, 0);
+
+    const uint8_t first_green = last_rendered_pixels[3].g;
+    k380_status_indicator_animation_step();
+    k380_status_indicator_animation_step();
+    k380_status_indicator_animation_step();
+
+    zassert_true(rendered_frame_count > 1U, "charging status should render animation frames");
+    zassert_equal(last_rendered_status, K380_STATUS_Z2_CHARGING);
+    zassert_equal(last_rendered_pixels[0].r, 0);
+    zassert_equal(last_rendered_pixels[0].g, 0);
+    zassert_equal(last_rendered_pixels[0].b, 0);
+    zassert_equal(last_rendered_pixels[1].r, 0);
+    zassert_equal(last_rendered_pixels[1].g, 0);
+    zassert_equal(last_rendered_pixels[1].b, 0);
+    zassert_equal(last_rendered_pixels[2].r, 0);
+    zassert_equal(last_rendered_pixels[2].g, 0);
+    zassert_equal(last_rendered_pixels[2].b, 0);
+    zassert_equal(last_rendered_pixels[3].r, 0);
+    zassert_equal(last_rendered_pixels[3].g, last_rendered_pixels[3].b);
+    zassert_not_equal(last_rendered_pixels[3].g, first_green,
+                      "charging status should breathe instead of staying at fixed cyan");
 }
 
 ZTEST_SUITE(k380_status_indicator, NULL, NULL, NULL, NULL, NULL);
