@@ -9,5 +9,5 @@ target_sources(app PRIVATE
 )
 target_include_directories(app PRIVATE
   ../../include
-  ../../app/module/drivers/sensor/battery
+  ../../../app/module/drivers/sensor/battery
 )
