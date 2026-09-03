@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <string.h>
 
 #include <zephyr/drivers/led_strip.h>
@@ -121,6 +122,8 @@ ZTEST(k380_status_indicator, test_status_priority_order) {
 }
 
 ZTEST(k380_status_indicator, test_charging_and_ble_slot_status_are_composed) {
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z1_NORMAL));
+
     rendered_frame_count = 0;
     memset(last_rendered_pixels, 0, sizeof(last_rendered_pixels));
 
@@ -143,13 +146,28 @@ ZTEST(k380_status_indicator, test_charging_and_ble_slot_status_are_composed) {
     zassert_equal(last_rendered_pixels[3].g, last_rendered_pixels[3].b);
 
     const uint8_t first_green = last_rendered_pixels[3].g;
-    k380_status_indicator_animation_step();
+    bool saw_breath_change = false;
+    for (int i = 0; i < 20; i++) {
+        k380_status_indicator_animation_step();
 
-    zassert_equal(last_rendered_pixels[2].r, 0);
-    zassert_equal(last_rendered_pixels[2].g, 0);
-    zassert_equal(last_rendered_pixels[2].b, 24);
-    zassert_not_equal(last_rendered_pixels[3].g, first_green);
-    zassert_equal(last_rendered_pixels[3].g, last_rendered_pixels[3].b);
+        zassert_equal(last_rendered_pixels[0].r, 0);
+        zassert_equal(last_rendered_pixels[0].g, 0);
+        zassert_equal(last_rendered_pixels[0].b, 0);
+        zassert_equal(last_rendered_pixels[1].r, 0);
+        zassert_equal(last_rendered_pixels[1].g, 0);
+        zassert_equal(last_rendered_pixels[1].b, 0);
+        zassert_equal(last_rendered_pixels[2].r, 0);
+        zassert_equal(last_rendered_pixels[2].g, 0);
+        zassert_equal(last_rendered_pixels[2].b, 24);
+        zassert_equal(last_rendered_pixels[3].r, 0);
+        zassert_equal(last_rendered_pixels[3].g, last_rendered_pixels[3].b);
+
+        if (last_rendered_pixels[3].g != first_green) {
+            saw_breath_change = true;
+        }
+    }
+
+    zassert_true(saw_breath_change, "charging status should breathe while BLE slot remains visible");
 }
 
 ZTEST_SUITE(k380_status_indicator, NULL, NULL, NULL, NULL, NULL);

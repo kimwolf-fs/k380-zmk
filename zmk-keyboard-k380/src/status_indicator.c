@@ -394,6 +394,10 @@ static void reset_zmk_model(struct k380_status_model *model) {
     model->ble_slot = 1U;
 }
 
+static bool channel_should_replace(enum k380_status_id current, enum k380_status_id next) {
+    return zmk_status_priority(next) >= zmk_status_priority(current);
+}
+
 static int apply_zmk_status(struct k380_status_model *model, enum k380_status_id status,
                             uint8_t ble_slot) {
     model->bootloader_active = false;
@@ -404,18 +408,24 @@ static int apply_zmk_status(struct k380_status_model *model, enum k380_status_id
     }
 
     if (is_power_status(status)) {
-        model->power = status;
+        if (channel_should_replace(model->power, status)) {
+            model->power = status;
+        }
         return 0;
     }
 
     if (is_ble_status(status)) {
-        model->ble = status;
-        model->ble_slot = ble_slot;
+        if (channel_should_replace(model->ble, status)) {
+            model->ble = status;
+            model->ble_slot = ble_slot;
+        }
         return 0;
     }
 
     if (is_system_status(status)) {
-        model->system = status;
+        if (channel_should_replace(model->system, status)) {
+            model->system = status;
+        }
         return 0;
     }
 
