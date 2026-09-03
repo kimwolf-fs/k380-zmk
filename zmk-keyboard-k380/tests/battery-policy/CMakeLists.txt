@@ -6,6 +6,7 @@ target_sources(app PRIVATE
   src/main.c
   ../../src/battery_policy.c
   ../../src/status_indicator.c
+  ../../../app/module/drivers/sensor/battery/battery_common.c
 )
 target_include_directories(app PRIVATE
   ../../include
