@@ -24,6 +24,37 @@ void k380_status_indicator_test_render(enum k380_status_id status, const struct 
     rendered_frame_count++;
 }
 
+static void reset_render_capture(void) {
+    rendered_frame_count = 0;
+    last_rendered_pixel_count = 0;
+    memset(last_rendered_pixels, 0, sizeof(last_rendered_pixels));
+}
+
+static void assert_only_slot_1_blue(void) {
+    zassert_equal(last_rendered_pixel_count, ARRAY_SIZE(last_rendered_pixels));
+    zassert_equal(last_rendered_pixels[0].r, 0);
+    zassert_equal(last_rendered_pixels[0].g, 0);
+    zassert_equal(last_rendered_pixels[0].b, 0);
+    zassert_equal(last_rendered_pixels[1].r, 0);
+    zassert_equal(last_rendered_pixels[1].g, 0);
+    zassert_equal(last_rendered_pixels[1].b, 0);
+    zassert_equal(last_rendered_pixels[2].r, 0);
+    zassert_equal(last_rendered_pixels[2].g, 0);
+    zassert_equal(last_rendered_pixels[2].b, 24);
+    zassert_equal(last_rendered_pixels[3].r, 0);
+    zassert_equal(last_rendered_pixels[3].g, 0);
+    zassert_equal(last_rendered_pixels[3].b, 0);
+}
+
+static void assert_all_pixels_off(void) {
+    zassert_equal(last_rendered_pixel_count, ARRAY_SIZE(last_rendered_pixels));
+    for (size_t i = 0; i < ARRAY_SIZE(last_rendered_pixels); i++) {
+        zassert_equal(last_rendered_pixels[i].r, 0);
+        zassert_equal(last_rendered_pixels[i].g, 0);
+        zassert_equal(last_rendered_pixels[i].b, 0);
+    }
+}
+
 ZTEST(k380_status_indicator, test_status_priority_order) {
     const enum k380_status_id zmk_low_to_high[] = {
         K380_STATUS_Z1_NORMAL,
@@ -135,6 +166,46 @@ ZTEST(k380_status_indicator, test_status_priority_order) {
                       "charging status should breathe instead of staying at fixed cyan");
     zassert_true(last_rendered_pixels[3].g < 24U,
                  "charging breathe period should be longer than 2 seconds");
+}
+
+ZTEST(k380_status_indicator, test_ble_waiting_status_slow_blinks_blue) {
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z1_NORMAL));
+    reset_render_capture();
+
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING));
+
+    zassert_equal(last_rendered_status, K380_STATUS_Z5_BLE_WAITING);
+    assert_only_slot_1_blue();
+
+    for (int i = 0; i < 20; i++) {
+        k380_status_indicator_animation_step();
+    }
+    assert_all_pixels_off();
+
+    for (int i = 0; i < 20; i++) {
+        k380_status_indicator_animation_step();
+    }
+    assert_only_slot_1_blue();
+}
+
+ZTEST(k380_status_indicator, test_ble_pairing_status_fast_blinks_blue) {
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z1_NORMAL));
+    reset_render_capture();
+
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z7_BLE_PAIRING));
+
+    zassert_equal(last_rendered_status, K380_STATUS_Z7_BLE_PAIRING);
+    assert_only_slot_1_blue();
+
+    for (int i = 0; i < 5; i++) {
+        k380_status_indicator_animation_step();
+    }
+    assert_all_pixels_off();
+
+    for (int i = 0; i < 5; i++) {
+        k380_status_indicator_animation_step();
+    }
+    assert_only_slot_1_blue();
 }
 
 ZTEST(k380_status_indicator, test_charging_and_ble_slot_status_are_composed) {
