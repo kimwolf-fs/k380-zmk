@@ -7,4 +7,7 @@ target_sources(app PRIVATE
   ../../src/battery_policy.c
   ../../src/status_indicator.c
 )
-target_include_directories(app PRIVATE ../../include)
+target_include_directories(app PRIVATE
+  ../../include
+  ../../app/module/drivers/sensor/battery
+)
