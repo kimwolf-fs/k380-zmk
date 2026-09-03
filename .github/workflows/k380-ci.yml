@@ -842,6 +842,9 @@ jobs:
           assert re.search(r"(?m)^# CONFIG_K380_MATRIX_DIAGNOSTICS_RTT is not set$", config), (
               "formal K380 firmware must not enable RTT matrix diagnostics"
           )
+          assert re.search(r"(?m)^# CONFIG_ZMK_RGB_UNDERGLOW is not set$", config), (
+              "formal K380 firmware must keep the standard ZMK RGB underglow owner disabled"
+          )
           assert re.search(r"(?m)^# CONFIG_ZMK_KSCAN_MATRIX_POLLING is not set$", config), (
               "formal K380 firmware must use interrupt-driven scan wake, not matrix polling"
           )

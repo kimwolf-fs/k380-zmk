@@ -17,7 +17,7 @@ static enum k380_status_id current_status = K380_STATUS_Z1_NORMAL;
 static struct led_rgb status_pixels[4];
 static uint8_t animation_step;
 
-#define K380_CHARGING_BREATH_TICKS 40U
+#define K380_CHARGING_BREATH_TICKS 80U
 #define K380_CHARGING_BREATH_HALF_TICKS (K380_CHARGING_BREATH_TICKS / 2U)
 #define K380_CHARGING_BREATH_MIN 2U
 #define K380_CHARGING_BREATH_MAX 24U

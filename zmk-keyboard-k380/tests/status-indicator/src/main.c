@@ -94,9 +94,9 @@ ZTEST(k380_status_indicator, test_status_priority_order) {
     zassert_not_equal(last_rendered_pixels[3].b, 0);
 
     const uint8_t first_green = last_rendered_pixels[3].g;
-    k380_status_indicator_animation_step();
-    k380_status_indicator_animation_step();
-    k380_status_indicator_animation_step();
+    for (int i = 0; i < 20; i++) {
+        k380_status_indicator_animation_step();
+    }
 
     zassert_true(rendered_frame_count > 1U, "charging status should render animation frames");
     zassert_equal(last_rendered_status, K380_STATUS_Z2_CHARGING);
@@ -113,6 +113,8 @@ ZTEST(k380_status_indicator, test_status_priority_order) {
     zassert_equal(last_rendered_pixels[3].g, last_rendered_pixels[3].b);
     zassert_not_equal(last_rendered_pixels[3].g, first_green,
                       "charging status should breathe instead of staying at fixed cyan");
+    zassert_true(last_rendered_pixels[3].g < 24U,
+                 "charging breathe period should be longer than 2 seconds");
 }
 
 ZTEST_SUITE(k380_status_indicator, NULL, NULL, NULL, NULL, NULL);
