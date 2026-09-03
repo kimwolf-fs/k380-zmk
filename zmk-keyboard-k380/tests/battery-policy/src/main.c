@@ -1,7 +1,9 @@
 #include <errno.h>
 
+#include <zephyr/drivers/sensor.h>
 #include <zephyr/ztest.h>
 
+#include <battery_common.h>
 #include <zmk_keyboard_k380/battery_policy.h>
 #include <zmk_keyboard_k380/status_indicator.h>
 
@@ -9,6 +11,20 @@ static void submit_samples(uint16_t mv, int count) {
     for (int i = 0; i < count; i++) {
         zassert_ok(k380_battery_policy_submit_mv(mv));
     }
+}
+
+ZTEST(k380_battery_policy, test_battery_voltage_channel_alias_matches_gauge_voltage) {
+    const struct battery_value value = {.millivolts = 4123, .state_of_charge = 87};
+    struct sensor_value voltage = {0};
+
+    zassert_ok(battery_channel_get(&value, SENSOR_CHAN_GAUGE_VOLTAGE, &voltage));
+    zassert_equal(voltage.val1, 4);
+    zassert_equal(voltage.val2, 123000);
+
+    voltage = (struct sensor_value){0};
+    zassert_ok(battery_channel_get(&value, SENSOR_CHAN_VOLTAGE, &voltage));
+    zassert_equal(voltage.val1, 4);
+    zassert_equal(voltage.val2, 123000);
 }
 
 ZTEST(k380_battery_policy, test_vddh_average_debounce_and_charging_override) {
