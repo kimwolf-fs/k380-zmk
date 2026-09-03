@@ -31,8 +31,7 @@ struct vddh_data {
 
 static int vddh_sample_fetch(const struct device *dev, enum sensor_channel chan) {
     // Make sure selected channel is supported
-    if (chan != SENSOR_CHAN_GAUGE_VOLTAGE && chan != SENSOR_CHAN_GAUGE_STATE_OF_CHARGE &&
-        chan != SENSOR_CHAN_ALL) {
+    if (!battery_channel_is_supported(chan)) {
         LOG_DBG("Selected channel is not supported: %d.", chan);
         return -ENOTSUP;
     }

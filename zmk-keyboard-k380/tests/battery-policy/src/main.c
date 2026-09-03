@@ -17,6 +17,11 @@ ZTEST(k380_battery_policy, test_battery_voltage_channel_alias_matches_gauge_volt
     const struct battery_value value = {.millivolts = 4123, .state_of_charge = 87};
     struct sensor_value voltage = {0};
 
+    zassert_equal(battery_channel_alias(SENSOR_CHAN_VOLTAGE), SENSOR_CHAN_GAUGE_VOLTAGE);
+    zassert_true(battery_channel_is_supported(SENSOR_CHAN_VOLTAGE));
+    zassert_true(battery_channel_is_supported(SENSOR_CHAN_GAUGE_VOLTAGE));
+    zassert_false(battery_channel_is_supported(SENSOR_CHAN_ACCEL_X));
+
     zassert_ok(battery_channel_get(&value, SENSOR_CHAN_GAUGE_VOLTAGE, &voltage));
     zassert_equal(voltage.val1, 4);
     zassert_equal(voltage.val2, 123000);
