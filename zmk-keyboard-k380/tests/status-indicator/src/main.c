@@ -12,6 +12,8 @@ static struct led_rgb last_rendered_pixels[4];
 static size_t last_rendered_pixel_count;
 static size_t rendered_frame_count;
 
+#define K380_TEST_BLUE_20_PERCENT 51U
+
 uint8_t k380_ble_slot_current(void) { return 1; }
 
 void k380_status_indicator_test_render(enum k380_status_id status, const struct led_rgb *pixels,
@@ -40,7 +42,7 @@ static void assert_only_slot_1_blue(void) {
     zassert_equal(last_rendered_pixels[1].b, 0);
     zassert_equal(last_rendered_pixels[2].r, 0);
     zassert_equal(last_rendered_pixels[2].g, 0);
-    zassert_equal(last_rendered_pixels[2].b, 24);
+    zassert_equal(last_rendered_pixels[2].b, K380_TEST_BLUE_20_PERCENT);
     zassert_equal(last_rendered_pixels[3].r, 0);
     zassert_equal(last_rendered_pixels[3].g, 0);
     zassert_equal(last_rendered_pixels[3].b, 0);
@@ -227,14 +229,14 @@ ZTEST(k380_status_indicator, test_charging_and_ble_slot_status_are_composed) {
     zassert_equal(last_rendered_pixels[1].b, 0);
     zassert_equal(last_rendered_pixels[2].r, 0);
     zassert_equal(last_rendered_pixels[2].g, 0);
-    zassert_equal(last_rendered_pixels[2].b, 24);
+    zassert_equal(last_rendered_pixels[2].b, K380_TEST_BLUE_20_PERCENT);
     zassert_equal(last_rendered_pixels[3].r, 0);
     zassert_not_equal(last_rendered_pixels[3].g, 0);
     zassert_equal(last_rendered_pixels[3].g, last_rendered_pixels[3].b);
 
     const uint8_t first_green = last_rendered_pixels[3].g;
     bool saw_breath_change = false;
-    bool saw_ble_on = last_rendered_pixels[2].b == 24;
+    bool saw_ble_on = last_rendered_pixels[2].b == K380_TEST_BLUE_20_PERCENT;
     bool saw_ble_off = false;
     for (int i = 0; i < 20; i++) {
         k380_status_indicator_animation_step();
@@ -247,14 +249,15 @@ ZTEST(k380_status_indicator, test_charging_and_ble_slot_status_are_composed) {
         zassert_equal(last_rendered_pixels[1].b, 0);
         zassert_equal(last_rendered_pixels[2].r, 0);
         zassert_equal(last_rendered_pixels[2].g, 0);
-        zassert_true(last_rendered_pixels[2].b == 0 || last_rendered_pixels[2].b == 24);
+        zassert_true(last_rendered_pixels[2].b == 0 ||
+                     last_rendered_pixels[2].b == K380_TEST_BLUE_20_PERCENT);
         zassert_equal(last_rendered_pixels[3].r, 0);
         zassert_equal(last_rendered_pixels[3].g, last_rendered_pixels[3].b);
 
         if (last_rendered_pixels[3].g != first_green) {
             saw_breath_change = true;
         }
-        if (last_rendered_pixels[2].b == 24) {
+        if (last_rendered_pixels[2].b == K380_TEST_BLUE_20_PERCENT) {
             saw_ble_on = true;
         }
         if (last_rendered_pixels[2].b == 0) {
