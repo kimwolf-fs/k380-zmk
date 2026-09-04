@@ -61,6 +61,10 @@ static int update_active_slot_status(void) {
         return MIN(schedule_result, 0);
     }
 
+    if (zmk_ble_profile_is_open(profile)) {
+        return k380_status_indicator_set(K380_STATUS_Z7_BLE_PAIRING);
+    }
+
     return k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING);
 }
 
