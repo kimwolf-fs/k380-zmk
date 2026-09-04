@@ -45,6 +45,7 @@ static uint32_t render_generation;
 #define K380_BLE_WAITING_BLINK_ON_TICKS 20U
 #define K380_BLE_PAIRING_BLINK_TICKS 10U
 #define K380_BLE_PAIRING_BLINK_ON_TICKS 5U
+#define K380_BLUE_20_PERCENT 51U
 
 static int render_pending_status(void);
 
@@ -175,7 +176,7 @@ static int render_ble_status(enum k380_status_id status, uint8_t slot, uint8_t s
         return 0;
     case K380_STATUS_Z5_BLE_WAITING:
         if (blink_is_on(step, K380_BLE_WAITING_BLINK_ON_TICKS, K380_BLE_WAITING_BLINK_TICKS)) {
-            status_pixels[index] = rgb(0, 0, 24);
+            status_pixels[index] = rgb(0, 0, K380_BLUE_20_PERCENT);
         }
         return 0;
     case K380_STATUS_Z6_BLE_CONNECTED:
@@ -183,7 +184,7 @@ static int render_ble_status(enum k380_status_id status, uint8_t slot, uint8_t s
         return 0;
     case K380_STATUS_Z7_BLE_PAIRING:
         if (blink_is_on(step, K380_BLE_PAIRING_BLINK_ON_TICKS, K380_BLE_PAIRING_BLINK_TICKS)) {
-            status_pixels[index] = rgb(0, 0, 24);
+            status_pixels[index] = rgb(0, 0, K380_BLUE_20_PERCENT);
         }
         return 0;
     default:
