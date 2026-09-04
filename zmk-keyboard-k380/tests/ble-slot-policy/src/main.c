@@ -10,6 +10,7 @@
 
 static uint8_t selected_profile;
 static uint8_t cleared_profile;
+static bool open_profiles[3];
 static bool connected_profiles[3];
 
 int zmk_ble_prof_select(uint8_t index) {
@@ -21,6 +22,8 @@ int zmk_ble_active_profile_index(void) { return selected_profile; }
 
 void zmk_ble_clear_bonds(void) { cleared_profile = selected_profile; }
 
+bool zmk_ble_profile_is_open(uint8_t index) { return open_profiles[index]; }
+
 bool zmk_ble_profile_is_connected(uint8_t index) { return connected_profiles[index]; }
 
 static void reset_fakes(void *fixture) {
@@ -28,6 +31,7 @@ static void reset_fakes(void *fixture) {
 
     selected_profile = 0;
     cleared_profile = 0xff;
+    memset(open_profiles, 0, sizeof(open_profiles));
     memset(connected_profiles, 0, sizeof(connected_profiles));
     k380_ble_slot_policy_reset_for_test();
     zassert_ok(k380_status_indicator_set(K380_STATUS_B1_BOOTLOADER_WAITING));
@@ -40,6 +44,16 @@ ZTEST(k380_ble_slot_policy, test_select_slot_2_waits_on_ws2) {
     zassert_equal(k380_ble_slot_current(), 2);
     zassert_equal(selected_profile, 1);
     zassert_equal(k380_status_indicator_current(), K380_STATUS_Z5_BLE_WAITING);
+}
+
+ZTEST(k380_ble_slot_policy, test_select_open_slot_2_enters_pairing_on_ws2) {
+    open_profiles[1] = true;
+
+    zassert_ok(k380_ble_slot_select(2));
+
+    zassert_equal(k380_ble_slot_current(), 2);
+    zassert_equal(selected_profile, 1);
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z7_BLE_PAIRING);
 }
 
 ZTEST(k380_ble_slot_policy, test_pair_slot_2_enters_pairing_on_ws2) {

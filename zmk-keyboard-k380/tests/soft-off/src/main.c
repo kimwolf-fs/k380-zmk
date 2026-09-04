@@ -103,8 +103,14 @@ ZTEST(k380_soft_off, test_low_voltage_soft_off_orders_cleanup_after_warning) {
 
     zassert_ok(k380_soft_off_request_low_voltage());
     const enum call expected[] = {
-        CALL_WARNING, CALL_WAIT_3S, CALL_STOP_INDICATOR, CALL_SAVE_REASON,
-        CALL_CONFIRM_BLE_SETTINGS, CALL_CLEAR_HID, CALL_DISCONNECT_BLE, CALL_SYSTEM_OFF,
+        CALL_WARNING,
+        CALL_WAIT_3S,
+        CALL_STOP_INDICATOR,
+        CALL_SAVE_REASON,
+        CALL_CONFIRM_BLE_SETTINGS,
+        CALL_CLEAR_HID,
+        CALL_DISCONNECT_BLE,
+        CALL_SYSTEM_OFF,
     };
 
     zassert_equal(call_count, ARRAY_SIZE(expected));
@@ -144,8 +150,14 @@ ZTEST(k380_soft_off, test_ble_settings_failure_still_disconnects_active_slot) {
 
     zassert_ok(k380_soft_off_request_low_voltage());
     const enum call expected[] = {
-        CALL_WARNING, CALL_WAIT_3S, CALL_STOP_INDICATOR, CALL_SAVE_REASON,
-        CALL_CONFIRM_BLE_SETTINGS, CALL_CLEAR_HID, CALL_DISCONNECT_BLE, CALL_SYSTEM_OFF,
+        CALL_WARNING,
+        CALL_WAIT_3S,
+        CALL_STOP_INDICATOR,
+        CALL_SAVE_REASON,
+        CALL_CONFIRM_BLE_SETTINGS,
+        CALL_CLEAR_HID,
+        CALL_DISCONNECT_BLE,
+        CALL_SYSTEM_OFF,
     };
 
     zassert_equal(call_count, ARRAY_SIZE(expected));

@@ -204,9 +204,7 @@ static int k380_soft_off_settings_set(const char *name, size_t len, settings_rea
     return 0;
 }
 
-static int k380_soft_off_settings_commit(void) {
-    return 0;
-}
+static int k380_soft_off_settings_commit(void) { return 0; }
 
 SETTINGS_STATIC_HANDLER_DEFINE(k380, "k380", NULL, k380_soft_off_settings_set,
                                k380_soft_off_settings_commit, NULL);
