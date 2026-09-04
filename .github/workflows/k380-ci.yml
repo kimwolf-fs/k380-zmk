@@ -821,8 +821,10 @@ jobs:
       - run: west update --fetch-opt=--filter=tree:0
       - run: west zephyr-export
       - run: |
-          west build -s app -d build/k380-firmware -p always -b k380/nrf52840/zmk -- \
-            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380"
+          west build -s app -d build/k380-firmware -p always -b k380/nrf52840/zmk \
+            -S studio-rpc-usb-uart -- \
+            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
+            -DCONFIG_ZMK_STUDIO=y
       - name: Validate K380 firmware keymap
         run: |
           python3 - <<'PY'
@@ -837,6 +839,9 @@ jobs:
               "CONFIG_ZMK_KEYBOARD_NAME": '"K380-ZMK"',
               "CONFIG_BT_DEVICE_NAME": '"K380-ZMK-BLE"',
               "CONFIG_USB_DEVICE_PRODUCT": '"K380-ZMK-USB"',
+              "CONFIG_ZMK_STUDIO": "y",
+              "CONFIG_ZMK_STUDIO_TRANSPORT_UART": "y",
+              "CONFIG_USB_CDC_ACM": "y",
               "CONFIG_ZMK_KSCAN_MATRIX_WAIT_BEFORE_INPUTS": "5",
               "CONFIG_ZMK_KSCAN_MATRIX_WAIT_BETWEEN_OUTPUTS": "50",
           }
@@ -860,6 +865,9 @@ jobs:
           assert re.search(r"reset-delay\s*=\s*<\s*0x50\s*>\s*;", dts), (
               "formal K380 firmware must preserve an 80 us WS2812B reset delay"
           )
+          assert "zmk,studio-rpc-uart" in dts, (
+              "formal K380 firmware must expose the ZMK Studio USB UART RPC endpoint"
+          )
 
           default = re.search(r"default_layer\s*\{(?P<body>.*?)\n\s*\};", dts, re.S)
           assert default, "generated firmware DTS is missing default_layer"
@@ -879,12 +887,20 @@ jobs:
           assert fn_bindings, "generated firmware fn_layer is missing bindings"
           normalized_fn = re.sub(r"\s+", " ", fn_bindings.group("value")).strip()
           assert "&bootloader" in normalized_fn, "formal K380 firmware must keep Fn+Del bootloader binding"
+          assert "&studio_unlock" in normalized_fn, (
+              "formal K380 firmware must expose ZMK Studio unlock from the Fn layer"
+          )
           for node in ("k380_bt_1", "k380_bt_2", "k380_bt_3"):
               assert f"&{node}" in normalized_fn, f"formal K380 firmware must keep {node} binding"
 
           assert "default_layer" in keymap and "&kp ESC" in keymap and "&kp DEL" in keymap, (
               "source K380 keymap must carry the normal typing layer"
           )
+          assert re.search(
+              r"(?m)^\s*&trans\s+&trans\s+&trans\s+&trans\s+&trans\s+&trans\s+&trans\s+"
+              r"&trans\s+&trans\s+&trans\s+&trans\s+&trans\s+&trans\s+&studio_unlock\s*$",
+              keymap,
+          ), "source K380 keymap must bind Fn+Backspace to &studio_unlock"
           PY
       - if: failure()
         run: |
