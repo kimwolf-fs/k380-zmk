@@ -5,10 +5,37 @@
 #include <zephyr/ztest.h>
 
 #include <zmk_keyboard_k380/dynamic_protocol.h>
+#include <zmk_keyboard_k380/dynamic_settings.h>
+#include <zmk_keyboard_k380/dynamic_macro.h>
 
 static bool unlocked = true;
+static struct k380_dynamic_config config;
 
 bool k380_dynamic_protocol_is_unlocked(void) { return unlocked; }
+
+int k380_dynamic_settings_load(struct k380_dynamic_config *cfg) {
+    *cfg = config;
+    return 0;
+}
+
+int k380_dynamic_settings_save(const struct k380_dynamic_config *cfg) {
+    config = *cfg;
+    return 0;
+}
+
+int k380_dynamic_settings_restore_all(void) {
+    k380_dynamic_config_init_defaults(&config);
+    return 0;
+}
+
+int k380_dynamic_set_active_preset(uint8_t preset) {
+    config.active_preset = preset;
+    return 0;
+}
+
+int k380_dynamic_macro_test(uint8_t slot) { return slot < K380_DYNAMIC_MACRO_SLOT_COUNT ? 0 : -1; }
+
+bool k380_dynamic_macro_is_running(void) { return false; }
 
 static size_t make_frame(uint8_t *frame, uint8_t command, uint16_t sequence,
                          const uint8_t *payload, uint16_t payload_len)
@@ -39,7 +66,7 @@ ZTEST(dynamic_protocol, test_valid_hello_returns_ready)
 
     zassert_equal(K380_DYNAMIC_RESULT_READY,
                   k380_dynamic_protocol_feed(&parser, frame, frame_len, response,
-                                             sizeof(response), &response_len));
+                                             sizeof(response), &response_len, NULL));
     zassert_equal(K380_DYNAMIC_PROTOCOL_FRAME_SIZE(1), response_len);
     zassert_mem_equal(response, K380_DYNAMIC_PROTOCOL_MAGIC, K380_DYNAMIC_PROTOCOL_MAGIC_SIZE);
     zassert_equal(K380_DYNAMIC_COMMAND_HELLO | K380_DYNAMIC_COMMAND_RESPONSE_FLAG, response[9]);
@@ -59,7 +86,7 @@ ZTEST(dynamic_protocol, test_wrong_magic_returns_not_k380)
 
     zassert_equal(K380_DYNAMIC_RESULT_NOT_K380,
                   k380_dynamic_protocol_feed(&parser, frame, sizeof(frame), response,
-                                             sizeof(response), &response_len));
+                                             sizeof(response), &response_len, NULL));
     zassert_equal(K380_DYNAMIC_RESULT_NOT_K380, response[K380_DYNAMIC_PROTOCOL_HEADER_SIZE]);
 }
 
@@ -78,7 +105,7 @@ ZTEST(dynamic_protocol, test_unsupported_version_returns_version_mismatch)
 
     zassert_equal(K380_DYNAMIC_RESULT_VERSION_MISMATCH,
                   k380_dynamic_protocol_feed(&parser, frame, sizeof(frame), response,
-                                             sizeof(response), &response_len));
+                                             sizeof(response), &response_len, NULL));
 }
 
 ZTEST(dynamic_protocol, test_crc_mismatch_returns_typed_error)
@@ -94,7 +121,7 @@ ZTEST(dynamic_protocol, test_crc_mismatch_returns_typed_error)
 
     zassert_equal(K380_DYNAMIC_RESULT_CRC_MISMATCH,
                   k380_dynamic_protocol_feed(&parser, frame, sizeof(frame), response,
-                                             sizeof(response), &response_len));
+                                             sizeof(response), &response_len, NULL));
 }
 
 ZTEST(dynamic_protocol, test_payload_larger_than_limit_is_rejected)
@@ -113,7 +140,7 @@ ZTEST(dynamic_protocol, test_payload_larger_than_limit_is_rejected)
 
     zassert_equal(K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH,
                   k380_dynamic_protocol_feed(&parser, frame, sizeof(frame), response,
-                                             sizeof(response), &response_len));
+                                             sizeof(response), &response_len, NULL));
 }
 
 ZTEST(dynamic_protocol, test_fragmented_frame_is_buffered_until_complete)
@@ -129,10 +156,28 @@ ZTEST(dynamic_protocol, test_fragmented_frame_is_buffered_until_complete)
 
     zassert_equal(K380_DYNAMIC_RESULT_NEED_MORE,
                   k380_dynamic_protocol_feed(&parser, frame, 5, response,
-                                             sizeof(response), &response_len));
+                                             sizeof(response), &response_len, NULL));
     zassert_equal(K380_DYNAMIC_RESULT_READY,
                   k380_dynamic_protocol_feed(&parser, &frame[5], frame_len - 5, response,
-                                             sizeof(response), &response_len));
+                                             sizeof(response), &response_len, NULL));
+}
+
+ZTEST(dynamic_protocol, test_coalesced_frames_report_first_frame_consumption)
+{
+    struct k380_dynamic_protocol_parser parser;
+    uint8_t frame[K380_DYNAMIC_PROTOCOL_FRAME_SIZE(0) * 2U];
+    uint8_t response[K380_DYNAMIC_PROTOCOL_MAX_FRAME_SIZE];
+    size_t response_len = 0;
+    size_t consumed_len = 0;
+    const size_t first_len = make_frame(frame, K380_DYNAMIC_COMMAND_HELLO, 1, NULL, 0);
+    const size_t second_len = make_frame(&frame[first_len], K380_DYNAMIC_COMMAND_HELLO, 2, NULL, 0);
+
+    unlocked = true;
+    k380_dynamic_protocol_parser_init(&parser);
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  k380_dynamic_protocol_feed(&parser, frame, first_len + second_len, response,
+                                             sizeof(response), &response_len, &consumed_len));
+    zassert_equal(first_len, consumed_len);
 }
 
 ZTEST_SUITE(dynamic_protocol, NULL, NULL, NULL, NULL, NULL);

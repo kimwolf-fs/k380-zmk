@@ -3,6 +3,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(k380_dynamic_protocol_tests)
 
 target_sources(app PRIVATE
+  ../../src/dynamic_config.c
   ../../src/dynamic_protocol.c
   src/main.c
 )

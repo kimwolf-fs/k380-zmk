@@ -20,6 +20,10 @@ static uint16_t get_le16(const uint8_t *value) { return sys_get_le16(value); }
 
 static void put_le16(uint16_t value, uint8_t *out) { sys_put_le16(value, out); }
 
+static struct k380_dynamic_config protocol_config;
+static uint8_t protocol_payload[K380_DYNAMIC_MAX_PAYLOAD - 1U];
+static struct k380_dynamic_macro decoded_macro;
+
 bool __attribute__((weak)) k380_dynamic_protocol_is_unlocked(void)
 {
     return zmk_studio_core_get_lock_state != NULL &&
@@ -154,28 +158,29 @@ static enum k380_dynamic_result decode_macro(struct k380_dynamic_macro *macro,
         return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
     }
     size_t offset = 0;
-    struct k380_dynamic_macro decoded = {0};
-    memcpy(decoded.name, &data[offset], K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
+    struct k380_dynamic_macro *decoded = &decoded_macro;
+    memset(decoded, 0, sizeof(*decoded));
+    memcpy(decoded->name, &data[offset], K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
     offset += K380_DYNAMIC_MACRO_NAME_MAX_BYTES;
-    decoded.step_count = data[offset++];
-    decoded.trigger = data[offset++];
-    decoded.count = get_le16(&data[offset]);
+    decoded->step_count = data[offset++];
+    decoded->trigger = data[offset++];
+    decoded->count = get_le16(&data[offset]);
     offset += 2U;
-    if (decoded.step_count > K380_DYNAMIC_MACRO_MAX_STEPS) {
+    if (decoded->step_count > K380_DYNAMIC_MACRO_MAX_STEPS) {
         return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
     }
-    for (uint8_t step = 0; step < decoded.step_count; step++) {
+    for (uint8_t step = 0; step < decoded->step_count; step++) {
         if (offset >= data_len) {
             return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
         }
-        decoded.steps[step].type = data[offset++];
-        switch (decoded.steps[step].type) {
+        decoded->steps[step].type = data[offset++];
+        switch (decoded->steps[step].type) {
         case K380_DYNAMIC_MACRO_WAIT_RANDOM:
             if (data_len - offset < 4U) {
                 return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
             }
-            decoded.steps[step].value.wait_random.min_ms = get_le16(&data[offset]);
-            decoded.steps[step].value.wait_random.max_ms = get_le16(&data[offset + 2U]);
+            decoded->steps[step].value.wait_random.min_ms = get_le16(&data[offset]);
+            decoded->steps[step].value.wait_random.max_ms = get_le16(&data[offset + 2U]);
             offset += 4U;
             break;
         case K380_DYNAMIC_MACRO_RELEASE_ALL:
@@ -184,13 +189,13 @@ static enum k380_dynamic_result decode_macro(struct k380_dynamic_macro *macro,
             if (data_len - offset < 2U) {
                 return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
             }
-            decoded.steps[step].value.key_usage = get_le16(&data[offset]);
+            decoded->steps[step].value.key_usage = get_le16(&data[offset]);
             offset += 2U;
-            if ((decoded.steps[step].type == K380_DYNAMIC_MACRO_PRESS_KEY ||
-                 decoded.steps[step].type == K380_DYNAMIC_MACRO_RELEASE_KEY ||
-                 decoded.steps[step].type == K380_DYNAMIC_MACRO_TAP_KEY) &&
-                (decoded.steps[step].value.key_usage < 0x04U ||
-                 decoded.steps[step].value.key_usage > 0xE7U)) {
+            if ((decoded->steps[step].type == K380_DYNAMIC_MACRO_PRESS_KEY ||
+                 decoded->steps[step].type == K380_DYNAMIC_MACRO_RELEASE_KEY ||
+                 decoded->steps[step].type == K380_DYNAMIC_MACRO_TAP_KEY) &&
+                (decoded->steps[step].value.key_usage < 0x04U ||
+                 decoded->steps[step].value.key_usage > 0xE7U)) {
                 return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
             }
             break;
@@ -199,14 +204,14 @@ static enum k380_dynamic_result decode_macro(struct k380_dynamic_macro *macro,
     if (offset != data_len) {
         return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
     }
-    *macro = decoded;
+    *macro = *decoded;
     return K380_DYNAMIC_RESULT_READY;
 }
 
 static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *payload,
                                                 size_t payload_len, uint8_t *out, size_t *out_len)
 {
-    struct k380_dynamic_config config;
+    struct k380_dynamic_config *config = &protocol_config;
     int err;
 
     *out_len = 0;
@@ -232,7 +237,7 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         return K380_DYNAMIC_RESULT_READY;
     }
 
-    err = k380_dynamic_settings_load(&config);
+    err = k380_dynamic_settings_load(config);
     if (err != 0) {
         return result_from_error(err, false);
     }
@@ -240,11 +245,11 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         if (payload_len != 0U) {
             return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
         }
-        out[0] = config.active_preset;
+        out[0] = config->active_preset;
         size_t offset = 1U;
         for (uint8_t preset = 0; preset < K380_DYNAMIC_PRESET_COUNT; preset++) {
             out[offset++] = preset;
-            memcpy(&out[offset], config.presets[preset].name, K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
+            memcpy(&out[offset], config->presets[preset].name, K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
             offset += K380_DYNAMIC_MACRO_NAME_MAX_BYTES;
         }
         *out_len = offset;
@@ -256,12 +261,12 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         }
         const uint8_t preset = payload[0];
         const uint8_t section = payload[1];
-        out[0] = config.active_preset;
+        out[0] = config->active_preset;
         out[1] = preset;
         out[2] = section;
         if (section == K380_DYNAMIC_PRESET_SECTION_BINDINGS && payload_len == 2U) {
             size_t section_len;
-            encode_bindings(&config.presets[preset], &out[3], &section_len);
+            encode_bindings(&config->presets[preset], &out[3], &section_len);
             *out_len = section_len + 3U;
             return K380_DYNAMIC_RESULT_READY;
         }
@@ -269,12 +274,12 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
             payload[2] < K380_DYNAMIC_MACRO_SLOT_COUNT) {
             out[3] = payload[2];
             size_t section_len;
-            encode_macro(&config.presets[preset].macros[payload[2]], &out[4], &section_len);
+            encode_macro(&config->presets[preset].macros[payload[2]], &out[4], &section_len);
             *out_len = section_len + 4U;
             return K380_DYNAMIC_RESULT_READY;
         }
         if (section == K380_DYNAMIC_PRESET_SECTION_NAME && payload_len == 2U) {
-            memcpy(&out[3], config.presets[preset].name, K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
+            memcpy(&out[3], config->presets[preset].name, K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
             *out_len = K380_DYNAMIC_MACRO_NAME_MAX_BYTES + 3U;
             return K380_DYNAMIC_RESULT_READY;
         }
@@ -284,7 +289,7 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         if (payload_len < 2U || payload[0] >= K380_DYNAMIC_PRESET_COUNT) {
             return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
-        struct k380_dynamic_preset *preset = &config.presets[payload[0]];
+        struct k380_dynamic_preset *preset = &config->presets[payload[0]];
         enum k380_dynamic_result result;
         if (payload[1] == K380_DYNAMIC_PRESET_SECTION_BINDINGS) {
             result = decode_bindings(preset, &payload[2], payload_len - 2U);
@@ -298,10 +303,10 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         } else {
             return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
         }
-        if (result != K380_DYNAMIC_RESULT_READY || k380_dynamic_config_validate(&config) != 0) {
+        if (result != K380_DYNAMIC_RESULT_READY || k380_dynamic_config_validate(config) != 0) {
             return result == K380_DYNAMIC_RESULT_READY ? K380_DYNAMIC_RESULT_INVALID_ARGUMENT : result;
         }
-        return result_from_error(k380_dynamic_settings_save(&config), true);
+        return result_from_error(k380_dynamic_settings_save(config), true);
     }
     if (command == K380_DYNAMIC_COMMAND_SET_ACTIVE_PRESET) {
         if (payload_len != 1U || payload[0] >= K380_DYNAMIC_PRESET_COUNT) {
@@ -317,15 +322,15 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
             payload[1] >= K380_DYNAMIC_LAYER_COUNT || payload[2] >= K380_DYNAMIC_KEY_COUNT) {
             return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
-        k380_dynamic_config_restore_key(&config, payload[0], payload[1], payload[2]);
-        return result_from_error(k380_dynamic_settings_save(&config), true);
+        k380_dynamic_config_restore_key(config, payload[0], payload[1], payload[2]);
+        return result_from_error(k380_dynamic_settings_save(config), true);
     }
     if (command == K380_DYNAMIC_COMMAND_RESTORE_PRESET) {
         if (payload_len != 1U || payload[0] >= K380_DYNAMIC_PRESET_COUNT) {
             return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
-        k380_dynamic_config_restore_preset(&config, payload[0]);
-        return result_from_error(k380_dynamic_settings_save(&config), true);
+        k380_dynamic_config_restore_preset(config, payload[0]);
+        return result_from_error(k380_dynamic_settings_save(config), true);
     }
     if (command == K380_DYNAMIC_COMMAND_RESTORE_ALL) {
         if (payload_len != 0U) {
@@ -347,9 +352,8 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
 
 enum k380_dynamic_result k380_dynamic_protocol_feed(
     struct k380_dynamic_protocol_parser *parser, const uint8_t *data, size_t data_len,
-    uint8_t *response, size_t response_capacity, size_t *response_len)
+    uint8_t *response, size_t response_capacity, size_t *response_len, size_t *consumed_len)
 {
-    uint8_t payload[K380_DYNAMIC_MAX_PAYLOAD - 1U];
     uint8_t command = 0;
     uint16_t sequence = 0;
 
@@ -359,9 +363,15 @@ enum k380_dynamic_result k380_dynamic_protocol_feed(
     if (response_len != NULL) {
         *response_len = 0;
     }
+    if (consumed_len != NULL) {
+        *consumed_len = 0;
+    }
     for (size_t input_offset = 0; input_offset < data_len; input_offset++) {
         if (parser->frame_len == sizeof(parser->frame)) {
             k380_dynamic_protocol_parser_init(parser);
+            if (consumed_len != NULL) {
+                *consumed_len = input_offset + 1U;
+            }
             return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
         }
         parser->frame[parser->frame_len++] = data[input_offset];
@@ -371,6 +381,9 @@ enum k380_dynamic_result k380_dynamic_protocol_feed(
             const uint16_t payload_len = get_le16(&parser->frame[12]);
             if (payload_len > K380_DYNAMIC_MAX_PAYLOAD) {
                 k380_dynamic_protocol_parser_init(parser);
+                if (consumed_len != NULL) {
+                    *consumed_len = input_offset + 1U;
+                }
                 return make_response(command, sequence, K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH,
                                      NULL, 0, response, response_capacity, response_len);
             }
@@ -393,14 +406,20 @@ enum k380_dynamic_result k380_dynamic_protocol_feed(
                 size_t payload_out_len = 0;
                 result = handle_command(command,
                                         &parser->frame[K380_DYNAMIC_PROTOCOL_HEADER_SIZE], payload_len,
-                                        payload, &payload_out_len);
+                                        protocol_payload, &payload_out_len);
                 enum k380_dynamic_result response_result = make_response(
-                    command, sequence, result, payload, payload_out_len, response, response_capacity,
+                    command, sequence, result, protocol_payload, payload_out_len, response, response_capacity,
                     response_len);
                 k380_dynamic_protocol_parser_init(parser);
+                if (consumed_len != NULL) {
+                    *consumed_len = input_offset + 1U;
+                }
                 return response_result;
             }
             k380_dynamic_protocol_parser_init(parser);
+            if (consumed_len != NULL) {
+                *consumed_len = input_offset + 1U;
+            }
             return make_response(command, sequence, result, NULL, 0, response, response_capacity,
                                  response_len);
         }

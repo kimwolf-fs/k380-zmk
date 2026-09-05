@@ -4,14 +4,21 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <string.h>
+
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/sys/ring_buffer.h>
+#include <zephyr/sys/util.h>
 
 #include <zephyr/logging/log.h>
 #include <zmk/studio/rpc.h>
+
+#if IS_ENABLED(CONFIG_K380_DYNAMIC_TRANSPORT)
+#include <zmk_keyboard_k380/dynamic_protocol.h>
+#endif
 
 LOG_MODULE_DECLARE(zmk_studio, CONFIG_ZMK_STUDIO_LOG_LEVEL);
 
@@ -19,6 +26,39 @@ LOG_MODULE_DECLARE(zmk_studio, CONFIG_ZMK_STUDIO_LOG_LEVEL);
 #define UART_DEVICE_NODE DT_CHOSEN(zmk_studio_rpc_uart)
 
 static const struct device *const uart_dev = DEVICE_DT_GET(UART_DEVICE_NODE);
+
+static void studio_rx_put(const uint8_t *data, size_t data_len, void *user_data) {
+    bool *received = user_data;
+    struct ring_buf *ring_buf = zmk_rpc_get_rx_buf();
+    size_t offset = 0;
+
+    while (offset < data_len) {
+        uint8_t *buffer;
+        const uint32_t claim_len = ring_buf_put_claim(ring_buf, &buffer, data_len - offset);
+        if (claim_len == 0U) {
+            LOG_ERR("Dropping incoming RPC byte, insufficient room in the RX buffer. Bump "
+                    "CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE.");
+            return;
+        }
+        memcpy(buffer, &data[offset], claim_len);
+        ring_buf_put_finish(ring_buf, claim_len);
+        offset += claim_len;
+    }
+    *received = true;
+}
+
+static void uart_rx_dispatch(const uint8_t *data, size_t data_len) {
+    bool studio_received = false;
+
+#if IS_ENABLED(CONFIG_K380_DYNAMIC_TRANSPORT)
+    (void)k380_dynamic_transport_receive(data, data_len, studio_rx_put, &studio_received);
+#else
+    studio_rx_put(data, data_len, &studio_received);
+#endif
+    if (studio_received) {
+        zmk_rpc_rx_notify();
+    }
+}
 
 static void tx_notify(struct ring_buf *tx_ring_buf, size_t written, bool msg_done,
                       void *user_data) {
@@ -44,22 +84,11 @@ static void tx_notify(struct ring_buf *tx_ring_buf, size_t written, bool msg_don
 
 static void uart_rx_main(void) {
     for (;;) {
-        uint8_t *buf;
-        struct ring_buf *ring_buf = zmk_rpc_get_rx_buf();
-        uint32_t claim_len = ring_buf_put_claim(ring_buf, &buf, 1);
-
-        if (claim_len < 1) {
-            LOG_WRN("NO CLAIM ABLE TO BE HAD");
-            k_sleep(K_MSEC(1));
-            continue;
-        }
-
-        if (uart_poll_in(uart_dev, buf) < 0) {
-            ring_buf_put_finish(ring_buf, 0);
+        uint8_t byte;
+        if (uart_poll_in(uart_dev, &byte) < 0) {
             k_sleep(K_MSEC(1));
         } else {
-            ring_buf_put_finish(ring_buf, 1);
-            zmk_rpc_rx_notify();
+            uart_rx_dispatch(&byte, 1U);
         }
     }
 }
@@ -101,25 +130,10 @@ static void serial_cb(const struct device *dev, void *user_data) {
     }
 
     if (uart_irq_rx_ready(uart_dev)) {
-        /* read until FIFO empty */
-        uint32_t last_read = 0, len = 0;
-        struct ring_buf *buf = zmk_rpc_get_rx_buf();
-        do {
-            uint8_t *buffer;
-            len = ring_buf_put_claim(buf, &buffer, buf->size);
-            if (len > 0) {
-                last_read = uart_fifo_read(uart_dev, buffer, len);
-
-                ring_buf_put_finish(buf, last_read);
-            } else {
-                LOG_ERR("Dropping incoming RPC byte, insufficient room in the RX buffer. Bump "
-                        "CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE.");
-                uint8_t dummy;
-                last_read = uart_fifo_read(uart_dev, &dummy, 1);
-            }
-        } while (last_read && last_read == len);
-
-        zmk_rpc_rx_notify();
+        uint8_t byte;
+        while (uart_fifo_read(uart_dev, &byte, 1) == 1) {
+            uart_rx_dispatch(&byte, 1U);
+        }
     }
 
     if (uart_irq_tx_ready(uart_dev)) {

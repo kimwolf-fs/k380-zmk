@@ -58,10 +58,18 @@ struct k380_dynamic_protocol_parser {
     size_t expected_len;
 };
 
+typedef void (*k380_dynamic_transport_passthrough_t)(const uint8_t *data, size_t data_len,
+                                                      void *user_data);
+
 void k380_dynamic_protocol_parser_init(struct k380_dynamic_protocol_parser *parser);
+/* Processes at most one complete frame and reports the input bytes consumed. */
 enum k380_dynamic_result k380_dynamic_protocol_feed(
     struct k380_dynamic_protocol_parser *parser, const uint8_t *data, size_t data_len,
-    uint8_t *response, size_t response_capacity, size_t *response_len);
+    uint8_t *response, size_t response_capacity, size_t *response_len, size_t *consumed_len);
+
+size_t k380_dynamic_transport_receive(const uint8_t *data, size_t data_len,
+                                      k380_dynamic_transport_passthrough_t passthrough,
+                                      void *user_data);
 
 /* This weak hook shares the Studio unlock window with the private protocol. */
 bool k380_dynamic_protocol_is_unlocked(void);
