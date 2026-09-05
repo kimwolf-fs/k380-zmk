@@ -36,6 +36,11 @@ bool zmk_hid_keyboard_is_pressed(zmk_key_t code) {
     return physical_keys[code];
 }
 
+static void set_physical_key(uint16_t usage, bool pressed) {
+    physical_keys[usage] = pressed;
+    k380_dynamic_macro_physical_key_state(usage, pressed);
+}
+
 static void reset_fakes(void) {
     k380_dynamic_macro_stop();
     k_sleep(K_MSEC(25));
@@ -120,7 +125,6 @@ ZTEST(dynamic_macro, test_hold_release_stops_and_releases_macro_keys) {
 
 ZTEST(dynamic_macro, test_stop_does_not_release_physical_key_state) {
     reset_fakes();
-    physical_keys[HID_USAGE_KEY_KEYBOARD_A] = true;
     macro(0)->step_count = 2;
     macro(0)->steps[0].type = K380_DYNAMIC_MACRO_PRESS_KEY;
     macro(0)->steps[0].value.key_usage = HID_USAGE_KEY_KEYBOARD_A;
@@ -129,11 +133,20 @@ ZTEST(dynamic_macro, test_stop_does_not_release_physical_key_state) {
 
     zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
     wait_until_running();
+    for (int i = 0; i < 20 && emitted_count == 0; i++) {
+        k_sleep(K_MSEC(1));
+    }
+    zassert_equal(emitted_count, 1U);
+    zassert_equal(emitted_usages[0], HID_USAGE_KEY_KEYBOARD_A);
+    zassert_true(emitted_states[0]);
+
+    set_physical_key(HID_USAGE_KEY_KEYBOARD_A, true);
     zassert_ok(k380_dynamic_macro_stop());
     wait_until_stopped();
 
     zassert_true(physical_keys[HID_USAGE_KEY_KEYBOARD_A]);
-    zassert_equal(emitted_count, 0U);
+    zassert_equal(emitted_count, 1U);
+    set_physical_key(HID_USAGE_KEY_KEYBOARD_A, false);
 }
 
 ZTEST(dynamic_macro, test_wait_can_be_interrupted) {
@@ -141,18 +154,27 @@ ZTEST(dynamic_macro, test_wait_can_be_interrupted) {
     int64_t stopped_at;
 
     reset_fakes();
-    macro(0)->step_count = 1;
-    macro(0)->steps[0].type = K380_DYNAMIC_MACRO_WAIT_MS;
-    macro(0)->steps[0].value.wait_ms = K380_DYNAMIC_WAIT_MAX_MS;
+    macro(0)->step_count = 2;
+    macro(0)->steps[0].type = K380_DYNAMIC_MACRO_PRESS_KEY;
+    macro(0)->steps[0].value.key_usage = HID_USAGE_KEY_KEYBOARD_B;
+    macro(0)->steps[1].type = K380_DYNAMIC_MACRO_WAIT_MS;
+    macro(0)->steps[1].value.wait_ms = K380_DYNAMIC_WAIT_MAX_MS;
 
     zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
     wait_until_running();
+    for (int i = 0; i < 20 && emitted_count == 0; i++) {
+        k_sleep(K_MSEC(1));
+    }
+    zassert_equal(emitted_count, 1U);
     stop_started_at = k_uptime_get();
     zassert_ok(k380_dynamic_macro_stop());
     wait_until_stopped();
     stopped_at = k_uptime_get();
 
-    zassert_true(stopped_at - stop_started_at <= 100,
+    zassert_equal(emitted_count, 2U);
+    zassert_equal(emitted_usages[1], HID_USAGE_KEY_KEYBOARD_B);
+    zassert_false(emitted_states[1]);
+    zassert_true(stopped_at - stop_started_at <= 20,
                  "interrupt took too long: %lld ms", stopped_at - stop_started_at);
 }
 

@@ -14,6 +14,8 @@
 /* Task 4 supplies this symbol. A missing executor still consumes macro keys. */
 extern int k380_dynamic_macro_trigger(uint8_t preset, uint8_t slot, bool pressed)
     __attribute__((weak));
+extern void k380_dynamic_macro_physical_key_state(uint16_t usage, bool pressed)
+    __attribute__((weak));
 
 static bool is_keyboard_keypad_usage(uint16_t usage) {
     return usage >= HID_USAGE_KEY_KEYBOARD_A &&
@@ -25,8 +27,15 @@ static int emit_keyboard_usage(uint16_t usage, bool pressed) {
         return -EINVAL;
     }
 
-    return raise_zmk_keycode_state_changed_from_encoded(
+    if (k380_dynamic_macro_physical_key_state != NULL) {
+        k380_dynamic_macro_physical_key_state(usage, pressed);
+    }
+    const int err = raise_zmk_keycode_state_changed_from_encoded(
         ZMK_HID_USAGE(HID_USAGE_KEY, usage), pressed, k_uptime_get());
+    if (err != 0 && k380_dynamic_macro_physical_key_state != NULL) {
+        k380_dynamic_macro_physical_key_state(usage, !pressed);
+    }
+    return err;
 }
 
 static int dispatch(uint8_t layer, uint8_t key_index, uint16_t default_usage, bool pressed) {

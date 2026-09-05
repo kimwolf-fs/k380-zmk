@@ -9,5 +9,6 @@ int k380_dynamic_macro_test(uint8_t slot);
 int k380_dynamic_macro_stop(void);
 bool k380_dynamic_macro_is_running(void);
 void k380_dynamic_macro_stop_before_preset_switch(void);
+void k380_dynamic_macro_physical_key_state(uint16_t usage, bool pressed);
 
 #endif
