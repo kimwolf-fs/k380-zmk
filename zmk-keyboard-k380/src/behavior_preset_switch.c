@@ -34,6 +34,7 @@ int k380_dynamic_set_active_preset(uint8_t preset) {
     err = k380_dynamic_settings_save(&cfg);
     if (err != 0) {
         cfg.active_preset = old_preset;
+        (void)k380_dynamic_settings_save(&cfg);
         return err;
     }
 
