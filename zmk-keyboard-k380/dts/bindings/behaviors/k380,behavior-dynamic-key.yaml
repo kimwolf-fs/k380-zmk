@@ -4,6 +4,3 @@ include: two_param.yaml
 properties:
   "#binding-cells":
     const: 2
-binding-cells:
-  - key-index
-  - default-usage

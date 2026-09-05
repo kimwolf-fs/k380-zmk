@@ -7,7 +7,7 @@
 #include <zephyr/sys/util.h>
 #include <zephyr/ztest.h>
 #include <zmk/events/keycode_state_changed.h>
-#include <zmk/hid.h>
+#include <zmk/keys.h>
 
 #include <zmk_keyboard_k380/dynamic_config.h>
 #include <zmk_keyboard_k380/dynamic_macro.h>

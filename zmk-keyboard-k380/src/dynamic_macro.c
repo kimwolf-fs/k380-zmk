@@ -10,11 +10,13 @@
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/util.h>
 #include <zmk/events/keycode_state_changed.h>
-#include <zmk/hid.h>
+#include <zmk/keys.h>
 
 #include <zmk_keyboard_k380/dynamic_config.h>
 #include <zmk_keyboard_k380/dynamic_macro.h>
 #include <zmk_keyboard_k380/dynamic_settings.h>
+
+bool zmk_hid_keyboard_is_pressed(zmk_key_t code);
 
 #define K380_DYNAMIC_MACRO_WAIT_SLICE_MS 10U
 
