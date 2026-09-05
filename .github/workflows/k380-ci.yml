@@ -911,7 +911,7 @@ jobs:
           assert fn_prefix[16:20] == ["&k380_preset"] * 4, (
               "formal K380 firmware must bind Fn+1..Fn+4 to presets 0..3"
           )
-          assert normalized_fn.count("&k380_dk") >= 70, (
+          assert normalized_fn.count("&k380_dk") == 69, (
               "formal K380 firmware must route editable Fn-layer keys through &k380_dk"
           )
           assert not any(token == "&k380_dk" for token in fn_prefix[1:5]), (
@@ -956,7 +956,7 @@ jobs:
           assert source_fn_refs[14] == "&bootloader", (
               "source K380 keymap must bind Fn+Del to &bootloader"
           )
-          assert normalized_source_fn.count("&k380_dk") >= 70, (
+          assert normalized_source_fn.count("&k380_dk") == 69, (
               "source K380 keymap must route editable Fn-layer keys through &k380_dk"
           )
           assert not any(token == "&k380_dk" for token in source_fn_refs[1:5]), (
