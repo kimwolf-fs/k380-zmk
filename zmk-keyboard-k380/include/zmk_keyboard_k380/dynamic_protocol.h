@@ -1,0 +1,69 @@
+#ifndef ZMK_KEYBOARD_K380_DYNAMIC_PROTOCOL_H_
+#define ZMK_KEYBOARD_K380_DYNAMIC_PROTOCOL_H_
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#define K380_DYNAMIC_PROTOCOL_MAGIC "K380CFG1"
+#define K380_DYNAMIC_PROTOCOL_VERSION 1
+#define K380_DYNAMIC_CONFIG_VERSION 1
+#define K380_DYNAMIC_MAX_PAYLOAD 512
+
+#define K380_DYNAMIC_PROTOCOL_MAGIC_SIZE 8U
+#define K380_DYNAMIC_PROTOCOL_HEADER_SIZE 14U
+#define K380_DYNAMIC_PROTOCOL_CRC_SIZE 4U
+#define K380_DYNAMIC_PROTOCOL_MAX_FRAME_SIZE \
+    (K380_DYNAMIC_PROTOCOL_HEADER_SIZE + K380_DYNAMIC_MAX_PAYLOAD + K380_DYNAMIC_PROTOCOL_CRC_SIZE)
+#define K380_DYNAMIC_PROTOCOL_FRAME_SIZE(payload_len) \
+    (K380_DYNAMIC_PROTOCOL_HEADER_SIZE + (payload_len) + K380_DYNAMIC_PROTOCOL_CRC_SIZE)
+#define K380_DYNAMIC_COMMAND_RESPONSE_FLAG 0x80U
+
+enum k380_dynamic_command {
+    K380_DYNAMIC_COMMAND_HELLO = 1,
+    K380_DYNAMIC_COMMAND_GET_INFO,
+    K380_DYNAMIC_COMMAND_GET_PRESETS,
+    K380_DYNAMIC_COMMAND_GET_PRESET,
+    K380_DYNAMIC_COMMAND_SAVE_PRESET,
+    K380_DYNAMIC_COMMAND_SET_ACTIVE_PRESET,
+    K380_DYNAMIC_COMMAND_RESTORE_KEY,
+    K380_DYNAMIC_COMMAND_RESTORE_PRESET,
+    K380_DYNAMIC_COMMAND_RESTORE_ALL,
+    K380_DYNAMIC_COMMAND_TEST_MACRO,
+};
+
+enum k380_dynamic_result {
+    K380_DYNAMIC_RESULT_READY = 0,
+    K380_DYNAMIC_RESULT_LOCKED,
+    K380_DYNAMIC_RESULT_NOT_K380,
+    K380_DYNAMIC_RESULT_VERSION_MISMATCH,
+    K380_DYNAMIC_RESULT_CRC_MISMATCH,
+    K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH,
+    K380_DYNAMIC_RESULT_INVALID_ARGUMENT,
+    K380_DYNAMIC_RESULT_BUSY,
+    K380_DYNAMIC_RESULT_SAVE_FAILURE,
+    K380_DYNAMIC_RESULT_IO_FAILURE,
+    K380_DYNAMIC_RESULT_NEED_MORE,
+};
+
+enum k380_dynamic_preset_section {
+    K380_DYNAMIC_PRESET_SECTION_BINDINGS = 0,
+    K380_DYNAMIC_PRESET_SECTION_MACRO = 1,
+    K380_DYNAMIC_PRESET_SECTION_NAME = 2,
+};
+
+struct k380_dynamic_protocol_parser {
+    uint8_t frame[K380_DYNAMIC_PROTOCOL_MAX_FRAME_SIZE];
+    size_t frame_len;
+    size_t expected_len;
+};
+
+void k380_dynamic_protocol_parser_init(struct k380_dynamic_protocol_parser *parser);
+enum k380_dynamic_result k380_dynamic_protocol_feed(
+    struct k380_dynamic_protocol_parser *parser, const uint8_t *data, size_t data_len,
+    uint8_t *response, size_t response_capacity, size_t *response_len);
+
+/* This weak hook shares the Studio unlock window with the private protocol. */
+bool k380_dynamic_protocol_is_unlocked(void);
+
+#endif

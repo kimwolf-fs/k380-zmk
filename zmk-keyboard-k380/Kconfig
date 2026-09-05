@@ -56,6 +56,20 @@ config K380_DYNAMIC_PRESET_SWITCH
     default n
     depends on K380_DYNAMIC_CONFIG
 
+config K380_DYNAMIC_PROTOCOL
+    bool "K380 private dynamic configuration protocol"
+    default n
+    depends on K380_DYNAMIC_CONFIG && K380_DYNAMIC_MACRO && K380_DYNAMIC_PRESET_SWITCH && ZMK_STUDIO
+
+config K380_DYNAMIC_TRANSPORT
+    bool "K380 private dynamic configuration CDC transport"
+    default n
+    depends on K380_DYNAMIC_PROTOCOL && ZMK_STUDIO_TRANSPORT_UART
+    select SERIAL
+    help
+      Uses the application-mode CDC UART chosen for ZMK Studio. The host must
+      keep ZMK Studio and the K380 configuration tool mutually exclusive.
+
 config K380_BATTERY_POLICY_RUNTIME
     bool
     default y if K380_BATTERY_POLICY
