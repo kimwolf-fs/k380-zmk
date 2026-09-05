@@ -21,6 +21,12 @@
             display-name = "K380 BLE Slot";
         };
 
+        k380_dk: k380_dynamic_key {
+            compatible = "k380,behavior-dynamic-key";
+            #binding-cells = <2>;
+            display-name = "K380 Dynamic Key";
+        };
+
         k380_bt_1: k380_bt_1 {
             compatible = "zmk,behavior-hold-tap";
             #binding-cells = <2>;
@@ -89,23 +95,23 @@
 
         default_layer {
             bindings = <
-                &kp ESC     &kp F1   &kp F2   &kp F3   &kp F4   &kp F5   &kp F6   &kp F7   &kp F8   &kp F9   &kp F10  &kp F11  &kp F12  &kp INS   &kp DEL
-                &kp GRAVE   &kp N1    &kp N2   &kp N3   &kp N4   &kp N5   &kp N6   &kp N7   &kp N8   &kp N9   &kp N0   &kp MINUS &kp EQUAL &kp BSPC
-                &kp TAB     &kp Q     &kp W    &kp E    &kp R    &kp T    &kp Y    &kp U    &kp I    &kp O    &kp P    &kp LBKT  &kp RBKT  &kp BSLH
-                &kp CLCK    &kp A     &kp S    &kp D    &kp F    &kp G    &kp H    &kp J    &kp K    &kp L    &kp SEMI &kp SQT   &kp RET
-                &kp LSHFT   &kp NUBS  &kp Z    &kp X    &kp C    &kp V    &kp B    &kp N    &kp M    &kp COMMA &kp DOT   &kp FSLH  &kp RSHFT
-                &kp LCTRL   &mo FN    &kp LGUI &kp LALT &kp SPACE &kp RALT &kp RCTRL &kp LEFT &kp UP   &kp DOWN &kp RIGHT
+                &k380_dk 0 ESC     &k380_dk 1 F1   &k380_dk 2 F2   &k380_dk 3 F3   &k380_dk 4 F4   &k380_dk 5 F5   &k380_dk 6 F6   &k380_dk 7 F7   &k380_dk 8 F8   &k380_dk 9 F9   &k380_dk 10 F10  &k380_dk 11 F11  &k380_dk 12 F12  &k380_dk 13 INS   &k380_dk 14 DEL
+                &k380_dk 15 GRAVE   &k380_dk 16 N1    &k380_dk 17 N2   &k380_dk 18 N3   &k380_dk 19 N4   &k380_dk 20 N5   &k380_dk 21 N6   &k380_dk 22 N7   &k380_dk 23 N8   &k380_dk 24 N9   &k380_dk 25 N0   &k380_dk 26 MINUS &k380_dk 27 EQUAL &k380_dk 28 BSPC
+                &k380_dk 29 TAB     &k380_dk 30 Q     &k380_dk 31 W    &k380_dk 32 E    &k380_dk 33 R    &k380_dk 34 T    &k380_dk 35 Y    &k380_dk 36 U    &k380_dk 37 I    &k380_dk 38 O    &k380_dk 39 P    &k380_dk 40 LBKT  &k380_dk 41 RBKT  &k380_dk 42 BSLH
+                &k380_dk 43 CLCK    &k380_dk 44 A     &k380_dk 45 S    &k380_dk 46 D    &k380_dk 47 F    &k380_dk 48 G    &k380_dk 49 H    &k380_dk 50 J    &k380_dk 51 K    &k380_dk 52 L    &k380_dk 53 SEMI &k380_dk 54 SQT   &k380_dk 55 RET
+                &k380_dk 56 LSHFT   &k380_dk 57 NUBS  &k380_dk 58 Z    &k380_dk 59 X    &k380_dk 60 C    &k380_dk 61 V    &k380_dk 62 B    &k380_dk 63 N    &k380_dk 64 M    &k380_dk 65 COMMA &k380_dk 66 DOT   &k380_dk 67 FSLH  &k380_dk 68 RSHFT
+                &k380_dk 69 LCTRL   &mo FN    &k380_dk 71 LGUI &k380_dk 72 LALT &k380_dk 73 SPACE &k380_dk 74 RALT &k380_dk 75 RCTRL &k380_dk 76 LEFT &k380_dk 77 UP   &k380_dk 78 DOWN &k380_dk 79 RIGHT
             >;
         };
 
         fn_layer {
             bindings = <
-                &trans      &k380_bt_1 0 0 &k380_bt_2 0 0 &k380_bt_3 0 0 &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &bootloader
-                &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &trans   &studio_unlock
-                &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &trans   &trans
-                &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &trans
-                &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans    &trans
-                &trans      &trans    &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans   &trans
+                &k380_dk 0 ESC &k380_bt_1 0 0 &k380_bt_2 0 0 &k380_bt_3 0 0 &trans &k380_dk 5 F5 &k380_dk 6 F6 &k380_dk 7 F7 &k380_dk 8 F8 &k380_dk 9 F9 &k380_dk 10 F10 &k380_dk 11 F11 &k380_dk 12 F12 &k380_dk 13 INS &bootloader
+                &k380_dk 15 GRAVE &k380_dk 16 N1 &k380_dk 17 N2 &k380_dk 18 N3 &k380_dk 19 N4 &k380_dk 20 N5 &k380_dk 21 N6 &k380_dk 22 N7 &k380_dk 23 N8 &k380_dk 24 N9 &k380_dk 25 N0 &k380_dk 26 MINUS &k380_dk 27 EQUAL &studio_unlock
+                &k380_dk 29 TAB &k380_dk 30 Q &k380_dk 31 W &k380_dk 32 E &k380_dk 33 R &k380_dk 34 T &k380_dk 35 Y &k380_dk 36 U &k380_dk 37 I &k380_dk 38 O &k380_dk 39 P &k380_dk 40 LBKT &k380_dk 41 RBKT &k380_dk 42 BSLH
+                &k380_dk 43 CLCK &k380_dk 44 A &k380_dk 45 S &k380_dk 46 D &k380_dk 47 F &k380_dk 48 G &k380_dk 49 H &k380_dk 50 J &k380_dk 51 K &k380_dk 52 L &k380_dk 53 SEMI &k380_dk 54 SQT &k380_dk 55 RET
+                &k380_dk 56 LSHFT &k380_dk 57 NUBS &k380_dk 58 Z &k380_dk 59 X &k380_dk 60 C &k380_dk 61 V &k380_dk 62 B &k380_dk 63 N &k380_dk 64 M &k380_dk 65 COMMA &k380_dk 66 DOT &k380_dk 67 FSLH &k380_dk 68 RSHFT
+                &k380_dk 69 LCTRL &k380_dk 70 LGUI &k380_dk 71 LALT &k380_dk 72 SPACE &k380_dk 73 RALT &k380_dk 74 RCTRL &k380_dk 75 LEFT &k380_dk 76 UP &k380_dk 77 DOWN &k380_dk 78 RIGHT &trans
             >;
         };
     };
