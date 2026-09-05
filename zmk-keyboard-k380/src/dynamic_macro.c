@@ -275,7 +275,7 @@ static int start_macro(uint8_t preset, uint8_t slot,
         runner.running = false;
         k_mutex_unlock(&runner_lock);
     }
-    return err;
+    return err < 0 ? err : 0;
 }
 
 int k380_dynamic_macro_trigger(uint8_t preset, uint8_t slot, bool pressed) {
