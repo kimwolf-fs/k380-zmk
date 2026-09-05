@@ -878,8 +878,13 @@ jobs:
               "formal K380 firmware default_layer resolved to <&none>; "
               "do not flash board-build or diagnostic test artifacts as application firmware"
           )
-          assert normalized_default.count("&kp") >= 60, "formal K380 firmware must carry the typing key layer"
+          assert normalized_default.count("&k380_dk") >= 70, (
+              "formal K380 firmware must route editable default-layer keys through &k380_dk"
+          )
           assert "&mo 0x1" in normalized_default, "formal K380 firmware must bind Fn as momentary layer 1"
+          default_refs = re.findall(r"&[A-Za-z0-9_]+", normalized_default)
+          assert len(default_refs) == 80, "formal K380 firmware default_layer must have 80 bindings"
+          assert default_refs[70] == "&mo", "formal K380 firmware must keep physical Fn as &mo"
 
           fn = re.search(r"fn_layer\s*\{(?P<body>.*?)\n\s*\};", dts, re.S)
           assert fn, "generated firmware DTS is missing fn_layer"
@@ -900,14 +905,48 @@ jobs:
           for node in ("k380_bt_1", "k380_bt_2", "k380_bt_3"):
               assert f"&{node}" in normalized_fn, f"formal K380 firmware must keep {node} binding"
 
-          assert "default_layer" in keymap and "&kp ESC" in keymap and "&kp DEL" in keymap, (
-              "source K380 keymap must carry the normal typing layer"
+          source_default = re.search(r"default_layer\s*\{(?P<body>.*?)\n\s*\};", keymap, re.S)
+          assert source_default, "source K380 keymap is missing default_layer"
+          source_default_bindings = re.search(
+              r"bindings\s*=\s*<(?P<value>.*?)>\s*;",
+              source_default.group("body"),
+              re.S,
           )
-          assert re.search(
-              r"(?m)^\s*&trans\s+&trans\s+&trans\s+&trans\s+&trans\s+&trans\s+&trans\s+"
-              r"&trans\s+&trans\s+&trans\s+&trans\s+&trans\s+&trans\s+&studio_unlock\s*$",
-              keymap,
-          ), "source K380 keymap must bind Fn+Backspace to &studio_unlock"
+          assert source_default_bindings, "source K380 keymap default_layer is missing bindings"
+          normalized_source_default = re.sub(
+              r"\s+", " ", source_default_bindings.group("value")
+          ).strip()
+          source_default_refs = re.findall(r"&[A-Za-z0-9_]+", normalized_source_default)
+          assert len(source_default_refs) == 80, (
+              "source K380 keymap default_layer must have 80 bindings"
+          )
+          assert source_default_refs[70] == "&mo", "source K380 keymap must keep physical Fn as &mo"
+          assert normalized_source_default.count("&k380_dk") >= 70, (
+              "source K380 keymap must route editable default-layer keys through &k380_dk"
+          )
+          source_fn = re.search(r"fn_layer\s*\{(?P<body>.*?)\n\s*\};", keymap, re.S)
+          assert source_fn, "source K380 keymap is missing fn_layer"
+          source_fn_bindings = re.search(
+              r"bindings\s*=\s*<(?P<value>.*?)>\s*;",
+              source_fn.group("body"),
+              re.S,
+          )
+          assert source_fn_bindings, "source K380 keymap fn_layer is missing bindings"
+          normalized_source_fn = re.sub(r"\s+", " ", source_fn_bindings.group("value")).strip()
+          source_fn_refs = re.findall(r"&[A-Za-z0-9_]+", normalized_source_fn)
+          assert len(source_fn_refs) == 80, "source K380 keymap fn_layer must have 80 bindings"
+          assert source_fn_refs[28] == "&studio_unlock", (
+              "source K380 keymap must bind Fn+Backspace to &studio_unlock"
+          )
+          assert source_fn_refs[14] == "&bootloader", (
+              "source K380 keymap must bind Fn+Del to &bootloader"
+          )
+          assert normalized_source_fn.count("&k380_dk") >= 70, (
+              "source K380 keymap must route editable Fn-layer keys through &k380_dk"
+          )
+          assert not any(token == "&k380_dk" for token in source_fn_refs[1:5]), (
+              "source K380 keymap must keep Fn+1..Fn+4 outside &k380_dk"
+          )
           PY
       - if: failure()
         run: |

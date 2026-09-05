@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <dt-bindings/zmk/hid_usage.h>
 #include <dt-bindings/zmk/hid_usage_pages.h>
 #include <zephyr/kernel.h>
 #include <zmk/events/keycode_state_changed.h>
@@ -14,7 +15,16 @@
 extern int k380_dynamic_macro_trigger(uint8_t preset, uint8_t slot, bool pressed)
     __attribute__((weak));
 
+static bool is_keyboard_keypad_usage(uint16_t usage) {
+    return usage >= HID_USAGE_KEY_KEYBOARD_A &&
+           usage <= HID_USAGE_KEY_KEYBOARD_RIGHT_GUI;
+}
+
 static int emit_keyboard_usage(uint16_t usage, bool pressed) {
+    if (!is_keyboard_keypad_usage(usage)) {
+        return -EINVAL;
+    }
+
     return raise_zmk_keycode_state_changed_from_encoded(
         ZMK_HID_USAGE(HID_USAGE_KEY, usage), pressed, k_uptime_get());
 }
@@ -40,7 +50,7 @@ static int dispatch(uint8_t layer, uint8_t key_index, uint16_t default_usage, bo
         return emit_keyboard_usage(binding->value.key_usage, pressed);
     case K380_DYNAMIC_BINDING_MACRO:
         if (k380_dynamic_macro_trigger == NULL) {
-            return -ENOTSUP;
+            return 0;
         }
         return k380_dynamic_macro_trigger(cfg.active_preset,
                                           binding->value.macro_index, pressed);
