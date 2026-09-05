@@ -46,6 +46,11 @@ config K380_DYNAMIC_KEYMAP
     default n
     depends on K380_DYNAMIC_CONFIG
 
+config K380_DYNAMIC_MACRO
+    bool "K380 runtime dynamic macro executor"
+    default n
+    depends on K380_DYNAMIC_CONFIG
+
 config K380_BATTERY_POLICY_RUNTIME
     bool
     default y if K380_BATTERY_POLICY
