@@ -1,0 +1,8 @@
+description: K380 dynamic preset switch behavior
+compatible: "k380,behavior-preset-switch"
+include: one_param.yaml
+properties:
+  "#binding-cells":
+    const: 1
+binding-cells:
+  - preset

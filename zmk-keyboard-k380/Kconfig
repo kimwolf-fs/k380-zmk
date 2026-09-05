@@ -51,6 +51,11 @@ config K380_DYNAMIC_MACRO
     default n
     depends on K380_DYNAMIC_CONFIG
 
+config K380_DYNAMIC_PRESET_SWITCH
+    bool "K380 runtime dynamic preset switch behavior"
+    default n
+    depends on K380_DYNAMIC_CONFIG
+
 config K380_BATTERY_POLICY_RUNTIME
     bool
     default y if K380_BATTERY_POLICY

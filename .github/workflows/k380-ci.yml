@@ -895,6 +895,12 @@ jobs:
           assert "&studio_unlock" in normalized_fn, (
               "formal K380 firmware must expose ZMK Studio unlock from the Fn layer"
           )
+          assert normalized_fn.count("&k380_preset") == 4, (
+              "formal K380 firmware must bind Fn+1..Fn+4 to the four presets"
+          )
+          assert fn_prefix[16:20] == ["&k380_preset"] * 4, (
+              "formal K380 firmware must bind Fn+1..Fn+4 to presets 0..3"
+          )
           assert normalized_fn.count("&k380_dk") >= 70, (
               "formal K380 firmware must route editable Fn-layer keys through &k380_dk"
           )
