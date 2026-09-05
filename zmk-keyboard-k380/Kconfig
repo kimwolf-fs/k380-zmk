@@ -36,6 +36,11 @@ config K380_SOFT_OFF
     help
       Saves a one-time low-voltage shutdown reason and enters ZMK soft-off.
 
+config K380_DYNAMIC_CONFIG
+    bool "K380 runtime dynamic config"
+    default n
+    select SETTINGS
+
 config K380_BATTERY_POLICY_RUNTIME
     bool
     default y if K380_BATTERY_POLICY
