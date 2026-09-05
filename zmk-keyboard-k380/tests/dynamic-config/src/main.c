@@ -1,6 +1,13 @@
 #include <zephyr/ztest.h>
 
 #include <zmk_keyboard_k380/dynamic_config.h>
+#include <zmk_keyboard_k380/dynamic_settings.h>
+
+ZTEST(dynamic_config, test_settings_namespace_is_k380_only)
+{
+    zassert_mem_equal(K380_DYNAMIC_SETTINGS_ROOT, "k380/dynamic_config",
+                      sizeof("k380/dynamic_config"));
+}
 
 ZTEST(dynamic_config, test_defaults_are_valid)
 {
