@@ -13,9 +13,9 @@
 
 LOG_MODULE_REGISTER(k380_dynamic_transport, LOG_LEVEL_INF);
 
-#define UART_DEVICE_NODE DT_CHOSEN(k380_config_uart)
+#if DT_HAS_CHOSEN(k380_config_uart)
 
-#if DT_NODE_EXISTS(UART_DEVICE_NODE)
+#define UART_DEVICE_NODE DT_CHOSEN(k380_config_uart)
 
 static const struct device *const uart_dev = DEVICE_DT_GET(UART_DEVICE_NODE);
 static struct k380_dynamic_protocol_parser parser;
