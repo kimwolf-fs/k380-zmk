@@ -25,9 +25,7 @@
 static void connected_prompt_expired(struct k_work *work) {
     ARG_UNUSED(work);
 
-    if (k380_status_indicator_current() == K380_STATUS_Z6_BLE_CONNECTED) {
-        k380_status_indicator_set(K380_STATUS_Z1_NORMAL);
-    }
+    k380_status_indicator_clear(K380_STATUS_Z6_BLE_CONNECTED);
 }
 
 static K_WORK_DELAYABLE_DEFINE(connected_prompt_work, connected_prompt_expired);
@@ -58,9 +56,13 @@ static int update_active_slot_status(void) {
             return err;
         }
 
-        int schedule_result = k_work_reschedule(&connected_prompt_work,
-                                                K_MSEC(K380_BLE_CONNECTED_PROMPT_MS));
+        int schedule_result =
+            k_work_reschedule(&connected_prompt_work, K_MSEC(K380_BLE_CONNECTED_PROMPT_MS));
         return MIN(schedule_result, 0);
+    }
+
+    if (zmk_ble_profile_is_open(profile)) {
+        return k380_status_indicator_set(K380_STATUS_Z7_BLE_PAIRING);
     }
 
     return k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING);

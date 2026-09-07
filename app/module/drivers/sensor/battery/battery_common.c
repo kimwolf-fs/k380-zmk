@@ -9,9 +9,29 @@
 
 #include "battery_common.h"
 
+enum sensor_channel battery_channel_alias(enum sensor_channel chan) {
+    switch (chan) {
+    case SENSOR_CHAN_VOLTAGE:
+        return SENSOR_CHAN_GAUGE_VOLTAGE;
+    default:
+        return chan;
+    }
+}
+
+bool battery_channel_is_supported(enum sensor_channel chan) {
+    switch (battery_channel_alias(chan)) {
+    case SENSOR_CHAN_GAUGE_VOLTAGE:
+    case SENSOR_CHAN_GAUGE_STATE_OF_CHARGE:
+    case SENSOR_CHAN_ALL:
+        return true;
+    default:
+        return false;
+    }
+}
+
 int battery_channel_get(const struct battery_value *value, enum sensor_channel chan,
                         struct sensor_value *val_out) {
-    switch (chan) {
+    switch (battery_channel_alias(chan)) {
     case SENSOR_CHAN_GAUGE_VOLTAGE:
         val_out->val1 = value->millivolts / 1000;
         val_out->val2 = (value->millivolts % 1000) * 1000U;

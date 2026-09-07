@@ -135,6 +135,7 @@ zephyr_udc0: &usbd {
         reg = <0>;
         spi-max-frequency = <4000000>;
         chain-length = <4>;
+        reset-delay = <80>;
         spi-one-frame = <0x70>;
         spi-zero-frame = <0x40>;
         color-mapping = <LED_COLOR_ID_GREEN LED_COLOR_ID_RED LED_COLOR_ID_BLUE>;

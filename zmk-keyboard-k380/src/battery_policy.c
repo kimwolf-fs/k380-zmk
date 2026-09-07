@@ -177,7 +177,7 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
 
 #if IS_ENABLED(CONFIG_K380_SOFT_OFF)
     request_soft_off = previous_state != K380_POWER_SOFT_OFF_WARNING_REQUESTED &&
-                        power_state == K380_POWER_SOFT_OFF_WARNING_REQUESTED;
+                       power_state == K380_POWER_SOFT_OFF_WARNING_REQUESTED;
 #endif
     k_mutex_unlock(&battery_policy_lock);
 

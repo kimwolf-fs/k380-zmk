@@ -4,12 +4,14 @@ on:
   push:
     paths:
       - ".github/workflows/k380-ci.yml"
+      - "app/snippets/k380-config-usb-uart/**"
       - "zmk-keyboard-k380/**"
       - "app/boards/kimwolf/k380/**"
       - "zmk-keyboard-k380/tests/board-build/**"
   pull_request:
     paths:
       - ".github/workflows/k380-ci.yml"
+      - "app/snippets/k380-config-usb-uart/**"
       - "zmk-keyboard-k380/**"
       - "app/boards/kimwolf/k380/**"
       - "zmk-keyboard-k380/tests/board-build/**"
@@ -58,6 +60,9 @@ jobs:
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ble-slot-policy -p native_sim
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/battery-policy -p native_sim
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/soft-off -p native_sim
+      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-config -p native_sim
+      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-macro -p native_sim
+      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-protocol -p native_sim
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -143,9 +148,19 @@ jobs:
           import re
 
           source = Path("app/boards/kimwolf/k380/k380_nrf52840_zmk.dts").read_text()
+          kscan_kconfig = Path("zmk-keyboard-k380/drivers/kscan/Kconfig").read_text()
           source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
           source = re.sub(r"//[^\n]*", "", source)
           normalized = re.sub(r"\s+", "", source)
+
+          for symbol in (
+              "ZMK_KSCAN_MATRIX_WAIT_BEFORE_INPUTS",
+              "ZMK_KSCAN_MATRIX_WAIT_BETWEEN_OUTPUTS",
+          ):
+              assert re.search(rf"(?m)^\s*config\s+{symbol}\s*$", kscan_kconfig), (
+                  f"K380 custom matrix driver must define {symbol}; "
+                  "defconfig assignments are not sufficient if the symbol is not visible"
+              )
 
           transform = re.search(
               r"k380_transform\s*:\s*keymap_transform_0\s*\{(?P<body>.*?)\n\s*\};",
@@ -415,6 +430,9 @@ jobs:
               ), "K380 WS2812B compatible must be worldsemi,ws2812-spi"
               assert re.search(r"\bchain-length\s*=\s*<\s*4\s*>\s*;", ws), (
                   "K380 WS2812B chain length must be 4"
+              )
+              assert re.search(r"\breset-delay\s*=\s*<\s*80\s*>\s*;", ws), (
+                  "K380 WS2812B reset delay must be explicitly set to 80 us"
               )
               assert "LED_COLOR_ID_GREEN" in ws and "LED_COLOR_ID_RED" in ws and (
                   "LED_COLOR_ID_BLUE" in ws
@@ -783,6 +801,247 @@ jobs:
             build/k380-board/**/zephyr/zephyr.map
             build/k380-board/**/zephyr/zmk.hex
             build/k380-board/**/zephyr/zmk.uf2
+          if-no-files-found: ignore
+
+  firmware-build:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-build-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - name: Validate K380 dynamic config stack use
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          checked_sources = Path("zmk-keyboard-k380/src").glob("*.c")
+          violations = []
+          for source_path in checked_sources:
+              source = source_path.read_text()
+              lines = source.splitlines()
+              for match in re.finditer(
+                  r"\bstruct\s+k380_dynamic_config\s+[A-Za-z_][A-Za-z0-9_]*\s*;",
+                  source,
+              ):
+                  line = source[: match.start()].count("\n") + 1
+                  if "static " not in lines[line - 1]:
+                      violations.append(f"{source_path}:{line}: {match.group(0)}")
+
+          assert not violations, (
+              "K380 dynamic config is about 29KB and must not be stack-allocated "
+              "from key-triggered paths:\n" + "\n".join(violations)
+          )
+          PY
+      - name: Validate K380 dynamic settings storage shape
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          source = Path("zmk-keyboard-k380/src/dynamic_settings.c").read_text()
+          violations = []
+          if "#define K380_DYNAMIC_SETTINGS_BLOB" in source:
+              violations.append("single blob storage key must not be defined")
+          if "settings_save_one(K380_DYNAMIC_SETTINGS_BLOB" in source:
+              violations.append("dynamic settings must not save the config as one blob")
+          if "sizeof(shared_config)" in source:
+              violations.append("dynamic settings must not write the full shared_config value")
+          update = re.search(
+              r"int k380_dynamic_settings_update\(.*?\n\}",
+              source,
+              re.S,
+          )
+          if not update or "baseline_config = shared_config;" not in update.group(0):
+              violations.append(
+                  "dynamic settings update must snapshot the loaded baseline before callback"
+              )
+
+          assert not violations, (
+              "K380 dynamic settings records must stay small enough for NVS:\n"
+              + "\n".join(violations)
+          )
+          PY
+      - name: Validate K380 config tool contract
+        run: python3 zmk-keyboard-k380/tests/config-tool-contract/test_contract.py
+      - run: |
+          west build -s app -d build/k380-firmware -p always -b k380/nrf52840/zmk \
+            -S k380-config-usb-uart -- \
+            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380"
+      - name: Validate K380 firmware keymap
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          dts = Path("build/k380-firmware/zephyr/zephyr.dts").read_text()
+          config = Path("build/k380-firmware/zephyr/.config").read_text()
+          keymap = Path("app/boards/kimwolf/k380/k380.keymap").read_text()
+
+          required_config = {
+              "CONFIG_ZMK_KEYBOARD_NAME": '"K380-ZMK"',
+              "CONFIG_BT_DEVICE_NAME": '"K380-ZMK-BLE"',
+              "CONFIG_USB_DEVICE_PRODUCT": '"K380-ZMK-USB"',
+              "CONFIG_K380_CONFIG_TOOL": "y",
+              "CONFIG_USB_CDC_ACM": "y",
+              "CONFIG_K380_DYNAMIC_CONFIG": "y",
+              "CONFIG_K380_DYNAMIC_KEYMAP": "y",
+              "CONFIG_K380_DYNAMIC_MACRO": "y",
+              "CONFIG_K380_DYNAMIC_PRESET_SWITCH": "y",
+              "CONFIG_K380_DYNAMIC_PROTOCOL": "y",
+              "CONFIG_K380_DYNAMIC_TRANSPORT": "y",
+              "CONFIG_ZMK_KSCAN_MATRIX_WAIT_BEFORE_INPUTS": "5",
+              "CONFIG_ZMK_KSCAN_MATRIX_WAIT_BETWEEN_OUTPUTS": "50",
+          }
+          for name, value in required_config.items():
+              assert re.search(rf"(?m)^{name}={value}$", config), (
+                  f"formal K380 firmware must set {name}={value}; "
+                  "missing values mean the custom matrix settle delay is not active"
+              )
+          assert re.search(r"(?m)^# CONFIG_ZMK_STUDIO is not set$", config), (
+              "formal K380 firmware must keep ZMK Studio disabled; K380 uses its own config protocol"
+          )
+          assert re.search(r"(?m)^# CONFIG_K380_MATRIX_DIAGNOSTICS_RTT is not set$", config), (
+              "formal K380 firmware must not enable RTT matrix diagnostics"
+          )
+          assert re.search(r"(?m)^# CONFIG_ZMK_RGB_UNDERGLOW is not set$", config), (
+              "formal K380 firmware must keep the standard ZMK RGB underglow owner disabled"
+          )
+          assert re.search(r"(?m)^CONFIG_K380_STATUS_INDICATOR=y$", config), (
+              "formal K380 firmware must enable the K380 status indicator owner"
+          )
+          assert re.search(r"(?m)^# CONFIG_ZMK_KSCAN_MATRIX_POLLING is not set$", config), (
+              "formal K380 firmware must use interrupt-driven scan wake, not matrix polling"
+          )
+          assert re.search(r"reset-delay\s*=\s*<\s*0x50\s*>\s*;", dts), (
+              "formal K380 firmware must preserve an 80 us WS2812B reset delay"
+          )
+          assert "k380,config-uart" in dts, (
+              "formal K380 firmware must expose the K380 config USB UART endpoint"
+          )
+          assert "zmk,studio-rpc-uart" not in dts, (
+              "formal K380 firmware must not expose the ZMK Studio USB UART RPC endpoint"
+          )
+
+          default = re.search(r"default_layer\s*\{(?P<body>.*?)\n\s*\};", dts, re.S)
+          assert default, "generated firmware DTS is missing default_layer"
+          default_bindings = re.search(r"bindings\s*=\s*<(?P<value>.*?)>\s*;", default.group("body"), re.S)
+          assert default_bindings, "generated firmware default_layer is missing bindings"
+          normalized_default = re.sub(r"\s+", " ", default_bindings.group("value")).strip()
+          assert normalized_default != "&none", (
+              "formal K380 firmware default_layer resolved to <&none>; "
+              "do not flash board-build or diagnostic test artifacts as application firmware"
+          )
+          assert normalized_default.count("&k380_dk") >= 70, (
+              "formal K380 firmware must route editable default-layer keys through &k380_dk"
+          )
+          assert "&mo 0x1" in normalized_default, "formal K380 firmware must bind Fn as momentary layer 1"
+          default_refs = re.findall(r"&[A-Za-z0-9_]+", normalized_default)
+          assert len(default_refs) == 80, "formal K380 firmware default_layer must have 80 bindings"
+          assert default_refs[70] == "&mo", "formal K380 firmware must keep physical Fn as &mo"
+
+          fn = re.search(r"fn_layer\s*\{(?P<body>.*?)\n\s*\};", dts, re.S)
+          assert fn, "generated firmware DTS is missing fn_layer"
+          fn_bindings = re.search(r"bindings\s*=\s*<(?P<value>.*?)>\s*;", fn.group("body"), re.S)
+          assert fn_bindings, "generated firmware fn_layer is missing bindings"
+          normalized_fn = re.sub(r"\s+", " ", fn_bindings.group("value")).strip()
+          fn_prefix = re.findall(r"&[A-Za-z0-9_]+", normalized_fn)
+          assert "&bootloader" in normalized_fn, "formal K380 firmware must keep Fn+Del bootloader binding"
+          assert "&studio_unlock" not in normalized_fn, (
+              "formal K380 firmware must not expose ZMK Studio unlock from the Fn layer"
+          )
+          assert normalized_fn.count("&k380_preset") == 4, (
+              "formal K380 firmware must bind Fn+1..Fn+4 to the four presets"
+          )
+          assert fn_prefix[16:20] == ["&k380_preset"] * 4, (
+              "formal K380 firmware must bind Fn+1..Fn+4 to presets 0..3"
+          )
+          assert normalized_fn.count("&k380_dk") == 69, (
+              "formal K380 firmware must route editable Fn-layer keys through &k380_dk"
+          )
+          assert not any(token == "&k380_dk" for token in fn_prefix[1:5]), (
+              "formal K380 firmware must keep Fn+1..Fn+4 outside &k380_dk"
+          )
+          for node in ("k380_bt_1", "k380_bt_2", "k380_bt_3"):
+              assert f"&{node}" in normalized_fn, f"formal K380 firmware must keep {node} binding"
+
+          source_default = re.search(r"default_layer\s*\{(?P<body>.*?)\n\s*\};", keymap, re.S)
+          assert source_default, "source K380 keymap is missing default_layer"
+          source_default_bindings = re.search(
+              r"bindings\s*=\s*<(?P<value>.*?)>\s*;",
+              source_default.group("body"),
+              re.S,
+          )
+          assert source_default_bindings, "source K380 keymap default_layer is missing bindings"
+          normalized_source_default = re.sub(
+              r"\s+", " ", source_default_bindings.group("value")
+          ).strip()
+          source_default_refs = re.findall(r"&[A-Za-z0-9_]+", normalized_source_default)
+          assert len(source_default_refs) == 80, (
+              "source K380 keymap default_layer must have 80 bindings"
+          )
+          assert source_default_refs[70] == "&mo", "source K380 keymap must keep physical Fn as &mo"
+          assert normalized_source_default.count("&k380_dk") >= 70, (
+              "source K380 keymap must route editable default-layer keys through &k380_dk"
+          )
+          source_fn = re.search(r"fn_layer\s*\{(?P<body>.*?)\n\s*\};", keymap, re.S)
+          assert source_fn, "source K380 keymap is missing fn_layer"
+          source_fn_bindings = re.search(
+              r"bindings\s*=\s*<(?P<value>.*?)>\s*;",
+              source_fn.group("body"),
+              re.S,
+          )
+          assert source_fn_bindings, "source K380 keymap fn_layer is missing bindings"
+          normalized_source_fn = re.sub(r"\s+", " ", source_fn_bindings.group("value")).strip()
+          source_fn_refs = re.findall(r"&[A-Za-z0-9_]+", normalized_source_fn)
+          assert len(source_fn_refs) == 80, "source K380 keymap fn_layer must have 80 bindings"
+          assert source_fn_refs[28] == "&trans", (
+              "source K380 keymap must leave Fn+Backspace transparent when ZMK Studio is disabled"
+          )
+          assert source_fn_refs[14] == "&bootloader", (
+              "source K380 keymap must bind Fn+Del to &bootloader"
+          )
+          assert normalized_source_fn.count("&k380_dk") == 69, (
+              "source K380 keymap must route editable Fn-layer keys through &k380_dk"
+          )
+          assert not any(token == "&k380_dk" for token in source_fn_refs[1:5]), (
+              "source K380 keymap must keep Fn+1..Fn+4 outside &k380_dk"
+          )
+          PY
+      - if: failure()
+        run: |
+          find build/k380-firmware -type f -name '*.log' -print -exec tail -n 200 {} \;
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k380-zmk-firmware
+          include-hidden-files: true
+          path: |
+            build/k380-firmware/**/*.log
+            build/k380-firmware/**/zephyr/.config
+            build/k380-firmware/**/zephyr/zephyr.dts
+            build/k380-firmware/**/zephyr/zmk.elf
+            build/k380-firmware/**/zephyr/zephyr.elf
+            build/k380-firmware/**/zephyr/zmk.map
+            build/k380-firmware/**/zephyr/zephyr.map
+            build/k380-firmware/**/zephyr/zmk.hex
+            build/k380-firmware/**/zephyr/zmk.uf2
           if-no-files-found: ignore
 
   matrix-rtt-diagnostics:

@@ -180,17 +180,12 @@ int update_advertising(void) {
     struct bt_conn *conn;
     enum advertising_type desired_adv = ZMK_ADV_NONE;
 
-    if (zmk_ble_active_profile_is_open()) {
+    if (zmk_ble_active_profile_is_connected()) {
+        desired_adv = ZMK_ADV_NONE;
+    } else if (zmk_ble_active_profile_is_open()) {
         desired_adv = ZMK_ADV_CONN;
-    } else if (!zmk_ble_active_profile_is_connected()) {
-        desired_adv = ZMK_ADV_CONN;
-        // Need to fix directed advertising for privacy centrals. See
-        // https://github.com/zephyrproject-rtos/zephyr/pull/14984 char
-        // addr_str[BT_ADDR_LE_STR_LEN]; bt_addr_le_to_str(zmk_ble_active_profile_addr(), addr_str,
-        // sizeof(addr_str));
-
-        // LOG_DBG("Directed advertising to %s", addr_str);
-        // desired_adv = ZMK_ADV_DIR;
+    } else {
+        desired_adv = ZMK_ADV_DIR;
     }
     LOG_DBG("advertising from %d to %d", advertising_status, desired_adv);
 
