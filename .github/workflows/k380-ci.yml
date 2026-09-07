@@ -847,6 +847,35 @@ jobs:
               "from key-triggered paths:\n" + "\n".join(violations)
           )
           PY
+      - name: Validate K380 dynamic settings storage shape
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          source = Path("zmk-keyboard-k380/src/dynamic_settings.c").read_text()
+          violations = []
+          if "#define K380_DYNAMIC_SETTINGS_BLOB" in source:
+              violations.append("single blob storage key must not be defined")
+          if "settings_save_one(K380_DYNAMIC_SETTINGS_BLOB" in source:
+              violations.append("dynamic settings must not save the config as one blob")
+          if "sizeof(shared_config)" in source:
+              violations.append("dynamic settings must not write the full shared_config value")
+          update = re.search(
+              r"int k380_dynamic_settings_update\(.*?\n\}",
+              source,
+              re.S,
+          )
+          if not update or "baseline_config = shared_config;" not in update.group(0):
+              violations.append(
+                  "dynamic settings update must snapshot the loaded baseline before callback"
+              )
+
+          assert not violations, (
+              "K380 dynamic settings records must stay small enough for NVS:\n"
+              + "\n".join(violations)
+          )
+          PY
       - run: |
           west build -s app -d build/k380-firmware -p always -b k380/nrf52840/zmk \
             -S studio-rpc-usb-uart -- \
