@@ -14,6 +14,7 @@
 
 extern int k380_dynamic_set_active_preset(uint8_t preset) __attribute__((weak));
 extern enum zmk_studio_core_lock_state zmk_studio_core_get_lock_state(void) __attribute__((weak));
+extern int zmk_keymap_reset_settings(void) __attribute__((weak));
 
 #define PRESET_BINDINGS_WIRE_SIZE (K380_DYNAMIC_LAYER_COUNT * K380_DYNAMIC_KEY_COUNT * 3U)
 static uint16_t get_le16(const uint8_t *value) { return sys_get_le16(value); }
@@ -79,6 +80,19 @@ static enum k380_dynamic_result result_from_error(int err, bool saving)
         return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
     }
     return saving ? K380_DYNAMIC_RESULT_SAVE_FAILURE : K380_DYNAMIC_RESULT_IO_FAILURE;
+}
+
+static enum k380_dynamic_result reset_native_studio_keymap(void)
+{
+    if (zmk_keymap_reset_settings == NULL) {
+        return K380_DYNAMIC_RESULT_READY;
+    }
+
+    const int err = zmk_keymap_reset_settings();
+    if (err == 0 || err == -ENOTSUP) {
+        return K380_DYNAMIC_RESULT_READY;
+    }
+    return result_from_error(err, true);
 }
 
 static enum k380_dynamic_result encode_bindings(const struct k380_dynamic_preset *preset,
@@ -219,8 +233,10 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         return K380_DYNAMIC_RESULT_LOCKED;
     }
     if (command == K380_DYNAMIC_COMMAND_HELLO) {
-        return payload_len == 0U ? K380_DYNAMIC_RESULT_READY
-                                 : K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+        if (payload_len != 0U) {
+            return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+        }
+        return reset_native_studio_keymap();
     }
     if (command == K380_DYNAMIC_COMMAND_GET_INFO) {
         if (payload_len != 0U) {

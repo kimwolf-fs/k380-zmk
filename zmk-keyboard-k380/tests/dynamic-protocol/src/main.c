@@ -10,6 +10,7 @@
 
 static bool unlocked = true;
 static struct k380_dynamic_config config;
+static uint8_t native_keymap_reset_count;
 
 bool k380_dynamic_protocol_is_unlocked(void) { return unlocked; }
 
@@ -37,6 +38,11 @@ int k380_dynamic_macro_test(uint8_t slot) { return slot < K380_DYNAMIC_MACRO_SLO
 
 bool k380_dynamic_macro_is_running(void) { return false; }
 
+int zmk_keymap_reset_settings(void) {
+    native_keymap_reset_count++;
+    return 0;
+}
+
 static size_t make_frame(uint8_t *frame, uint8_t command, uint16_t sequence,
                          const uint8_t *payload, uint16_t payload_len)
 {
@@ -61,6 +67,7 @@ ZTEST(dynamic_protocol, test_valid_hello_returns_ready)
     size_t response_len = 0;
 
     unlocked = true;
+    native_keymap_reset_count = 0;
     k380_dynamic_protocol_parser_init(&parser);
     const size_t frame_len = make_frame(frame, K380_DYNAMIC_COMMAND_HELLO, 0x1234, NULL, 0);
 
@@ -71,6 +78,7 @@ ZTEST(dynamic_protocol, test_valid_hello_returns_ready)
     zassert_mem_equal(response, K380_DYNAMIC_PROTOCOL_MAGIC, K380_DYNAMIC_PROTOCOL_MAGIC_SIZE);
     zassert_equal(K380_DYNAMIC_COMMAND_HELLO | K380_DYNAMIC_COMMAND_RESPONSE_FLAG, response[9]);
     zassert_equal(K380_DYNAMIC_RESULT_READY, response[K380_DYNAMIC_PROTOCOL_HEADER_SIZE]);
+    zassert_equal(1, native_keymap_reset_count);
 }
 
 ZTEST(dynamic_protocol, test_wrong_magic_returns_not_k380)
