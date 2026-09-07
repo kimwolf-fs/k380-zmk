@@ -39,15 +39,14 @@ config K380_SOFT_OFF
 config K380_CONFIG_TOOL
     bool "K380 web configuration tool"
     default n
-    select K380_DYNAMIC_CONFIG
-    select K380_DYNAMIC_KEYMAP
-    select K380_DYNAMIC_MACRO
-    select K380_DYNAMIC_PRESET_SWITCH
+    depends on K380_DYNAMIC_CONFIG && K380_DYNAMIC_KEYMAP && K380_DYNAMIC_MACRO && K380_DYNAMIC_PRESET_SWITCH
     select K380_DYNAMIC_PROTOCOL
     select K380_DYNAMIC_TRANSPORT
     help
       Enables the K380 private USB CDC configuration protocol for runtime
-      key remapping, presets, and macros without enabling ZMK Studio.
+      key remapping, presets, and macros without enabling ZMK Studio. The
+      runtime dynamic keymap, preset, and macro features are controlled by
+      their own symbols so saved behavior can run without the host tool.
 
 config K380_DYNAMIC_CONFIG
     bool "K380 runtime dynamic config"
