@@ -24,6 +24,11 @@ int k380_dynamic_settings_load(struct k380_dynamic_config *cfg) {
     return 0;
 }
 
+int k380_dynamic_settings_with_config(k380_dynamic_settings_config_cb_t callback,
+                                      void *user_data) {
+    return callback(&config, user_data);
+}
+
 int raise_zmk_keycode_state_changed(struct zmk_keycode_state_changed event) {
     zassert_equal(event.usage_page, HID_USAGE_KEY);
     zassert_true(emitted_count < ARRAY_SIZE(emitted_usages));

@@ -11,10 +11,32 @@
 
 extern void k380_dynamic_macro_stop_before_preset_switch(void) __attribute__((weak));
 
+struct set_active_preset_context {
+    uint8_t preset;
+};
+
+static int set_active_preset(struct k380_dynamic_config *cfg, void *user_data)
+{
+    const struct set_active_preset_context *ctx = user_data;
+
+    cfg->active_preset = ctx->preset;
+
+    return 0;
+}
+
+static int get_active_preset(struct k380_dynamic_config *cfg, void *user_data)
+{
+    uint8_t *preset = user_data;
+
+    *preset = cfg->active_preset;
+
+    return 0;
+}
+
 int k380_dynamic_set_active_preset(uint8_t preset) {
-    struct k380_dynamic_config cfg;
-    uint8_t old_preset;
-    int err;
+    struct set_active_preset_context ctx = {
+        .preset = preset,
+    };
 
     if (preset >= K380_DYNAMIC_PRESET_COUNT) {
         return -EINVAL;
@@ -24,31 +46,17 @@ int k380_dynamic_set_active_preset(uint8_t preset) {
         k380_dynamic_macro_stop_before_preset_switch();
     }
 
-    err = k380_dynamic_settings_load(&cfg);
-    if (err != 0) {
-        return err;
-    }
-
-    old_preset = cfg.active_preset;
-    cfg.active_preset = preset;
-    err = k380_dynamic_settings_save(&cfg);
-    if (err != 0) {
-        cfg.active_preset = old_preset;
-        (void)k380_dynamic_settings_save(&cfg);
-        return err;
-    }
-
-    return 0;
+    return k380_dynamic_settings_update(set_active_preset, &ctx);
 }
 
 uint8_t k380_dynamic_get_active_preset(void) {
-    struct k380_dynamic_config cfg;
+    uint8_t preset = 0;
 
-    if (k380_dynamic_settings_load(&cfg) != 0) {
+    if (k380_dynamic_settings_with_config(get_active_preset, &preset) != 0) {
         return 0;
     }
 
-    return cfg.active_preset;
+    return preset;
 }
 
 static int preset_switch_pressed(struct zmk_behavior_binding *binding,

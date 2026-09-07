@@ -823,6 +823,30 @@ jobs:
       - run: west init -l app
       - run: west update --fetch-opt=--filter=tree:0
       - run: west zephyr-export
+      - name: Validate K380 dynamic config stack use
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          checked_sources = Path("zmk-keyboard-k380/src").glob("*.c")
+          violations = []
+          for source_path in checked_sources:
+              source = source_path.read_text()
+              lines = source.splitlines()
+              for match in re.finditer(
+                  r"\bstruct\s+k380_dynamic_config\s+[A-Za-z_][A-Za-z0-9_]*\s*;",
+                  source,
+              ):
+                  line = source[: match.start()].count("\n") + 1
+                  if "static " not in lines[line - 1]:
+                      violations.append(f"{source_path}:{line}: {match.group(0)}")
+
+          assert not violations, (
+              "K380 dynamic config is about 29KB and must not be stack-allocated "
+              "from key-triggered paths:\n" + "\n".join(violations)
+          )
+          PY
       - run: |
           west build -s app -d build/k380-firmware -p always -b k380/nrf52840/zmk \
             -S studio-rpc-usb-uart -- \

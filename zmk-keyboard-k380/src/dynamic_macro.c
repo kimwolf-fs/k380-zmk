@@ -36,6 +36,13 @@ static uint8_t physical_usage_counts[256];
 K_MUTEX_DEFINE(runner_lock);
 K_SEM_DEFINE(macro_stop_signal, 0, 1);
 
+struct macro_lookup_context {
+    uint8_t preset;
+    uint8_t slot;
+    uint8_t trigger;
+    struct k380_dynamic_macro macro;
+};
+
 static void dynamic_macro_work_handler(struct k_work *work);
 K_WORK_DEFINE(dynamic_macro_work, dynamic_macro_work_handler);
 
@@ -278,7 +285,31 @@ static int start_macro(uint8_t preset, uint8_t slot,
     return err < 0 ? err : 0;
 }
 
+static int load_macro(struct k380_dynamic_config *config, void *user_data)
+{
+    struct macro_lookup_context *ctx = user_data;
+
+    ctx->macro = config->presets[ctx->preset].macros[ctx->slot];
+    ctx->trigger = ctx->macro.trigger;
+
+    return 0;
+}
+
+static int load_active_macro(struct k380_dynamic_config *config, void *user_data)
+{
+    struct macro_lookup_context *ctx = user_data;
+
+    ctx->preset = config->active_preset;
+    return load_macro(config, user_data);
+}
+
 int k380_dynamic_macro_trigger(uint8_t preset, uint8_t slot, bool pressed) {
+    struct macro_lookup_context macro_context = {
+        .preset = preset,
+        .slot = slot,
+    };
+    int err;
+
     if (preset >= K380_DYNAMIC_PRESET_COUNT || slot >= K380_DYNAMIC_MACRO_SLOT_COUNT) {
         return -EINVAL;
     }
@@ -314,35 +345,31 @@ int k380_dynamic_macro_trigger(uint8_t preset, uint8_t slot, bool pressed) {
         return 0;
     }
 
-    struct k380_dynamic_config config;
-    int err = k380_dynamic_settings_load(&config);
+    err = k380_dynamic_settings_with_config(load_macro, &macro_context);
     if (err != 0) {
         return err;
     }
-    if (k380_dynamic_config_validate(&config) != 0) {
-        return -EINVAL;
-    }
 
-    return start_macro(preset, slot, &config.presets[preset].macros[slot],
-                       config.presets[preset].macros[slot].trigger);
+    return start_macro(preset, slot, &macro_context.macro,
+                       macro_context.trigger);
 }
 
 int k380_dynamic_macro_test(uint8_t slot) {
+    struct macro_lookup_context macro_context = {
+        .slot = slot,
+    };
+    int err;
+
     if (slot >= K380_DYNAMIC_MACRO_SLOT_COUNT) {
         return -EINVAL;
     }
 
-    struct k380_dynamic_config config;
-    int err = k380_dynamic_settings_load(&config);
+    err = k380_dynamic_settings_with_config(load_active_macro, &macro_context);
     if (err != 0) {
         return err;
     }
-    if (k380_dynamic_config_validate(&config) != 0) {
-        return -EINVAL;
-    }
 
-    return start_macro(config.active_preset, slot,
-                       &config.presets[config.active_preset].macros[slot],
+    return start_macro(macro_context.preset, slot, &macro_context.macro,
                        K380_DYNAMIC_MACRO_TRIGGER_ONCE);
 }
 
