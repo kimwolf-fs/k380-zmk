@@ -36,6 +36,19 @@ config K380_SOFT_OFF
     help
       Saves a one-time low-voltage shutdown reason and enters ZMK soft-off.
 
+config K380_CONFIG_TOOL
+    bool "K380 web configuration tool"
+    default n
+    select K380_DYNAMIC_CONFIG
+    select K380_DYNAMIC_KEYMAP
+    select K380_DYNAMIC_MACRO
+    select K380_DYNAMIC_PRESET_SWITCH
+    select K380_DYNAMIC_PROTOCOL
+    select K380_DYNAMIC_TRANSPORT
+    help
+      Enables the K380 private USB CDC configuration protocol for runtime
+      key remapping, presets, and macros without enabling ZMK Studio.
+
 config K380_DYNAMIC_CONFIG
     bool "K380 runtime dynamic config"
     default n
@@ -59,16 +72,17 @@ config K380_DYNAMIC_PRESET_SWITCH
 config K380_DYNAMIC_PROTOCOL
     bool "K380 private dynamic configuration protocol"
     default n
-    depends on K380_DYNAMIC_CONFIG && K380_DYNAMIC_MACRO && K380_DYNAMIC_PRESET_SWITCH && ZMK_STUDIO
+    depends on K380_DYNAMIC_CONFIG && K380_DYNAMIC_MACRO && K380_DYNAMIC_PRESET_SWITCH
 
 config K380_DYNAMIC_TRANSPORT
     bool "K380 private dynamic configuration CDC transport"
     default n
-    depends on K380_DYNAMIC_PROTOCOL && ZMK_STUDIO_TRANSPORT_UART
+    depends on K380_DYNAMIC_PROTOCOL
     select SERIAL
+    select UART_INTERRUPT_DRIVEN
     help
-      Uses the application-mode CDC UART chosen for ZMK Studio. The host must
-      keep ZMK Studio and the K380 configuration tool mutually exclusive.
+      Uses the application-mode CDC UART chosen for the K380 configuration
+      tool. This transport is independent from ZMK Studio.
 
 config K380_BATTERY_POLICY_RUNTIME
     bool

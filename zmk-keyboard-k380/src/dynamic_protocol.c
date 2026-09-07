@@ -5,16 +5,12 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
 
-#include <zmk/studio/core.h>
-
 #include <zmk_keyboard_k380/dynamic_config.h>
 #include <zmk_keyboard_k380/dynamic_macro.h>
 #include <zmk_keyboard_k380/dynamic_protocol.h>
 #include <zmk_keyboard_k380/dynamic_settings.h>
 
 extern int k380_dynamic_set_active_preset(uint8_t preset) __attribute__((weak));
-extern enum zmk_studio_core_lock_state zmk_studio_core_get_lock_state(void) __attribute__((weak));
-extern int zmk_keymap_reset_settings(void) __attribute__((weak));
 
 #define PRESET_BINDINGS_WIRE_SIZE (K380_DYNAMIC_LAYER_COUNT * K380_DYNAMIC_KEY_COUNT * 3U)
 static uint16_t get_le16(const uint8_t *value) { return sys_get_le16(value); }
@@ -27,8 +23,7 @@ static struct k380_dynamic_macro decoded_macro;
 
 bool __attribute__((weak)) k380_dynamic_protocol_is_unlocked(void)
 {
-    return zmk_studio_core_get_lock_state != NULL &&
-           zmk_studio_core_get_lock_state() == ZMK_STUDIO_CORE_LOCK_STATE_UNLOCKED;
+    return true;
 }
 
 void k380_dynamic_protocol_parser_init(struct k380_dynamic_protocol_parser *parser)
@@ -80,19 +75,6 @@ static enum k380_dynamic_result result_from_error(int err, bool saving)
         return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
     }
     return saving ? K380_DYNAMIC_RESULT_SAVE_FAILURE : K380_DYNAMIC_RESULT_IO_FAILURE;
-}
-
-static enum k380_dynamic_result reset_native_studio_keymap(void)
-{
-    if (zmk_keymap_reset_settings == NULL) {
-        return K380_DYNAMIC_RESULT_READY;
-    }
-
-    const int err = zmk_keymap_reset_settings();
-    if (err == 0 || err == -ENOTSUP) {
-        return K380_DYNAMIC_RESULT_READY;
-    }
-    return result_from_error(err, true);
 }
 
 static enum k380_dynamic_result encode_bindings(const struct k380_dynamic_preset *preset,
@@ -236,7 +218,7 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         if (payload_len != 0U) {
             return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
         }
-        return reset_native_studio_keymap();
+        return K380_DYNAMIC_RESULT_READY;
     }
     if (command == K380_DYNAMIC_COMMAND_GET_INFO) {
         if (payload_len != 0U) {

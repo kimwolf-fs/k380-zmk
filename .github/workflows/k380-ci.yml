@@ -4,12 +4,14 @@ on:
   push:
     paths:
       - ".github/workflows/k380-ci.yml"
+      - "app/snippets/k380-config-usb-uart/**"
       - "zmk-keyboard-k380/**"
       - "app/boards/kimwolf/k380/**"
       - "zmk-keyboard-k380/tests/board-build/**"
   pull_request:
     paths:
       - ".github/workflows/k380-ci.yml"
+      - "app/snippets/k380-config-usb-uart/**"
       - "zmk-keyboard-k380/**"
       - "app/boards/kimwolf/k380/**"
       - "zmk-keyboard-k380/tests/board-build/**"
@@ -876,11 +878,12 @@ jobs:
               + "\n".join(violations)
           )
           PY
+      - name: Validate K380 config tool contract
+        run: python3 zmk-keyboard-k380/tests/config-tool-contract/test_contract.py
       - run: |
           west build -s app -d build/k380-firmware -p always -b k380/nrf52840/zmk \
-            -S studio-rpc-usb-uart -- \
-            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
-            -DCONFIG_ZMK_STUDIO=y
+            -S k380-config-usb-uart -- \
+            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380"
       - name: Validate K380 firmware keymap
         run: |
           python3 - <<'PY'
@@ -895,8 +898,7 @@ jobs:
               "CONFIG_ZMK_KEYBOARD_NAME": '"K380-ZMK"',
               "CONFIG_BT_DEVICE_NAME": '"K380-ZMK-BLE"',
               "CONFIG_USB_DEVICE_PRODUCT": '"K380-ZMK-USB"',
-              "CONFIG_ZMK_STUDIO": "y",
-              "CONFIG_ZMK_STUDIO_TRANSPORT_UART": "y",
+              "CONFIG_K380_CONFIG_TOOL": "y",
               "CONFIG_USB_CDC_ACM": "y",
               "CONFIG_K380_DYNAMIC_CONFIG": "y",
               "CONFIG_K380_DYNAMIC_KEYMAP": "y",
@@ -912,6 +914,9 @@ jobs:
                   f"formal K380 firmware must set {name}={value}; "
                   "missing values mean the custom matrix settle delay is not active"
               )
+          assert re.search(r"(?m)^# CONFIG_ZMK_STUDIO is not set$", config), (
+              "formal K380 firmware must keep ZMK Studio disabled; K380 uses its own config protocol"
+          )
           assert re.search(r"(?m)^# CONFIG_K380_MATRIX_DIAGNOSTICS_RTT is not set$", config), (
               "formal K380 firmware must not enable RTT matrix diagnostics"
           )
@@ -927,8 +932,11 @@ jobs:
           assert re.search(r"reset-delay\s*=\s*<\s*0x50\s*>\s*;", dts), (
               "formal K380 firmware must preserve an 80 us WS2812B reset delay"
           )
-          assert "zmk,studio-rpc-uart" in dts, (
-              "formal K380 firmware must expose the ZMK Studio USB UART RPC endpoint"
+          assert "k380,config-uart" in dts, (
+              "formal K380 firmware must expose the K380 config USB UART endpoint"
+          )
+          assert "zmk,studio-rpc-uart" not in dts, (
+              "formal K380 firmware must not expose the ZMK Studio USB UART RPC endpoint"
           )
 
           default = re.search(r"default_layer\s*\{(?P<body>.*?)\n\s*\};", dts, re.S)
@@ -955,8 +963,8 @@ jobs:
           normalized_fn = re.sub(r"\s+", " ", fn_bindings.group("value")).strip()
           fn_prefix = re.findall(r"&[A-Za-z0-9_]+", normalized_fn)
           assert "&bootloader" in normalized_fn, "formal K380 firmware must keep Fn+Del bootloader binding"
-          assert "&studio_unlock" in normalized_fn, (
-              "formal K380 firmware must expose ZMK Studio unlock from the Fn layer"
+          assert "&studio_unlock" not in normalized_fn, (
+              "formal K380 firmware must not expose ZMK Studio unlock from the Fn layer"
           )
           assert normalized_fn.count("&k380_preset") == 4, (
               "formal K380 firmware must bind Fn+1..Fn+4 to the four presets"
@@ -1003,8 +1011,8 @@ jobs:
           normalized_source_fn = re.sub(r"\s+", " ", source_fn_bindings.group("value")).strip()
           source_fn_refs = re.findall(r"&[A-Za-z0-9_]+", normalized_source_fn)
           assert len(source_fn_refs) == 80, "source K380 keymap fn_layer must have 80 bindings"
-          assert source_fn_refs[28] == "&studio_unlock", (
-              "source K380 keymap must bind Fn+Backspace to &studio_unlock"
+          assert source_fn_refs[28] == "&trans", (
+              "source K380 keymap must leave Fn+Backspace transparent when ZMK Studio is disabled"
           )
           assert source_fn_refs[14] == "&bootloader", (
               "source K380 keymap must bind Fn+Del to &bootloader"

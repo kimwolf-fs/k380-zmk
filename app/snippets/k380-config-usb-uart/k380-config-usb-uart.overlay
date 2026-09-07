@@ -1,0 +1,11 @@
+/ {
+    chosen {
+        k380,config-uart = &snippet_k380_config_usb_uart;
+    };
+};
+
+&zephyr_udc0 {
+    snippet_k380_config_usb_uart: k380_config_uart {
+        compatible = "zephyr,cdc-acm-uart";
+    };
+};

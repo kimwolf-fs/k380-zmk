@@ -13,7 +13,7 @@
 
 LOG_MODULE_REGISTER(k380_dynamic_transport, LOG_LEVEL_INF);
 
-#define UART_DEVICE_NODE DT_CHOSEN(zmk_studio_rpc_uart)
+#define UART_DEVICE_NODE DT_CHOSEN(k380_config_uart)
 
 #if DT_NODE_EXISTS(UART_DEVICE_NODE)
 
@@ -128,13 +128,42 @@ size_t k380_dynamic_transport_receive(const uint8_t *data, size_t data_len,
     return forwarded_len;
 }
 
+static void uart_rx_dispatch(const uint8_t *data, size_t data_len)
+{
+    (void)k380_dynamic_transport_receive(data, data_len, NULL, NULL);
+}
+
+static void serial_cb(const struct device *dev, void *user_data)
+{
+    ARG_UNUSED(user_data);
+
+    if (!uart_irq_update(dev)) {
+        return;
+    }
+
+    if (uart_irq_rx_ready(dev)) {
+        uint8_t byte;
+        while (uart_fifo_read(dev, &byte, 1) == 1) {
+            uart_rx_dispatch(&byte, 1U);
+        }
+    }
+}
+
 static int dynamic_transport_init(void)
 {
     if (!device_is_ready(uart_dev)) {
-        LOG_ERR("Studio CDC UART is unavailable");
+        LOG_ERR("K380 config CDC UART is unavailable");
         return -ENODEV;
     }
+
     k380_dynamic_protocol_parser_init(&parser);
+
+    int err = uart_irq_callback_user_data_set(uart_dev, serial_cb, NULL);
+    if (err < 0) {
+        LOG_ERR("Failed to configure K380 config CDC UART callback: %d", err);
+        return err;
+    }
+    uart_irq_rx_enable(uart_dev);
     return 0;
 }
 

@@ -16,10 +16,6 @@
 #include <zephyr/logging/log.h>
 #include <zmk/studio/rpc.h>
 
-#if IS_ENABLED(CONFIG_K380_DYNAMIC_TRANSPORT)
-#include <zmk_keyboard_k380/dynamic_protocol.h>
-#endif
-
 LOG_MODULE_DECLARE(zmk_studio, CONFIG_ZMK_STUDIO_LOG_LEVEL);
 
 /* change this to any other UART peripheral if desired */
@@ -50,11 +46,7 @@ static void studio_rx_put(const uint8_t *data, size_t data_len, void *user_data)
 static void uart_rx_dispatch(const uint8_t *data, size_t data_len) {
     bool studio_received = false;
 
-#if IS_ENABLED(CONFIG_K380_DYNAMIC_TRANSPORT)
-    (void)k380_dynamic_transport_receive(data, data_len, studio_rx_put, &studio_received);
-#else
     studio_rx_put(data, data_len, &studio_received);
-#endif
     if (studio_received) {
         zmk_rpc_rx_notify();
     }
