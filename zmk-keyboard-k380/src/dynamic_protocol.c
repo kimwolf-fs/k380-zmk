@@ -169,36 +169,60 @@ static enum k380_dynamic_result decode_macro(struct k380_dynamic_macro *macro,
         if (offset >= data_len) {
             return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
         }
-        decoded->steps[step].type = data[offset++];
-        switch (decoded->steps[step].type) {
+        struct k380_dynamic_macro_step *current = &decoded->steps[step];
+        current->type = data[offset++];
+        switch (current->type) {
+        case K380_DYNAMIC_MACRO_PRESS_KEY:
+        case K380_DYNAMIC_MACRO_RELEASE_KEY:
+        case K380_DYNAMIC_MACRO_TAP_KEY:
+            if (data_len - offset < 2U) {
+                return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+            }
+            current->value.key_usage = get_le16(&data[offset]);
+            offset += 2U;
+            if (current->value.key_usage < 0x04U ||
+                current->value.key_usage > 0xE7U) {
+                return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+            }
+            break;
+        case K380_DYNAMIC_MACRO_WAIT_MS:
+            if (data_len - offset < 2U) {
+                return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+            }
+            current->value.wait_ms = get_le16(&data[offset]);
+            offset += 2U;
+            if (current->value.wait_ms < K380_DYNAMIC_WAIT_MIN_MS ||
+                current->value.wait_ms > K380_DYNAMIC_WAIT_MAX_MS) {
+                return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+            }
+            break;
         case K380_DYNAMIC_MACRO_WAIT_RANDOM:
             if (data_len - offset < 4U) {
                 return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
             }
-            decoded->steps[step].value.wait_random.min_ms = get_le16(&data[offset]);
-            decoded->steps[step].value.wait_random.max_ms = get_le16(&data[offset + 2U]);
+            current->value.wait_random.min_ms = get_le16(&data[offset]);
+            current->value.wait_random.max_ms = get_le16(&data[offset + 2U]);
             offset += 4U;
+            if (current->value.wait_random.min_ms < K380_DYNAMIC_WAIT_MIN_MS ||
+                current->value.wait_random.min_ms > K380_DYNAMIC_WAIT_MAX_MS ||
+                current->value.wait_random.max_ms < K380_DYNAMIC_WAIT_MIN_MS ||
+                current->value.wait_random.max_ms > K380_DYNAMIC_WAIT_MAX_MS ||
+                current->value.wait_random.min_ms > current->value.wait_random.max_ms) {
+                return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+            }
             break;
         case K380_DYNAMIC_MACRO_RELEASE_ALL:
             break;
         default:
-            if (data_len - offset < 2U) {
-                return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
-            }
-            decoded->steps[step].value.key_usage = get_le16(&data[offset]);
-            offset += 2U;
-            if ((decoded->steps[step].type == K380_DYNAMIC_MACRO_PRESS_KEY ||
-                 decoded->steps[step].type == K380_DYNAMIC_MACRO_RELEASE_KEY ||
-                 decoded->steps[step].type == K380_DYNAMIC_MACRO_TAP_KEY) &&
-                (decoded->steps[step].value.key_usage < 0x04U ||
-                 decoded->steps[step].value.key_usage > 0xE7U)) {
-                return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
-            }
-            break;
+            return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
     }
     if (offset != data_len) {
         return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+    }
+    if (decoded->trigger > K380_DYNAMIC_MACRO_TRIGGER_COUNT ||
+        (decoded->trigger == K380_DYNAMIC_MACRO_TRIGGER_COUNT && decoded->count == 0U)) {
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
     }
     *macro = *decoded;
     return K380_DYNAMIC_RESULT_READY;
@@ -337,11 +361,21 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         return result_from_error(k380_dynamic_settings_restore_all(), true);
     }
     if (command == K380_DYNAMIC_COMMAND_TEST_MACRO) {
-        if (payload_len != 1U || payload[0] >= K380_DYNAMIC_MACRO_SLOT_COUNT) {
+        if (payload_len < 1U || payload[0] >= K380_DYNAMIC_MACRO_SLOT_COUNT) {
             return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
         if (k380_dynamic_macro_is_running()) {
             return K380_DYNAMIC_RESULT_BUSY;
+        }
+        if (payload_len > 1U) {
+            enum k380_dynamic_result result = decode_macro(&decoded_macro, &payload[1],
+                                                           payload_len - 1U);
+            if (result != K380_DYNAMIC_RESULT_READY) {
+                return result;
+            }
+            return result_from_error(k380_dynamic_macro_test_temporary(
+                                         config->active_preset, payload[0], &decoded_macro),
+                                     false);
         }
         return result_from_error(k380_dynamic_macro_test(payload[0]), false);
     }

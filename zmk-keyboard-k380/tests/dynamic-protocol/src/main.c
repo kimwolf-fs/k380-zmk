@@ -10,6 +10,11 @@
 
 static bool unlocked = true;
 static struct k380_dynamic_config config;
+static bool saved_macro_test_called;
+static bool temporary_macro_test_called;
+static uint8_t last_test_preset;
+static uint8_t last_test_slot;
+static struct k380_dynamic_macro last_test_macro;
 
 bool k380_dynamic_protocol_is_unlocked(void) { return unlocked; }
 
@@ -33,7 +38,22 @@ int k380_dynamic_set_active_preset(uint8_t preset) {
     return 0;
 }
 
-int k380_dynamic_macro_test(uint8_t slot) { return slot < K380_DYNAMIC_MACRO_SLOT_COUNT ? 0 : -1; }
+int k380_dynamic_macro_test(uint8_t slot) {
+    saved_macro_test_called = true;
+    last_test_slot = slot;
+    return slot < K380_DYNAMIC_MACRO_SLOT_COUNT ? 0 : -1;
+}
+
+int k380_dynamic_macro_test_temporary(uint8_t preset, uint8_t slot,
+                                      const struct k380_dynamic_macro *macro) {
+    temporary_macro_test_called = true;
+    last_test_preset = preset;
+    last_test_slot = slot;
+    if (macro != NULL) {
+        last_test_macro = *macro;
+    }
+    return slot < K380_DYNAMIC_MACRO_SLOT_COUNT && macro != NULL ? 0 : -1;
+}
 
 bool k380_dynamic_macro_is_running(void) { return false; }
 
@@ -178,6 +198,49 @@ ZTEST(dynamic_protocol, test_coalesced_frames_report_first_frame_consumption)
                   k380_dynamic_protocol_feed(&parser, frame, first_len + second_len, response,
                                              sizeof(response), &response_len, &consumed_len));
     zassert_equal(first_len, consumed_len);
+}
+
+ZTEST(dynamic_protocol, test_test_macro_accepts_temporary_macro_payload)
+{
+    struct k380_dynamic_protocol_parser parser;
+    uint8_t payload[1U + K380_DYNAMIC_MACRO_NAME_MAX_BYTES + 4U + 3U];
+    uint8_t frame[K380_DYNAMIC_PROTOCOL_FRAME_SIZE(sizeof(payload))];
+    uint8_t response[K380_DYNAMIC_PROTOCOL_MAX_FRAME_SIZE];
+    size_t response_len = 0;
+    size_t offset = 0;
+
+    k380_dynamic_config_init_defaults(&config);
+    config.active_preset = 2U;
+    saved_macro_test_called = false;
+    temporary_macro_test_called = false;
+    memset(&last_test_macro, 0, sizeof(last_test_macro));
+
+    payload[offset++] = 3U;
+    memset(&payload[offset], 0, K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
+    memcpy(&payload[offset], "temp", 4U);
+    offset += K380_DYNAMIC_MACRO_NAME_MAX_BYTES;
+    payload[offset++] = 1U;
+    payload[offset++] = K380_DYNAMIC_MACRO_TRIGGER_ONCE;
+    sys_put_le16(1U, &payload[offset]);
+    offset += 2U;
+    payload[offset++] = K380_DYNAMIC_MACRO_PRESS_KEY;
+    sys_put_le16(4U, &payload[offset]);
+    offset += 2U;
+
+    k380_dynamic_protocol_parser_init(&parser);
+    const size_t frame_len = make_frame(frame, K380_DYNAMIC_COMMAND_TEST_MACRO, 1,
+                                        payload, sizeof(payload));
+
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  k380_dynamic_protocol_feed(&parser, frame, frame_len, response,
+                                             sizeof(response), &response_len, NULL));
+    zassert_false(saved_macro_test_called);
+    zassert_true(temporary_macro_test_called);
+    zassert_equal(2U, last_test_preset);
+    zassert_equal(3U, last_test_slot);
+    zassert_equal(1U, last_test_macro.step_count);
+    zassert_equal(K380_DYNAMIC_MACRO_PRESS_KEY, last_test_macro.steps[0].type);
+    zassert_equal(4U, last_test_macro.steps[0].value.key_usage);
 }
 
 ZTEST_SUITE(dynamic_protocol, NULL, NULL, NULL, NULL, NULL);

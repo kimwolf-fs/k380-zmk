@@ -373,6 +373,16 @@ int k380_dynamic_macro_test(uint8_t slot) {
                        K380_DYNAMIC_MACRO_TRIGGER_ONCE);
 }
 
+int k380_dynamic_macro_test_temporary(uint8_t preset, uint8_t slot,
+                                      const struct k380_dynamic_macro *macro) {
+    if (preset >= K380_DYNAMIC_PRESET_COUNT || slot >= K380_DYNAMIC_MACRO_SLOT_COUNT ||
+        macro == NULL) {
+        return -EINVAL;
+    }
+
+    return start_macro(preset, slot, macro, K380_DYNAMIC_MACRO_TRIGGER_ONCE);
+}
+
 int k380_dynamic_macro_stop(void) {
     k_mutex_lock(&runner_lock, K_FOREVER);
     int err = release_all_macro_held_locked();
