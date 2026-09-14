@@ -21,7 +21,9 @@ if(CONFIG_K380_DYNAMIC_MACRO)
   target_sources(app PRIVATE src/dynamic_macro.c)
 endif()
 if(CONFIG_K380_DYNAMIC_MACRO_VM)
-  target_sources(app PRIVATE src/dynamic_macro_vm_validate.c src/dynamic_macro_store.c)
+  target_sources(app PRIVATE src/dynamic_macro_vm_validate.c
+                             src/dynamic_macro_vm.c
+                             src/dynamic_macro_store.c)
 endif()
 if(CONFIG_K380_DYNAMIC_PRESET_SWITCH)
   target_sources(app PRIVATE src/behavior_preset_switch.c)
