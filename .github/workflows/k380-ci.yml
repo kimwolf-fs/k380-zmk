@@ -62,6 +62,7 @@ jobs:
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/soft-off -p native_sim
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-config -p native_sim
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-macro -p native_sim
+      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-macro-vm -p native_sim
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-protocol -p native_sim
       - if: always()
         uses: actions/upload-artifact@v7
