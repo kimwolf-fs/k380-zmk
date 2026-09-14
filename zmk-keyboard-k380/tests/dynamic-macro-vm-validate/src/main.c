@@ -39,6 +39,37 @@ static size_t make_code_package(uint8_t *package, const uint8_t *code,
     return 16U + code_len;
 }
 
+static size_t make_nested_call_package(uint8_t *package)
+{
+    uint8_t code[50] = {
+        K380_MACRO_VM_OP_CALL, 0U,
+        K380_MACRO_VM_OP_END,
+        K380_MACRO_VM_OP_LOOP_COUNT_BEGIN, 1U, 0U, 0U, 0U, 36U, 0U,
+        K380_MACRO_VM_OP_LOOP_COUNT_BEGIN, 1U, 0U, 0U, 0U, 36U, 0U,
+        K380_MACRO_VM_OP_LOOP_COUNT_BEGIN, 1U, 0U, 0U, 0U, 36U, 0U,
+        K380_MACRO_VM_OP_CALL, 1U,
+        K380_MACRO_VM_OP_LOOP_END, 17U, 0U,
+        K380_MACRO_VM_OP_LOOP_END, 10U, 0U,
+        K380_MACRO_VM_OP_LOOP_END, 3U, 0U,
+        K380_MACRO_VM_OP_RETURN,
+        K380_MACRO_VM_OP_LOOP_COUNT_BEGIN, 1U, 0U, 0U, 0U, 49U, 0U,
+        K380_MACRO_VM_OP_PRESS, 4U, 0U,
+        K380_MACRO_VM_OP_LOOP_END, 36U, 0U,
+        K380_MACRO_VM_OP_RETURN,
+    };
+
+    memcpy(package, canonical_package, K380_MACRO_VM_PACKAGE_HEADER_SIZE);
+    package[6] = 2U;
+    sys_put_le16(3U, &package[16]);
+    sys_put_le16(36U, &package[18]);
+    sys_put_le16(36U, &package[20]);
+    sys_put_le16(50U, &package[22]);
+    sys_put_le16(sizeof(code), &package[8]);
+    memcpy(&package[24], code, sizeof(code));
+    update_crc(package, 24U + sizeof(code));
+    return 24U + sizeof(code);
+}
+
 ZTEST(dynamic_macro_vm_validate, test_canonical_package_is_accepted)
 {
     struct k380_macro_vm_package_view view;
@@ -138,6 +169,17 @@ ZTEST(dynamic_macro_vm_validate, test_entry_and_function_terminators_are_strict)
     update_crc(package, 22U);
     zassert_equal(K380_MACRO_VM_INVALID_FUNCTION_TERMINATOR,
                   k380_macro_vm_validate(package, 22U, &view));
+}
+
+ZTEST(dynamic_macro_vm_validate,
+      test_function_call_in_nested_loops_counts_callee_loop_depth)
+{
+    uint8_t package[96];
+    struct k380_macro_vm_package_view view;
+    size_t length = make_nested_call_package(package);
+
+    zassert_equal(K380_MACRO_VM_LOOP_DEPTH,
+                  k380_macro_vm_validate(package, length, &view));
 }
 
 ZTEST_SUITE(dynamic_macro_vm_validate, NULL, NULL, NULL, NULL, NULL);
