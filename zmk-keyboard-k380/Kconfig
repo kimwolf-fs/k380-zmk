@@ -63,6 +63,11 @@ config K380_DYNAMIC_MACRO
     default n
     depends on K380_DYNAMIC_CONFIG
 
+config K380_DYNAMIC_MACRO_VM
+    bool "K380 dynamic macro VM package validation"
+    default y if K380_DYNAMIC_MACRO
+    depends on K380_DYNAMIC_MACRO
+
 config K380_DYNAMIC_PRESET_SWITCH
     bool "K380 runtime dynamic preset switch behavior"
     default n
