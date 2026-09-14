@@ -23,6 +23,7 @@ bool zmk_hid_keyboard_is_pressed(zmk_key_t code);
 struct k380_dynamic_macro_runner {
     bool running;
     bool load_saved_record;
+    bool pressed_while_loading;
     bool cleanup_failed;
     uint8_t preset;
     uint8_t slot;
@@ -299,6 +300,7 @@ static int start_record_locked(uint8_t preset, uint8_t slot,
 
     runner.running = true;
     runner.load_saved_record = load_saved_record;
+    runner.pressed_while_loading = false;
     runner.cleanup_failed = false;
     runner.preset = preset;
     runner.slot = slot;
@@ -370,6 +372,7 @@ static enum k380_macro_vm_error run_record(void)
     bool first_pass = true;
 
     if (runner.load_saved_record) {
+        bool wake_after_load = false;
         const int load_error = k380_dynamic_macro_store_load(
             runner.preset, runner.slot, &runner.record);
         if (load_error != 0) {
@@ -388,11 +391,20 @@ static enum k380_macro_vm_error run_record(void)
         runner.repeat_count = runner.record.repeat_count == 0U
                                   ? 1U
                                   : runner.record.repeat_count;
+        if (runner.trigger == K380_DYNAMIC_MACRO_TRIGGER_TOGGLE &&
+            runner.pressed_while_loading) {
+            atomic_set(&runner.stop_requested, 1);
+            wake_after_load = true;
+        }
+        runner.pressed_while_loading = false;
         if (runner.trigger == K380_DYNAMIC_MACRO_TRIGGER_HOLD &&
             !hold_key_pressed) {
             atomic_set(&runner.stop_requested, 1);
         }
         k_mutex_unlock(&runner_lock);
+        if (wake_after_load) {
+            k_sem_give(&macro_stop_signal);
+        }
     }
 
     trigger = runner.trigger;
@@ -490,8 +502,12 @@ int k380_dynamic_macro_trigger(uint8_t preset, uint8_t slot, bool pressed)
                             runner.slot == slot;
     if (runner.running) {
         bool should_wake = false;
-        if (same_macro && runner.load_saved_record && !pressed) {
-            hold_key_pressed = false;
+        if (same_macro && runner.load_saved_record) {
+            if (pressed) {
+                runner.pressed_while_loading = true;
+            } else {
+                hold_key_pressed = false;
+            }
         }
         if (same_macro &&
             runner.trigger == K380_DYNAMIC_MACRO_TRIGGER_TOGGLE && pressed) {
