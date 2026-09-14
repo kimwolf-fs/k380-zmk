@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <dt-bindings/zmk/hid_usage.h>
@@ -11,7 +12,10 @@
 
 #include <zmk_keyboard_k380/dynamic_config.h>
 #include <zmk_keyboard_k380/dynamic_macro.h>
+#include <zmk_keyboard_k380/dynamic_macro_record.h>
 #include <zmk_keyboard_k380/dynamic_settings.h>
+
+#include "fake_settings.h"
 
 static struct k380_dynamic_config config;
 static bool physical_keys[256];
@@ -50,6 +54,7 @@ static void reset_fakes(void) {
     k380_dynamic_macro_stop();
     k_sleep(K_MSEC(25));
     k380_dynamic_config_init_defaults(&config);
+    k380_dynamic_macro_test_settings_reset();
     memset(physical_keys, 0, sizeof(physical_keys));
     emitted_count = 0;
 }
@@ -72,6 +77,21 @@ static struct k380_dynamic_macro *macro(uint8_t slot) {
     return &config.presets[0].macros[slot];
 }
 
+static void sync_macro(uint8_t slot) {
+    struct k380_dynamic_macro_record record;
+    uint8_t wire[K380_DYNAMIC_MACRO_RECORD_MAX_BYTES];
+    size_t wire_len;
+    char key[64];
+
+    zassert_ok(k380_dynamic_macro_record_from_legacy(macro(slot), &record));
+    zassert_ok(k380_dynamic_macro_record_encode(&record, wire, sizeof(wire),
+                                                &wire_len));
+    zassert_true(snprintf(key, sizeof(key),
+                          "k380/dynamic_config/v2/p/0/m/%u", slot) <
+                 (int)sizeof(key));
+    k380_dynamic_macro_test_settings_put(key, wire, wire_len);
+}
+
 ZTEST(dynamic_macro, test_new_macro_ignored_while_running) {
     reset_fakes();
     macro(0)->step_count = 1;
@@ -80,6 +100,8 @@ ZTEST(dynamic_macro, test_new_macro_ignored_while_running) {
     macro(1)->step_count = 1;
     macro(1)->steps[0].type = K380_DYNAMIC_MACRO_PRESS_KEY;
     macro(1)->steps[0].value.key_usage = HID_USAGE_KEY_KEYBOARD_B;
+    sync_macro(0);
+    sync_macro(1);
 
     zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
     wait_until_running();
@@ -97,6 +119,7 @@ ZTEST(dynamic_macro, test_same_toggle_press_stops_running_macro) {
     macro(0)->step_count = 1;
     macro(0)->steps[0].type = K380_DYNAMIC_MACRO_WAIT_MS;
     macro(0)->steps[0].value.wait_ms = K380_DYNAMIC_WAIT_MAX_MS;
+    sync_macro(0);
 
     zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
     wait_until_running();
@@ -112,6 +135,7 @@ ZTEST(dynamic_macro, test_hold_release_stops_and_releases_macro_keys) {
     macro(0)->steps[0].value.key_usage = HID_USAGE_KEY_KEYBOARD_B;
     macro(0)->steps[1].type = K380_DYNAMIC_MACRO_WAIT_MS;
     macro(0)->steps[1].value.wait_ms = K380_DYNAMIC_WAIT_MAX_MS;
+    sync_macro(0);
 
     zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
     wait_until_running();
@@ -135,6 +159,7 @@ ZTEST(dynamic_macro, test_stop_does_not_release_physical_key_state) {
     macro(0)->steps[0].value.key_usage = HID_USAGE_KEY_KEYBOARD_A;
     macro(0)->steps[1].type = K380_DYNAMIC_MACRO_WAIT_MS;
     macro(0)->steps[1].value.wait_ms = K380_DYNAMIC_WAIT_MAX_MS;
+    sync_macro(0);
 
     zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
     wait_until_running();
@@ -164,6 +189,7 @@ ZTEST(dynamic_macro, test_wait_can_be_interrupted) {
     macro(0)->steps[0].value.key_usage = HID_USAGE_KEY_KEYBOARD_B;
     macro(0)->steps[1].type = K380_DYNAMIC_MACRO_WAIT_MS;
     macro(0)->steps[1].value.wait_ms = K380_DYNAMIC_WAIT_MAX_MS;
+    sync_macro(0);
 
     zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
     wait_until_running();
