@@ -615,7 +615,7 @@ int k380_dynamic_macro_trace_read(
     const uint32_t latest = trace_next_sequence == 0U
                                 ? 0U
                                 : trace_next_sequence - 1U;
-    state->next_cursor = latest;
+    state->next_cursor = cursor;
     state->dropped = trace_dropped;
     if (cursor > latest) {
         k_spin_unlock(&trace_lock, key);
@@ -639,6 +639,9 @@ int k380_dynamic_macro_trace_read(
             (trace_head + ARRAY_SIZE(trace_ring) - trace_count + offset) %
             ARRAY_SIZE(trace_ring);
         events[index] = trace_ring[ring_index];
+    }
+    if (copied > 0U) {
+        state->next_cursor = events[copied - 1U].sequence;
     }
     k_spin_unlock(&trace_lock, key);
     k_mutex_unlock(&runner_lock);
