@@ -45,7 +45,6 @@ static struct k380_dynamic_macro_trace_event trace_ring[K380_MACRO_VM_MAX_TRACE_
 static size_t trace_head;
 static size_t trace_count;
 static uint32_t trace_next_sequence;
-static uint32_t trace_dropped;
 static struct k_spinlock trace_lock;
 
 K_MUTEX_DEFINE(runner_lock);
@@ -244,7 +243,6 @@ static void trace_reset_locked(void)
     trace_head = 0U;
     trace_count = 0U;
     trace_next_sequence = 1U;
-    trace_dropped = 0U;
     k_spin_unlock(&trace_lock, key);
 }
 
@@ -264,8 +262,6 @@ static void vm_trace(uint16_t pc, uint8_t event, uint8_t result,
     trace_head = (trace_head + 1U) % ARRAY_SIZE(trace_ring);
     if (trace_count < ARRAY_SIZE(trace_ring)) {
         trace_count++;
-    } else {
-        trace_dropped++;
     }
     if (trace_next_sequence != UINT32_MAX) {
         trace_next_sequence++;
@@ -667,7 +663,7 @@ void k380_dynamic_macro_get_run_state(
 
     k_spinlock_key_t key = k_spin_lock(&trace_lock);
     state->next_cursor = trace_next_sequence == 0U ? 0U : trace_next_sequence - 1U;
-    state->dropped = trace_dropped;
+    state->dropped = 0U;
     k_spin_unlock(&trace_lock, key);
 }
 
@@ -692,8 +688,9 @@ int k380_dynamic_macro_trace_read(
                                 ? 0U
                                 : trace_next_sequence - 1U;
     state->next_cursor = cursor;
-    state->dropped = trace_dropped;
+    state->dropped = 0U;
     if (cursor > latest) {
+        state->next_cursor = latest;
         k_spin_unlock(&trace_lock, key);
         k_mutex_unlock(&runner_lock);
         return -EOVERFLOW;
@@ -701,6 +698,8 @@ int k380_dynamic_macro_trace_read(
     const uint32_t oldest = trace_count == 0U ? latest + 1U
                                               : latest - (uint32_t)trace_count + 1U;
     if (trace_count > 0U && cursor < oldest - 1U) {
+        state->next_cursor = oldest - 1U;
+        state->dropped = state->next_cursor - cursor;
         k_spin_unlock(&trace_lock, key);
         k_mutex_unlock(&runner_lock);
         return -EOVERFLOW;
