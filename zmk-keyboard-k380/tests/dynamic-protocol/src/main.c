@@ -630,6 +630,7 @@ ZTEST(dynamic_protocol, test_write_without_session_returns_upload_not_found)
     size_t data_len;
 
     reset_test_state();
+    sys_put_le32(0U, &chunk[0]);
     sys_put_le16(1U, &chunk[6]);
     zassert_equal(K380_DYNAMIC_RESULT_UPLOAD_NOT_FOUND,
                   transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 5U, chunk,
@@ -735,6 +736,7 @@ ZTEST(dynamic_protocol, test_upload_rejects_offset_gap_and_expiry)
                   transact(K380_DYNAMIC_COMMAND_BEGIN_MACRO_UPLOAD, 9U, begin,
                            begin_len, data, sizeof(data), &data_len));
     const uint32_t session_id = sys_get_le32(data);
+    zassert_not_equal(0U, session_id);
     sys_put_le32(session_id, chunk);
     sys_put_le16(1U, &chunk[4]);
     sys_put_le16(1U, &chunk[6]);
@@ -749,11 +751,16 @@ ZTEST(dynamic_protocol, test_upload_rejects_offset_gap_and_expiry)
                   transact(K380_DYNAMIC_COMMAND_GET_MACRO_META, 11U,
                            meta_request, sizeof(meta_request), data,
                            sizeof(data), &data_len));
-    zassert_equal(K380_DYNAMIC_RESULT_UPLOAD_EXPIRED,
+    sys_put_le32(0U, chunk);
+    zassert_equal(K380_DYNAMIC_RESULT_UPLOAD_NOT_FOUND,
                   transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 12U, chunk,
                            9U, data, sizeof(data), &data_len));
+    sys_put_le32(session_id, chunk);
+    zassert_equal(K380_DYNAMIC_RESULT_UPLOAD_EXPIRED,
+                  transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 13U, chunk,
+                           9U, data, sizeof(data), &data_len));
     zassert_equal(K380_DYNAMIC_RESULT_READY,
-                  transact(K380_DYNAMIC_COMMAND_ABORT_MACRO_UPLOAD, 13U,
+                  transact(K380_DYNAMIC_COMMAND_ABORT_MACRO_UPLOAD, 14U,
                            (uint8_t[]){session_id, 0U, 0U, 0U}, 4U, data,
                            sizeof(data), &data_len));
 }
