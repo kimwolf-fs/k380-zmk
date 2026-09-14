@@ -655,7 +655,9 @@ ZTEST(dynamic_protocol, test_maximum_package_upload_uses_384_byte_chunks)
                   transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 8U,
                            commit, sizeof(commit), data, sizeof(data),
                            &data_len));
-    zassert_equal(0U, sys_get_le32(data));
+    zassert_equal(8U, data_len);
+    zassert_equal(session_id, sys_get_le32(data));
+    zassert_equal(0U, sys_get_le32(&data[4]));
     zassert_equal(1U, store_save_calls);
     zassert_true(stored_record_valid[0U][4U]);
     zassert_mem_equal(stored_records[0U][4U].package, record.package,
