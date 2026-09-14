@@ -70,7 +70,8 @@ config K380_DYNAMIC_MACRO_THREAD_STACK_SIZE
 
 config K380_DYNAMIC_MACRO_THREAD_PRIORITY
     int "K380 dynamic macro thread priority"
-    default 5
+    default 8
+    range 8 8
     depends on K380_DYNAMIC_MACRO
 
 config K380_DYNAMIC_MACRO_VM

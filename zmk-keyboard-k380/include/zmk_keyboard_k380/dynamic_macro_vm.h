@@ -98,6 +98,7 @@ struct k380_macro_vm_context {
     uint64_t start_ms;
     uint16_t pc;
     uint32_t instruction_count;
+    uint8_t nonblocking_instruction_count;
     enum k380_macro_vm_error error;
 };
 

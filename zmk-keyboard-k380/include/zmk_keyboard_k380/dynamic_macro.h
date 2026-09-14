@@ -44,7 +44,11 @@ int k380_dynamic_macro_test_temporary(uint8_t preset, uint8_t slot,
 int k380_dynamic_macro_test_record(
     uint8_t preset, uint8_t slot,
     const struct k380_dynamic_macro_record *record);
+int k380_dynamic_macro_test_record_start(
+    uint8_t preset, uint8_t slot,
+    const struct k380_dynamic_macro_record *record, uint32_t *run_id);
 int k380_dynamic_macro_stop(void);
+int k380_dynamic_macro_stop_if_run_id(uint32_t run_id);
 bool k380_dynamic_macro_is_running(void);
 void k380_dynamic_macro_get_run_state(
     struct k380_dynamic_macro_run_state *state);

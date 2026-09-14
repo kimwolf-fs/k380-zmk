@@ -151,6 +151,27 @@ static enum k380_macro_vm_error check_stop(
                : K380_MACRO_VM_OK;
 }
 
+static void complete_instruction(const struct k380_macro_vm_host *host,
+                                 struct k380_macro_vm_context *context,
+                                 bool blocking)
+{
+    context->instruction_count = context->instruction_count == UINT32_MAX
+                                     ? UINT32_MAX
+                                     : context->instruction_count + 1U;
+    if (blocking) {
+        context->nonblocking_instruction_count = 0U;
+        return;
+    }
+
+    context->nonblocking_instruction_count++;
+    if (context->nonblocking_instruction_count >= 32U) {
+        if (host->yield_cpu != NULL) {
+            host->yield_cpu(host->user_data);
+        }
+        context->nonblocking_instruction_count = 0U;
+    }
+}
+
 static enum k380_macro_vm_error execute_key(
     const struct k380_macro_vm_host *host,
     struct k380_macro_vm_context *context, uint16_t pc, uint8_t event,
@@ -213,7 +234,6 @@ static enum k380_macro_vm_error run_internal(
         context->error = K380_MACRO_VM_OK;
     }
 
-    uint8_t fairness_count = 0U;
     while (true) {
         enum k380_macro_vm_error error = check_stop(host, context);
         if (error != K380_MACRO_VM_OK) {
@@ -238,6 +258,7 @@ static enum k380_macro_vm_error run_internal(
             if (context->call_depth != 0U || context->loop_depth != 0U) {
                 return fail_run(context, K380_MACRO_VM_INVALID_RUNTIME_STATE);
             }
+            complete_instruction(host, context, false);
             return K380_MACRO_VM_OK;
 
         case K380_MACRO_VM_OP_PRESS:
@@ -414,17 +435,7 @@ static enum k380_macro_vm_error run_internal(
         context->pc = next;
 
     instruction_complete:
-        context->instruction_count = context->instruction_count == UINT32_MAX
-                                          ? UINT32_MAX
-                                          : context->instruction_count + 1U;
-        if (blocking) {
-            fairness_count = 0U;
-        } else if (++fairness_count >= 32U) {
-            if (host->yield_cpu != NULL) {
-                host->yield_cpu(host->user_data);
-            }
-            fairness_count = 0U;
-        }
+        complete_instruction(host, context, blocking);
     }
 }
 

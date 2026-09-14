@@ -22,6 +22,8 @@ bool zmk_hid_keyboard_is_pressed(zmk_key_t code);
 
 struct k380_dynamic_macro_runner {
     bool running;
+    bool load_saved_record;
+    bool cleanup_failed;
     uint8_t preset;
     uint8_t slot;
     uint8_t trigger;
@@ -36,8 +38,6 @@ struct k380_dynamic_macro_runner {
 };
 
 static struct k380_dynamic_macro_runner runner;
-static struct k380_dynamic_macro_record loaded_record;
-static struct k380_dynamic_macro_record temporary_record;
 static bool hold_key_pressed;
 static uint8_t physical_usage_counts[256];
 static uint32_t next_run_id = 1U;
@@ -51,6 +51,9 @@ static struct k_spinlock trace_lock;
 K_MUTEX_DEFINE(runner_lock);
 K_SEM_DEFINE(macro_start_signal, 0, 1);
 K_SEM_DEFINE(macro_stop_signal, 0, 1);
+
+BUILD_ASSERT(CONFIG_K380_DYNAMIC_MACRO_THREAD_PRIORITY == 8,
+             "macro runner priority is part of the runtime contract");
 
 static bool is_keyboard_keypad_usage(uint16_t usage)
 {
@@ -187,15 +190,24 @@ static int vm_wait_ms(uint32_t duration_ms, void *user_data)
 {
     ARG_UNUSED(user_data);
 
-    if (duration_ms == 0U) {
-        return stop_requested() ? -ECANCELED : 0;
+    const uint64_t deadline_ms = (uint64_t)k_uptime_get() + duration_ms;
+    while (!stop_requested()) {
+        const uint64_t current_ms = (uint64_t)k_uptime_get();
+        if (current_ms >= deadline_ms) {
+            return 0;
+        }
+        const uint64_t remaining_ms = deadline_ms - current_ms;
+        const int64_t chunk_ms = (int64_t)MIN(remaining_ms,
+                                               (uint64_t)INT32_MAX);
+        const int err = k_sem_take(&macro_stop_signal, K_MSEC(chunk_ms));
+        if (err == 0 || stop_requested()) {
+            return -ECANCELED;
+        }
+        if (err != -EAGAIN) {
+            return err;
+        }
     }
-
-    const int err = k_sem_take(&macro_stop_signal, K_MSEC(duration_ms));
-    if (err == 0 || stop_requested()) {
-        return -ECANCELED;
-    }
-    return err == -EAGAIN ? 0 : err;
+    return -ECANCELED;
 }
 
 static uint64_t vm_now_ms(void *user_data)
@@ -275,26 +287,13 @@ static struct k380_macro_vm_host vm_host(void)
     };
 }
 
-static int normalize_record(struct k380_dynamic_macro_record *record)
-{
-    if (record == NULL) {
-        return -EINVAL;
-    }
-
-    if (record->package_len == 0U) {
-        const struct k380_dynamic_macro empty_macro = {0};
-        return k380_dynamic_macro_record_from_legacy(&empty_macro, record);
-    }
-
-    return k380_dynamic_macro_record_validate(record) == 0 ? 0 : -EINVAL;
-}
-
 static int start_record_locked(uint8_t preset, uint8_t slot,
                                const struct k380_dynamic_macro_record *record,
-                               uint8_t trigger)
+                               uint8_t trigger, bool load_saved_record,
+                               uint32_t *run_id)
 {
     if (runner.running) {
-        return 0;
+        return -EBUSY;
     }
 
     const int cleanup_err = release_all_macro_held_locked();
@@ -303,6 +302,8 @@ static int start_record_locked(uint8_t preset, uint8_t slot,
     }
 
     runner.running = true;
+    runner.load_saved_record = load_saved_record;
+    runner.cleanup_failed = false;
     runner.preset = preset;
     runner.slot = slot;
     runner.trigger = trigger;
@@ -313,15 +314,26 @@ static int start_record_locked(uint8_t preset, uint8_t slot,
     if (next_run_id == 0U) {
         next_run_id = 1U;
     }
-    runner.repeat_count = record->repeat_count == 0U ? 1U :
-                                                          record->repeat_count;
-    runner.record = *record;
+    runner.repeat_count = record == NULL || record->repeat_count == 0U
+                              ? 1U
+                              : record->repeat_count;
+    if (record != NULL) {
+        runner.record = *record;
+    } else {
+        memset(&runner.record, 0, sizeof(runner.record));
+    }
     memset(runner.macro_held_usage_bitmap, 0,
            sizeof(runner.macro_held_usage_bitmap));
     atomic_clear(&runner.stop_requested);
     k_sem_reset(&macro_stop_signal);
     trace_reset_locked();
     hold_key_pressed = trigger == K380_DYNAMIC_MACRO_TRIGGER_HOLD;
+    if (load_saved_record) {
+        hold_key_pressed = true;
+    }
+    if (run_id != NULL) {
+        *run_id = runner.run_id;
+    }
     k_sem_give(&macro_start_signal);
     return 0;
 }
@@ -336,14 +348,8 @@ static int start_saved_record(uint8_t preset, uint8_t slot)
         return 0;
     }
 
-    err = k380_dynamic_macro_store_load(preset, slot, &loaded_record);
-    if (err == 0) {
-        err = normalize_record(&loaded_record);
-    }
-    if (err == 0) {
-        err = start_record_locked(preset, slot, &loaded_record,
-                                  loaded_record.trigger);
-    }
+    err = start_record_locked(preset, slot, NULL,
+                              K380_DYNAMIC_MACRO_TRIGGER_ONCE, true, NULL);
     k_mutex_unlock(&runner_lock);
     return err;
 }
@@ -357,21 +363,49 @@ static int load_active_preset(struct k380_dynamic_config *config,
     return 0;
 }
 
-static int run_record(void)
+static enum k380_macro_vm_error run_record(void)
 {
     struct k380_macro_vm_package_view view;
     struct k380_macro_vm_context context;
     const struct k380_macro_vm_host host = vm_host();
-    const uint8_t trigger = runner.trigger;
-    uint32_t passes_remaining = runner.repeat_count;
+    uint8_t trigger;
+    uint32_t passes_remaining;
     enum k380_macro_vm_error error;
     bool first_pass = true;
+
+    if (runner.load_saved_record) {
+        const int load_error = k380_dynamic_macro_store_load(
+            runner.preset, runner.slot, &runner.record);
+        if (load_error != 0) {
+            return K380_MACRO_VM_HOST_FAILURE;
+        }
+        if (runner.record.package_len == 0U) {
+            return K380_MACRO_VM_OK;
+        }
+        if (k380_dynamic_macro_record_validate(&runner.record) != 0) {
+            return K380_MACRO_VM_INVALID_PACKAGE;
+        }
+
+        k_mutex_lock(&runner_lock, K_FOREVER);
+        runner.trigger = runner.record.trigger;
+        runner.load_saved_record = false;
+        runner.repeat_count = runner.record.repeat_count == 0U
+                                  ? 1U
+                                  : runner.record.repeat_count;
+        if (runner.trigger == K380_DYNAMIC_MACRO_TRIGGER_HOLD &&
+            !hold_key_pressed) {
+            atomic_set(&runner.stop_requested, 1);
+        }
+        k_mutex_unlock(&runner_lock);
+    }
+
+    trigger = runner.trigger;
+    passes_remaining = runner.repeat_count;
 
     error = k380_macro_vm_validate(runner.record.package,
                                    runner.record.package_len, &view);
     if (error != K380_MACRO_VM_OK) {
-        (void)release_all_macro_held();
-        return -(int)error;
+        return error;
     }
 
     do {
@@ -409,11 +443,7 @@ static int run_record(void)
              trigger == K380_DYNAMIC_MACRO_TRIGGER_TOGGLE ||
              trigger == K380_DYNAMIC_MACRO_TRIGGER_COUNT);
 
-    const int cleanup_error = release_all_macro_held();
-    if (error == K380_MACRO_VM_OK && cleanup_error != 0) {
-        return -(int)K380_MACRO_VM_HOST_FAILURE;
-    }
-    return error == K380_MACRO_VM_OK ? 0 : -(int)error;
+    return error;
 }
 
 static void dynamic_macro_thread(void *arg1, void *arg2, void *arg3)
@@ -424,19 +454,22 @@ static void dynamic_macro_thread(void *arg1, void *arg2, void *arg3)
 
     while (true) {
         k_sem_take(&macro_start_signal, K_FOREVER);
-        const int result = run_record();
+        enum k380_macro_vm_error result = run_record();
 
         k_mutex_lock(&runner_lock, K_FOREVER);
+        const int cleanup_error = release_all_macro_held_locked();
+        if (cleanup_error != 0 || runner.cleanup_failed) {
+            result = K380_MACRO_VM_HOST_FAILURE;
+        }
         runner.running = false;
-        if (result == 0) {
+        if (result == K380_MACRO_VM_OK) {
             runner.state = stop_requested()
                                ? K380_DYNAMIC_MACRO_RUN_STOPPED
                                : K380_DYNAMIC_MACRO_RUN_COMPLETED;
             runner.vm_error = 0U;
         } else {
-            const enum k380_macro_vm_error error = (enum k380_macro_vm_error)-result;
-            runner.vm_error = (uint8_t)error;
-            runner.state = error == K380_MACRO_VM_STOPPED
+            runner.vm_error = (uint8_t)result;
+            runner.state = result == K380_MACRO_VM_STOPPED
                                ? K380_DYNAMIC_MACRO_RUN_STOPPED
                                : K380_DYNAMIC_MACRO_RUN_ERROR;
         }
@@ -461,6 +494,9 @@ int k380_dynamic_macro_trigger(uint8_t preset, uint8_t slot, bool pressed)
                             runner.slot == slot;
     if (runner.running) {
         bool should_wake = false;
+        if (same_macro && runner.load_saved_record && !pressed) {
+            hold_key_pressed = false;
+        }
         if (same_macro &&
             runner.trigger == K380_DYNAMIC_MACRO_TRIGGER_TOGGLE && pressed) {
             hold_key_pressed = false;
@@ -516,11 +552,44 @@ int k380_dynamic_macro_test_temporary(
     }
 
     k_mutex_lock(&runner_lock, K_FOREVER);
-    err = k380_dynamic_macro_record_from_legacy(macro, &temporary_record);
-    if (err == 0) {
-        err = start_record_locked(preset, slot, &temporary_record,
-                                  K380_DYNAMIC_MACRO_TRIGGER_ONCE);
+    if (runner.running) {
+        err = -EBUSY;
+    } else {
+        err = k380_dynamic_macro_record_from_legacy(macro, &runner.record);
+        if (err == 0 && runner.record.package_len == 0U) {
+            err = -EINVAL;
+        }
+        if (err == 0) {
+            err = start_record_locked(preset, slot, &runner.record,
+                                      K380_DYNAMIC_MACRO_TRIGGER_ONCE, false,
+                                      NULL);
+        }
     }
+    k_mutex_unlock(&runner_lock);
+    return err;
+}
+
+int k380_dynamic_macro_test_record_start(
+    uint8_t preset, uint8_t slot,
+    const struct k380_dynamic_macro_record *record, uint32_t *run_id)
+{
+    if (run_id != NULL) {
+        *run_id = 0U;
+    }
+    if (preset >= K380_DYNAMIC_PRESET_COUNT ||
+        slot >= K380_DYNAMIC_MACRO_SLOT_COUNT || record == NULL ||
+        run_id == NULL) {
+        return -EINVAL;
+    }
+
+    if (record->package_len == 0U ||
+        k380_dynamic_macro_record_validate(record) != 0) {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&runner_lock, K_FOREVER);
+    const int err = start_record_locked(
+        preset, slot, record, K380_DYNAMIC_MACRO_TRIGGER_ONCE, false, run_id);
     k_mutex_unlock(&runner_lock);
     return err;
 }
@@ -529,40 +598,47 @@ int k380_dynamic_macro_test_record(
     uint8_t preset, uint8_t slot,
     const struct k380_dynamic_macro_record *record)
 {
-    if (preset >= K380_DYNAMIC_PRESET_COUNT ||
-        slot >= K380_DYNAMIC_MACRO_SLOT_COUNT || record == NULL) {
-        return -EINVAL;
+    uint32_t run_id;
+
+    return k380_dynamic_macro_test_record_start(preset, slot, record,
+                                                &run_id);
+}
+
+static int stop_locked(uint32_t run_id, bool *wake)
+{
+    if (run_id != 0U && run_id != runner.run_id) {
+        return -ESTALE;
     }
 
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    const int err = release_all_macro_held_locked();
+    if (err != 0 && runner.running) {
+        runner.cleanup_failed = true;
+    }
     if (runner.running) {
-        k_mutex_unlock(&runner_lock);
-        return -EBUSY;
+        hold_key_pressed = false;
+        atomic_set(&runner.stop_requested, 1);
+        *wake = true;
     }
-    int err = record->package_len == 0U ||
-                      k380_dynamic_macro_record_validate(record) != 0
-                  ? -EINVAL
-                  : 0;
-    if (err == 0) {
-        err = start_record_locked(preset, slot, record,
-                                  K380_DYNAMIC_MACRO_TRIGGER_ONCE);
-    }
+    return err;
+}
+
+int k380_dynamic_macro_stop_if_run_id(uint32_t run_id)
+{
+    bool wake = false;
+
+    k_mutex_lock(&runner_lock, K_FOREVER);
+    const int err = stop_locked(run_id, &wake);
     k_mutex_unlock(&runner_lock);
+
+    if (wake) {
+        k_sem_give(&macro_stop_signal);
+    }
     return err;
 }
 
 int k380_dynamic_macro_stop(void)
 {
-    k_mutex_lock(&runner_lock, K_FOREVER);
-    const int err = release_all_macro_held_locked();
-    if (runner.running) {
-        hold_key_pressed = false;
-        atomic_set(&runner.stop_requested, 1);
-    }
-    k_mutex_unlock(&runner_lock);
-
-    k_sem_give(&macro_stop_signal);
-    return err;
+    return k380_dynamic_macro_stop_if_run_id(0U);
 }
 
 bool k380_dynamic_macro_is_running(void)
