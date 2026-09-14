@@ -45,6 +45,8 @@ static bool legacy_found;
 static int legacy_status;
 static uint8_t legacy_preset;
 static uint8_t legacy_slot;
+static uint8_t store_wire_scratch[K380_DYNAMIC_MACRO_RECORD_MAX_BYTES];
+static struct k380_dynamic_macro legacy_scratch;
 
 static bool is_keyboard_keypad_usage(uint16_t usage)
 {
@@ -238,6 +240,9 @@ int k380_dynamic_macro_record_from_legacy(
         record->name[record->name_len] = legacy->name[record->name_len];
         record->name_len++;
     }
+    if (legacy->step_count == 0U) {
+        return k380_dynamic_macro_record_validate(record);
+    }
 
     uint8_t *code = &record->package[16];
     size_t code_offset = 0U;
@@ -330,10 +335,11 @@ static int load_v2_record(const char *name, size_t len,
         (uint8_t)slot != load_slot) {
         return 0;
     }
-    uint8_t wire[K380_DYNAMIC_MACRO_RECORD_MAX_BYTES];
-    int err = read_wire(len, read_cb, cb_arg, wire, sizeof(wire));
+    int err = read_wire(len, read_cb, cb_arg, store_wire_scratch,
+                        sizeof(store_wire_scratch));
     if (err == 0) {
-        err = k380_dynamic_macro_record_decode(load_target, wire, len);
+        err = k380_dynamic_macro_record_decode(load_target,
+                                                store_wire_scratch, len);
         load_found = err == 0;
     }
     if (err != 0 && load_status == 0) {
@@ -434,16 +440,17 @@ static int save_record_unlocked(uint8_t preset, uint8_t slot,
     if (k380_dynamic_macro_record_validate(record) != 0) {
         return -EINVAL;
     }
-    uint8_t wire[K380_DYNAMIC_MACRO_RECORD_MAX_BYTES];
     size_t wire_len;
-    int err = k380_dynamic_macro_record_encode(record, wire, sizeof(wire),
+    int err = k380_dynamic_macro_record_encode(record, store_wire_scratch,
+                                               sizeof(store_wire_scratch),
                                                &wire_len);
     if (err != 0) {
         return err;
     }
     char key[64];
     err = format_v2_key(key, sizeof(key), preset, slot);
-    return err == 0 ? settings_save_one(key, wire, wire_len) : err;
+    return err == 0 ? settings_save_one(key, store_wire_scratch, wire_len)
+                    : err;
 }
 
 int k380_dynamic_macro_store_load(uint8_t preset, uint8_t slot,
@@ -456,10 +463,10 @@ int k380_dynamic_macro_store_load(uint8_t preset, uint8_t slot,
     k380_dynamic_settings_lock();
     int err = load_record_from_settings(preset, slot, record);
     if (err == -ENOENT) {
-        struct k380_dynamic_macro legacy;
-        err = load_legacy_record(preset, slot, &legacy);
+        err = load_legacy_record(preset, slot, &legacy_scratch);
         if (err == 0) {
-            err = k380_dynamic_macro_record_from_legacy(&legacy, record);
+            err = k380_dynamic_macro_record_from_legacy(&legacy_scratch,
+                                                        record);
             if (err == 0) {
                 err = save_record_unlocked(preset, slot, record);
                 if (err == 0) {
@@ -499,15 +506,19 @@ int k380_dynamic_macro_store_restore_slot(uint8_t preset, uint8_t slot)
         return -EINVAL;
     }
     char key[64];
-    int err = format_v2_key(key, sizeof(key), preset, slot);
-    if (err != 0) {
-        return err;
+    k380_dynamic_settings_lock();
+
+    int first_err = format_v2_key(key, sizeof(key), preset, slot);
+    if (first_err == 0) {
+        first_err = settings_delete(key);
     }
-    int first_err = settings_delete(key);
-    err = format_legacy_key(key, sizeof(key), preset, slot);
-    if (first_err == 0 && err == 0) {
+
+    int err = format_legacy_key(key, sizeof(key), preset, slot);
+    if (err == 0) {
         err = settings_delete(key);
     }
+
+    k380_dynamic_settings_unlock();
     return first_err != 0 ? first_err : err;
 }
 

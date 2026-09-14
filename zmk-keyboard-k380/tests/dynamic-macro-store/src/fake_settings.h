@@ -4,11 +4,15 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include <zephyr/kernel.h>
+
 void k380_dynamic_macro_test_settings_reset(void);
 void k380_dynamic_macro_test_settings_put(const char *key, const void *data,
                                            size_t len);
 bool k380_dynamic_macro_test_settings_has(const char *key);
 void k380_dynamic_macro_test_settings_fail_next_save(void);
+void k380_dynamic_macro_test_settings_fail_next_delete(void);
+k_tid_t k380_dynamic_macro_test_settings_last_load_thread(void);
 size_t k380_dynamic_macro_test_settings_operation_count(void);
 const char *k380_dynamic_macro_test_settings_operation(size_t index);
 
