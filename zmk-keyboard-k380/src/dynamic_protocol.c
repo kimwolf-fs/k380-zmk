@@ -234,6 +234,12 @@ static enum k380_dynamic_result handle_get_macro_meta(
     if (err != 0) {
         return result_from_error(err, false);
     }
+    if (upload_session.record.package_len == 0U) {
+        upload_session.record.record_version =
+            K380_DYNAMIC_MACRO_RECORD_VERSION;
+        upload_session.record.trigger = K380_DYNAMIC_MACRO_TRIGGER_ONCE;
+        upload_session.record.repeat_count = 1U;
+    }
     out[0] = payload[0];
     out[1] = payload[1];
     out[2] = upload_session.record.record_version;

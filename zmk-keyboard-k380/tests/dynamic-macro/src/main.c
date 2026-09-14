@@ -13,6 +13,7 @@
 #include <zmk_keyboard_k380/dynamic_config.h>
 #include <zmk_keyboard_k380/dynamic_macro.h>
 #include <zmk_keyboard_k380/dynamic_macro_record.h>
+#include <zmk_keyboard_k380/dynamic_macro_vm.h>
 #include <zmk_keyboard_k380/dynamic_settings.h>
 
 #include "fake_settings.h"
@@ -111,6 +112,28 @@ ZTEST(dynamic_macro, test_new_macro_ignored_while_running) {
     zassert_equal(emitted_count, 0U);
     zassert_ok(k380_dynamic_macro_stop());
     wait_until_stopped();
+}
+
+ZTEST(dynamic_macro, test_trace_cursor_advances_only_past_returned_events) {
+    struct k380_dynamic_macro_trace_event events[10];
+    struct k380_dynamic_macro_run_state state;
+
+    reset_fakes();
+    macro(0)->step_count = 20U;
+    for (uint8_t index = 0U; index < macro(0)->step_count; index++) {
+        macro(0)->steps[index].type = K380_DYNAMIC_MACRO_WAIT_MS;
+        macro(0)->steps[index].value.wait_ms = 1U;
+    }
+    sync_macro(0);
+
+    zassert_ok(k380_dynamic_macro_trigger(0U, 0U, true));
+    wait_until_stopped();
+    zassert_equal(10, k380_dynamic_macro_trace_read(
+                          0U, events, ARRAY_SIZE(events), &state));
+    zassert_equal(10U, state.next_cursor);
+    zassert_equal(1U, events[0].sequence);
+    zassert_equal(10U, events[9].sequence);
+    zassert_equal(K380_MACRO_VM_TRACE_WAIT, events[9].event);
 }
 
 ZTEST(dynamic_macro, test_same_toggle_press_stops_running_macro) {

@@ -277,15 +277,30 @@ static void make_record(struct k380_dynamic_macro_record *record,
     memcpy(record->package, K380_MACRO_VM_PACKAGE_MAGIC,
            K380_MACRO_VM_PACKAGE_MAGIC_SIZE);
     record->package[4] = K380_MACRO_VM_PACKAGE_VERSION;
-    const uint16_t code_len = package_len - K380_MACRO_VM_PACKAGE_HEADER_SIZE;
+    const uint8_t function_count = maximum_code ?
+                                       K380_MACRO_VM_MAX_FUNCTIONS :
+                                       0U;
+    const uint16_t code_len = package_len - K380_MACRO_VM_PACKAGE_HEADER_SIZE -
+                              function_count * K380_MACRO_VM_FUNCTION_ENTRY_SIZE;
+    record->package[6] = function_count;
     sys_put_le16(code_len, &record->package[8]);
-    uint8_t *code = &record->package[K380_MACRO_VM_PACKAGE_HEADER_SIZE];
+    uint8_t *code = &record->package[K380_MACRO_VM_PACKAGE_HEADER_SIZE +
+                                    function_count *
+                                        K380_MACRO_VM_FUNCTION_ENTRY_SIZE];
     if (maximum_code) {
-        for (uint16_t index = 0U; index < 341U; index++) {
-            code[index * 3U] = K380_MACRO_VM_OP_TAP;
-            sys_put_le16(4U, &code[index * 3U + 1U]);
+        code[0] = K380_MACRO_VM_OP_END;
+        for (uint8_t index = 0U; index < function_count; index++) {
+            const uint16_t entry = 1U + index;
+            sys_put_le16(entry,
+                         &record->package[K380_MACRO_VM_PACKAGE_HEADER_SIZE +
+                                          index * K380_MACRO_VM_FUNCTION_ENTRY_SIZE]);
+            sys_put_le16(entry + 1U,
+                         &record->package[K380_MACRO_VM_PACKAGE_HEADER_SIZE +
+                                          index * K380_MACRO_VM_FUNCTION_ENTRY_SIZE + 2U]);
+            code[entry] = K380_MACRO_VM_OP_RETURN;
         }
-        code[1023U] = K380_MACRO_VM_OP_END;
+        memset(&code[1U + function_count], K380_MACRO_VM_OP_RELEASE_ALL,
+               code_len - 1U - function_count);
     } else {
         code[0] = K380_MACRO_VM_OP_END;
     }
@@ -538,6 +553,7 @@ ZTEST(dynamic_protocol, test_macro_meta_returns_saved_record_and_empty_slot)
                   transact(K380_DYNAMIC_COMMAND_GET_MACRO_META, 3U, request,
                            sizeof(request), data, sizeof(data), &data_len));
     zassert_equal(48U, data_len);
+    zassert_equal(K380_DYNAMIC_MACRO_RECORD_VERSION, data[2]);
     zassert_equal(0U, data[4]);
     zassert_equal(0U, sys_get_le16(&data[10]));
     zassert_equal(0U, sys_get_le32(&data[12]));
