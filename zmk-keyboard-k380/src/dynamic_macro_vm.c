@@ -177,10 +177,10 @@ static enum k380_macro_vm_error execute_wait(
     return error;
 }
 
-enum k380_macro_vm_error
-k380_macro_vm_run(const struct k380_macro_vm_package_view *view,
-                  const struct k380_macro_vm_host *host,
-                  struct k380_macro_vm_context *context)
+static enum k380_macro_vm_error run_internal(
+    const struct k380_macro_vm_package_view *view,
+    const struct k380_macro_vm_host *host,
+    struct k380_macro_vm_context *context, bool initialize_instance)
 {
     if (view == NULL || host == NULL || context == NULL || view->code == NULL ||
         view->code_len == 0U || view->code_len > K380_MACRO_VM_MAX_CODE_BYTES ||
@@ -195,13 +195,22 @@ k380_macro_vm_run(const struct k380_macro_vm_package_view *view,
         return K380_MACRO_VM_INVALID_RUNTIME_STATE;
     }
 
-    memset(context, 0, sizeof(*context));
-    context->pc = view->entry_offset;
-    context->error = K380_MACRO_VM_OK;
-    context->start_ms = now_ms(host);
-    for (size_t index = 0U; index < ARRAY_SIZE(context->timer_origin_ms);
-         index++) {
-        context->timer_origin_ms[index] = context->start_ms;
+    if (initialize_instance) {
+        memset(context, 0, sizeof(*context));
+        context->pc = view->entry_offset;
+        context->error = K380_MACRO_VM_OK;
+        context->start_ms = now_ms(host);
+        for (size_t index = 0U; index < ARRAY_SIZE(context->timer_origin_ms);
+             index++) {
+            context->timer_origin_ms[index] = context->start_ms;
+        }
+    } else {
+        if (context->call_depth != 0U || context->loop_depth != 0U ||
+            context->error != K380_MACRO_VM_OK) {
+            return fail_run(context, K380_MACRO_VM_INVALID_RUNTIME_STATE);
+        }
+        context->pc = view->entry_offset;
+        context->error = K380_MACRO_VM_OK;
     }
 
     uint8_t fairness_count = 0U;
@@ -417,4 +426,20 @@ k380_macro_vm_run(const struct k380_macro_vm_package_view *view,
             fairness_count = 0U;
         }
     }
+}
+
+enum k380_macro_vm_error
+k380_macro_vm_run(const struct k380_macro_vm_package_view *view,
+                  const struct k380_macro_vm_host *host,
+                  struct k380_macro_vm_context *context)
+{
+    return run_internal(view, host, context, true);
+}
+
+enum k380_macro_vm_error
+k380_macro_vm_run_pass(const struct k380_macro_vm_package_view *view,
+                       const struct k380_macro_vm_host *host,
+                       struct k380_macro_vm_context *context)
+{
+    return run_internal(view, host, context, false);
 }

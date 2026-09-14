@@ -11,6 +11,11 @@
 
 #include <zmk_keyboard_k380/dynamic_macro_vm.h>
 
+enum k380_macro_vm_error
+k380_macro_vm_run_pass(const struct k380_macro_vm_package_view *view,
+                       const struct k380_macro_vm_host *host,
+                       struct k380_macro_vm_context *context);
+
 struct fake_trace {
     uint16_t pc;
     uint8_t event;
@@ -334,7 +339,7 @@ ZTEST(dynamic_macro_vm, test_count_and_time_loops_execute_expected_bodies)
     zassert_equal(K380_MACRO_VM_OK,
                   run_code(count_code, (uint16_t)offset, &fake, &context));
     zassert_equal(6U, fake.key_count);
-    zassert_equal(11U, context.instruction_count);
+    zassert_equal(7U, context.instruction_count);
 
     uint8_t time_code[32];
     offset = 0U;
@@ -458,7 +463,7 @@ ZTEST(dynamic_macro_vm, test_runtime_defenses_reject_bad_stack_and_host)
     struct k380_macro_vm_package_view view = make_view(
         recursive_code, sizeof(recursive_code));
     view.function_count = 1U;
-    view.functions[0] = (struct k380_macro_vm_function_range){ 2U, 5U };
+    view.functions[0] = (struct k380_macro_vm_function_range){ 3U, 6U };
     struct fake_host fake = { 0 };
     struct k380_macro_vm_host host = make_host(&fake);
     struct k380_macro_vm_context context;
@@ -488,6 +493,26 @@ ZTEST(dynamic_macro_vm, test_runtime_defenses_reject_bad_stack_and_host)
     fake.key_error = -EIO;
     zassert_equal(K380_MACRO_VM_HOST_FAILURE,
                   run_code(key_code, sizeof(key_code), &fake, &context));
+}
+
+ZTEST(dynamic_macro_vm, test_repeated_pass_preserves_macro_instance_clock)
+{
+    const uint8_t code[] = {
+        K380_MACRO_VM_OP_WAIT, 10U, 0U, 0U, 0U,
+        K380_MACRO_VM_OP_END,
+    };
+    struct fake_host fake = {0};
+    struct k380_macro_vm_context context;
+    struct k380_macro_vm_package_view view = make_view(code, sizeof(code));
+    struct k380_macro_vm_host host = make_host(&fake);
+
+    zassert_equal(K380_MACRO_VM_OK,
+                  k380_macro_vm_run(&view, &host, &context));
+    zassert_equal(K380_MACRO_VM_OK,
+                  k380_macro_vm_run_pass(&view, &host, &context));
+    zassert_equal(2U, fake.wait_count);
+    zassert_equal(10U, fake.traces[0].elapsed_ms);
+    zassert_equal(20U, fake.traces[1].elapsed_ms);
 }
 
 ZTEST_SUITE(dynamic_macro_vm, NULL, NULL, NULL, NULL, NULL);

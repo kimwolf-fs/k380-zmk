@@ -108,4 +108,10 @@ k380_macro_vm_run(const struct k380_macro_vm_package_view *view,
                   const struct k380_macro_vm_host *host,
                   struct k380_macro_vm_context *context);
 
+/* Start another entry pass while preserving this macro instance's timers. */
+enum k380_macro_vm_error
+k380_macro_vm_run_pass(const struct k380_macro_vm_package_view *view,
+                       const struct k380_macro_vm_host *host,
+                       struct k380_macro_vm_context *context);
+
 #endif
