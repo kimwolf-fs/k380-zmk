@@ -804,6 +804,103 @@ ZTEST(dynamic_protocol, test_successful_write_refreshes_upload_expiry)
                            sizeof(data), &data_len));
 }
 
+ZTEST(dynamic_protocol, test_busy_commit_refreshes_upload_expiry)
+{
+    struct k380_dynamic_macro_record record;
+    uint8_t begin[64];
+    uint8_t chunk[32];
+    uint8_t commit[4];
+    uint8_t data[32];
+    size_t data_len;
+
+    reset_test_state();
+    make_record(&record, 17U, false);
+    const size_t begin_len = make_begin_payload(begin, 1U, 0U, 0U, &record);
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_BEGIN_MACRO_UPLOAD, 34U,
+                           begin, begin_len, data, sizeof(data), &data_len));
+    const uint32_t session_id = sys_get_le32(data);
+    sys_put_le32(session_id, chunk);
+    sys_put_le16(0U, &chunk[4]);
+    sys_put_le16(record.package_len, &chunk[6]);
+    memcpy(&chunk[8], record.package, record.package_len);
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 35U, chunk,
+                           8U + record.package_len, data, sizeof(data),
+                           &data_len));
+
+    fake_macro_running = true;
+    sys_put_le32(session_id, commit);
+    fake_uptime_ms = 4900U;
+    zassert_equal(K380_DYNAMIC_RESULT_BUSY,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 36U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+    fake_uptime_ms = 9800U;
+    zassert_equal(K380_DYNAMIC_RESULT_BUSY,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 37U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+    fake_uptime_ms = 14801U;
+    zassert_equal(K380_DYNAMIC_RESULT_UPLOAD_EXPIRED,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 38U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_ABORT_MACRO_UPLOAD, 39U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+}
+
+ZTEST(dynamic_protocol, test_invalid_commit_does_not_refresh_upload_expiry)
+{
+    struct k380_dynamic_macro_record record;
+    uint8_t begin[64];
+    uint8_t chunk[32];
+    uint8_t commit[4];
+    uint8_t data[32];
+    size_t data_len;
+
+    reset_test_state();
+    make_record(&record, 17U, false);
+    const size_t begin_len = make_begin_payload(begin, 1U, 0U, 0U, &record);
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_BEGIN_MACRO_UPLOAD, 45U,
+                           begin, begin_len, data, sizeof(data), &data_len));
+    const uint32_t session_id = sys_get_le32(data);
+    sys_put_le32(session_id, chunk);
+    sys_put_le16(0U, &chunk[4]);
+    sys_put_le16(record.package_len, &chunk[6]);
+    memcpy(&chunk[8], record.package, record.package_len);
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 46U, chunk,
+                           8U + record.package_len, data, sizeof(data),
+                           &data_len));
+
+    sys_put_le32(session_id, commit);
+    fake_uptime_ms = 4900U;
+    zassert_equal(K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 47U,
+                           commit, sizeof(commit) - 1U, data, sizeof(data),
+                           &data_len));
+    sys_put_le32(session_id ^ 0x80000000U, commit);
+    fake_uptime_ms = 4999U;
+    zassert_equal(K380_DYNAMIC_RESULT_INVALID_ARGUMENT,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 48U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+    sys_put_le32(session_id, commit);
+    fake_uptime_ms = 5000U;
+    zassert_equal(K380_DYNAMIC_RESULT_UPLOAD_EXPIRED,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 49U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_ABORT_MACRO_UPLOAD, 50U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+}
+
 ZTEST(dynamic_protocol, test_crc_and_vm_failures_preserve_previous_saved_record)
 {
     struct k380_dynamic_macro_record old_record;
