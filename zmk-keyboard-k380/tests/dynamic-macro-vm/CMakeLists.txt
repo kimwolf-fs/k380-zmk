@@ -6,4 +6,4 @@ target_sources(app PRIVATE
   ../../src/dynamic_macro_vm.c
   src/main.c
 )
-target_include_directories(app PRIVATE ../../include)
+target_include_directories(app PRIVATE ../../include ../../../app/include)
