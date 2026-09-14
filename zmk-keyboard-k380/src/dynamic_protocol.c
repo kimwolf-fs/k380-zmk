@@ -1,12 +1,14 @@
 #include <errno.h>
 #include <string.h>
 
+#include <zephyr/kernel.h>
 #include <zephyr/sys/crc.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
 
 #include <zmk_keyboard_k380/dynamic_config.h>
 #include <zmk_keyboard_k380/dynamic_macro.h>
+#include <zmk_keyboard_k380/dynamic_macro_store.h>
 #include <zmk_keyboard_k380/dynamic_protocol.h>
 #include <zmk_keyboard_k380/dynamic_settings.h>
 
@@ -19,11 +21,43 @@ static void put_le16(uint16_t value, uint8_t *out) { sys_put_le16(value, out); }
 
 static struct k380_dynamic_config protocol_config;
 static uint8_t protocol_payload[K380_DYNAMIC_MAX_PAYLOAD - 1U];
-static struct k380_dynamic_macro decoded_macro;
+
+enum k380_dynamic_macro_upload_operation {
+    K380_DYNAMIC_MACRO_UPLOAD_SAVE = 0,
+    K380_DYNAMIC_MACRO_UPLOAD_TEST = 1,
+};
+
+struct k380_dynamic_macro_upload_session {
+    bool active;
+    bool expired;
+    uint8_t operation;
+    uint8_t preset;
+    uint8_t slot;
+    uint16_t next_offset;
+    uint32_t session_id;
+    uint64_t last_activity_ms;
+    struct k380_dynamic_macro_record record;
+};
+
+static struct k380_dynamic_macro_upload_session upload_session;
+static uint32_t next_upload_session_id = 1U;
+
+BUILD_ASSERT(K380_DYNAMIC_MAX_PAYLOAD == 512U,
+             "dynamic protocol payload size changed");
+BUILD_ASSERT(sizeof(protocol_payload) == K380_DYNAMIC_MAX_PAYLOAD - 1U,
+             "dynamic protocol response buffer must include one result byte");
+BUILD_ASSERT(sizeof(upload_session.record) ==
+                 K380_DYNAMIC_MACRO_RECORD_MAX_BYTES,
+             "dynamic protocol must have one maximum staging record");
 
 bool __attribute__((weak)) k380_dynamic_protocol_is_unlocked(void)
 {
     return true;
+}
+
+uint64_t __attribute__((weak)) k380_dynamic_protocol_uptime_ms(void)
+{
+    return (uint64_t)k_uptime_get();
 }
 
 void k380_dynamic_protocol_parser_init(struct k380_dynamic_protocol_parser *parser)
@@ -74,6 +108,9 @@ static enum k380_dynamic_result result_from_error(int err, bool saving)
     if (err == -EINVAL || err == -EMSGSIZE) {
         return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
     }
+    if (err == -EBUSY) {
+        return K380_DYNAMIC_RESULT_BUSY;
+    }
     return saving ? K380_DYNAMIC_RESULT_SAVE_FAILURE : K380_DYNAMIC_RESULT_IO_FAILURE;
 }
 
@@ -116,116 +153,357 @@ static enum k380_dynamic_result decode_bindings(struct k380_dynamic_preset *pres
     return K380_DYNAMIC_RESULT_READY;
 }
 
-static enum k380_dynamic_result encode_macro(const struct k380_dynamic_macro *macro,
-                                              uint8_t *out, size_t *out_len)
+static uint32_t package_crc32_without_field(const uint8_t *package,
+                                            size_t length)
 {
-    size_t offset = 0;
-    memcpy(&out[offset], macro->name, K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
-    offset += K380_DYNAMIC_MACRO_NAME_MAX_BYTES;
-    out[offset++] = macro->step_count;
-    out[offset++] = macro->trigger;
-    put_le16(macro->count, &out[offset]);
-    offset += 2U;
-    for (uint8_t step = 0; step < macro->step_count; step++) {
-        const struct k380_dynamic_macro_step *source = &macro->steps[step];
-        out[offset++] = source->type;
-        switch (source->type) {
-        case K380_DYNAMIC_MACRO_WAIT_RANDOM:
-            put_le16(source->value.wait_random.min_ms, &out[offset]);
-            put_le16(source->value.wait_random.max_ms, &out[offset + 2U]);
-            offset += 4U;
-            break;
-        case K380_DYNAMIC_MACRO_RELEASE_ALL:
-            break;
-        default:
-            put_le16(source->value.key_usage, &out[offset]);
-            offset += 2U;
-            break;
+    uint32_t crc = 0xFFFFFFFFU;
+
+    for (size_t index = 0U; index < length; index++) {
+        const uint8_t value = index >= 12U && index < 16U ? 0U : package[index];
+        crc ^= value;
+        for (uint8_t bit = 0U; bit < 8U; bit++) {
+            crc = (crc & 1U) ? ((crc >> 1U) ^ 0xEDB88320U) : (crc >> 1U);
         }
     }
-    *out_len = offset;
+    return crc ^ 0xFFFFFFFFU;
+}
+
+static bool upload_is_expired(void)
+{
+    if (!upload_session.active) {
+        return false;
+    }
+    if (upload_session.expired ||
+        k380_dynamic_protocol_uptime_ms() - upload_session.last_activity_ms >=
+            5000U) {
+        upload_session.expired = true;
+        return true;
+    }
+    return false;
+}
+
+static enum k380_dynamic_result upload_require(uint32_t session_id)
+{
+    if (!upload_session.active) {
+        return K380_DYNAMIC_RESULT_UPLOAD_NOT_FOUND;
+    }
+    if (upload_is_expired()) {
+        return K380_DYNAMIC_RESULT_UPLOAD_EXPIRED;
+    }
+    if (upload_session.session_id != session_id) {
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+    }
     return K380_DYNAMIC_RESULT_READY;
 }
 
-static enum k380_dynamic_result decode_macro(struct k380_dynamic_macro *macro,
-                                              const uint8_t *data, size_t data_len)
+static void upload_clear(void)
 {
-    if (data_len < K380_DYNAMIC_MACRO_NAME_MAX_BYTES + 4U) {
-        return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+    memset(&upload_session, 0, sizeof(upload_session));
+}
+
+static enum k380_dynamic_result validate_upload_record(void)
+{
+    const struct k380_dynamic_macro_record *record = &upload_session.record;
+
+    if (record->package_len == 0U) {
+        return record->package_crc32 == 0U ? K380_DYNAMIC_RESULT_READY
+                                           : K380_DYNAMIC_RESULT_CRC_MISMATCH;
     }
-    size_t offset = 0;
-    struct k380_dynamic_macro *decoded = &decoded_macro;
-    memset(decoded, 0, sizeof(*decoded));
-    memcpy(decoded->name, &data[offset], K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
-    offset += K380_DYNAMIC_MACRO_NAME_MAX_BYTES;
-    decoded->step_count = data[offset++];
-    decoded->trigger = data[offset++];
-    decoded->count = get_le16(&data[offset]);
-    offset += 2U;
-    if (decoded->step_count > K380_DYNAMIC_MACRO_MAX_STEPS) {
+    if (record->package_crc32 !=
+        package_crc32_without_field(record->package, record->package_len)) {
+        return K380_DYNAMIC_RESULT_CRC_MISMATCH;
+    }
+    return k380_dynamic_macro_record_validate(record) == 0
+               ? K380_DYNAMIC_RESULT_READY
+               : K380_DYNAMIC_RESULT_INVALID_VM_PACKAGE;
+}
+
+static enum k380_dynamic_result handle_get_macro_meta(
+    const uint8_t *payload, size_t payload_len, uint8_t *out, size_t *out_len)
+{
+    if (payload_len != 2U || payload[0] >= K380_DYNAMIC_PRESET_COUNT ||
+        payload[1] >= K380_DYNAMIC_MACRO_SLOT_COUNT) {
         return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
     }
-    for (uint8_t step = 0; step < decoded->step_count; step++) {
-        if (offset >= data_len) {
-            return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
-        }
-        struct k380_dynamic_macro_step *current = &decoded->steps[step];
-        current->type = data[offset++];
-        switch (current->type) {
-        case K380_DYNAMIC_MACRO_PRESS_KEY:
-        case K380_DYNAMIC_MACRO_RELEASE_KEY:
-        case K380_DYNAMIC_MACRO_TAP_KEY:
-            if (data_len - offset < 2U) {
-                return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
-            }
-            current->value.key_usage = get_le16(&data[offset]);
-            offset += 2U;
-            if (current->value.key_usage < 0x04U ||
-                current->value.key_usage > 0xE7U) {
-                return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
-            }
-            break;
-        case K380_DYNAMIC_MACRO_WAIT_MS:
-            if (data_len - offset < 2U) {
-                return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
-            }
-            current->value.wait_ms = get_le16(&data[offset]);
-            offset += 2U;
-            if (current->value.wait_ms < K380_DYNAMIC_WAIT_MIN_MS ||
-                current->value.wait_ms > K380_DYNAMIC_WAIT_MAX_MS) {
-                return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
-            }
-            break;
-        case K380_DYNAMIC_MACRO_WAIT_RANDOM:
-            if (data_len - offset < 4U) {
-                return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
-            }
-            current->value.wait_random.min_ms = get_le16(&data[offset]);
-            current->value.wait_random.max_ms = get_le16(&data[offset + 2U]);
-            offset += 4U;
-            if (current->value.wait_random.min_ms < K380_DYNAMIC_WAIT_MIN_MS ||
-                current->value.wait_random.min_ms > K380_DYNAMIC_WAIT_MAX_MS ||
-                current->value.wait_random.max_ms < K380_DYNAMIC_WAIT_MIN_MS ||
-                current->value.wait_random.max_ms > K380_DYNAMIC_WAIT_MAX_MS ||
-                current->value.wait_random.min_ms > current->value.wait_random.max_ms) {
-                return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
-            }
-            break;
-        case K380_DYNAMIC_MACRO_RELEASE_ALL:
-            break;
-        default:
+    if (upload_session.active) {
+        return K380_DYNAMIC_RESULT_BUSY;
+    }
+
+    const int err = k380_dynamic_macro_store_load(payload[0], payload[1],
+                                                  &upload_session.record);
+    if (err != 0) {
+        return result_from_error(err, false);
+    }
+    out[0] = payload[0];
+    out[1] = payload[1];
+    out[2] = upload_session.record.record_version;
+    out[3] = upload_session.record.trigger;
+    out[4] = upload_session.record.name_len;
+    out[5] = 0U;
+    sys_put_le32(upload_session.record.repeat_count, &out[6]);
+    put_le16(upload_session.record.package_len, &out[10]);
+    sys_put_le32(upload_session.record.package_crc32, &out[12]);
+    memcpy(&out[16], upload_session.record.name,
+           K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
+    *out_len = 48U;
+    return K380_DYNAMIC_RESULT_READY;
+}
+
+static enum k380_dynamic_result handle_read_macro_chunk(
+    const uint8_t *payload, size_t payload_len, uint8_t *out, size_t *out_len)
+{
+    if (payload_len != 6U || payload[0] >= K380_DYNAMIC_PRESET_COUNT ||
+        payload[1] >= K380_DYNAMIC_MACRO_SLOT_COUNT) {
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+    }
+    const uint16_t offset = get_le16(&payload[2]);
+    const uint16_t max_len = get_le16(&payload[4]);
+    if (max_len == 0U || max_len > K380_DYNAMIC_MACRO_CHUNK_MAX) {
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+    }
+    if (upload_session.active) {
+        return K380_DYNAMIC_RESULT_BUSY;
+    }
+
+    int err = k380_dynamic_macro_store_load(payload[0], payload[1],
+                                            &upload_session.record);
+    if (err != 0) {
+        return result_from_error(err, false);
+    }
+    if (offset > upload_session.record.package_len) {
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+    }
+    const uint16_t remaining = upload_session.record.package_len - offset;
+    const uint16_t data_len = MIN(max_len, remaining);
+    out[0] = payload[0];
+    out[1] = payload[1];
+    put_le16(offset, &out[2]);
+    put_le16(data_len, &out[4]);
+    if (data_len > 0U) {
+        memcpy(&out[6], &upload_session.record.package[offset], data_len);
+    }
+    *out_len = 6U + data_len;
+    return K380_DYNAMIC_RESULT_READY;
+}
+
+static enum k380_dynamic_result handle_begin_macro_upload(
+    const uint8_t *payload, size_t payload_len, uint8_t *out, size_t *out_len)
+{
+    if (payload_len != 50U ||
+        (payload[0] != K380_DYNAMIC_MACRO_UPLOAD_SAVE &&
+         payload[0] != K380_DYNAMIC_MACRO_UPLOAD_TEST) ||
+        payload[1] >= K380_DYNAMIC_PRESET_COUNT ||
+        payload[2] >= K380_DYNAMIC_MACRO_SLOT_COUNT ||
+        payload[3] > K380_DYNAMIC_MACRO_TRIGGER_COUNT || payload[5] != 0U ||
+        payload[4] > K380_DYNAMIC_MACRO_NAME_MAX_BYTES ||
+        get_le16(&payload[10]) > K380_DYNAMIC_MACRO_PACKAGE_MAX_BYTES ||
+        get_le16(&payload[12]) != 0U) {
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+    }
+    const uint32_t repeat_count = sys_get_le32(&payload[6]);
+    if ((payload[3] == K380_DYNAMIC_MACRO_TRIGGER_COUNT &&
+         repeat_count == 0U) ||
+        (payload[3] != K380_DYNAMIC_MACRO_TRIGGER_COUNT && repeat_count != 1U)) {
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+    }
+    for (uint8_t index = payload[4];
+         index < K380_DYNAMIC_MACRO_NAME_MAX_BYTES; index++) {
+        if (payload[18U + index] != 0U) {
             return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
     }
-    if (offset != data_len) {
+    if (upload_session.active && !upload_is_expired()) {
+        return K380_DYNAMIC_RESULT_BUSY;
+    }
+
+    upload_clear();
+    upload_session.active = true;
+    upload_session.operation = payload[0];
+    upload_session.preset = payload[1];
+    upload_session.slot = payload[2];
+    upload_session.session_id = next_upload_session_id;
+    next_upload_session_id++;
+    if (next_upload_session_id == 0U) {
+        next_upload_session_id = 1U;
+    }
+    upload_session.last_activity_ms = k380_dynamic_protocol_uptime_ms();
+    upload_session.record.record_version = K380_DYNAMIC_MACRO_RECORD_VERSION;
+    upload_session.record.trigger = payload[3];
+    upload_session.record.name_len = payload[4];
+    upload_session.record.repeat_count = repeat_count;
+    upload_session.record.package_len = get_le16(&payload[10]);
+    upload_session.record.package_crc32 = sys_get_le32(&payload[14]);
+    memcpy(upload_session.record.name, &payload[18],
+           K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
+    sys_put_le32(upload_session.record.package_crc32,
+                 &upload_session.record.package[12]);
+
+    sys_put_le32(upload_session.session_id, &out[0]);
+    put_le16(K380_DYNAMIC_MACRO_CHUNK_MAX, &out[4]);
+    *out_len = 6U;
+    return K380_DYNAMIC_RESULT_READY;
+}
+
+static enum k380_dynamic_result handle_write_macro_chunk(
+    const uint8_t *payload, size_t payload_len, uint8_t *out, size_t *out_len)
+{
+    if (payload_len < 9U) {
         return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
     }
-    if (decoded->trigger > K380_DYNAMIC_MACRO_TRIGGER_COUNT ||
-        (decoded->trigger == K380_DYNAMIC_MACRO_TRIGGER_COUNT && decoded->count == 0U)) {
+    const uint32_t session_id = sys_get_le32(&payload[0]);
+    enum k380_dynamic_result result = upload_require(session_id);
+    if (result != K380_DYNAMIC_RESULT_READY) {
+        return result;
+    }
+    const uint16_t offset = get_le16(&payload[4]);
+    const uint16_t data_len = get_le16(&payload[6]);
+    if (data_len == 0U || data_len > K380_DYNAMIC_MACRO_CHUNK_MAX ||
+        payload_len != (size_t)8U + data_len) {
         return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
     }
-    *macro = *decoded;
+    if (offset != upload_session.next_offset) {
+        return K380_DYNAMIC_RESULT_UPLOAD_OFFSET_MISMATCH;
+    }
+    if ((uint32_t)offset + data_len > upload_session.record.package_len) {
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+    }
+    memcpy(&upload_session.record.package[offset], &payload[8], data_len);
+    upload_session.next_offset = (uint16_t)(offset + data_len);
+    upload_session.last_activity_ms = k380_dynamic_protocol_uptime_ms();
+    sys_put_le32(session_id, &out[0]);
+    put_le16(upload_session.next_offset, &out[4]);
+    *out_len = 6U;
     return K380_DYNAMIC_RESULT_READY;
+}
+
+static enum k380_dynamic_result handle_commit_macro_upload(
+    const uint8_t *payload, size_t payload_len, uint8_t *out, size_t *out_len)
+{
+    if (payload_len != 4U) {
+        return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+    }
+    const uint32_t session_id = sys_get_le32(payload);
+    enum k380_dynamic_result result = upload_require(session_id);
+    if (result != K380_DYNAMIC_RESULT_READY) {
+        return result;
+    }
+    if (upload_session.next_offset != upload_session.record.package_len) {
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+    }
+    result = validate_upload_record();
+    if (result != K380_DYNAMIC_RESULT_READY) {
+        return result;
+    }
+
+    uint32_t run_id = 0U;
+    if (upload_session.operation == K380_DYNAMIC_MACRO_UPLOAD_SAVE) {
+        result = result_from_error(
+            k380_dynamic_macro_store_save(upload_session.preset,
+                                          upload_session.slot,
+                                          &upload_session.record),
+            true);
+    } else {
+        if (k380_dynamic_macro_is_running()) {
+            return K380_DYNAMIC_RESULT_BUSY;
+        }
+        result = result_from_error(
+            k380_dynamic_macro_test_record(upload_session.preset,
+                                           upload_session.slot,
+                                           &upload_session.record),
+            false);
+        if (result == K380_DYNAMIC_RESULT_READY) {
+            struct k380_dynamic_macro_run_state state;
+            k380_dynamic_macro_get_run_state(&state);
+            run_id = state.run_id;
+            if (run_id == 0U) {
+                result = K380_DYNAMIC_RESULT_IO_FAILURE;
+            }
+        }
+    }
+    if (result != K380_DYNAMIC_RESULT_READY) {
+        return result;
+    }
+    sys_put_le32(session_id, &out[0]);
+    sys_put_le32(run_id, &out[4]);
+    *out_len = 8U;
+    upload_clear();
+    return K380_DYNAMIC_RESULT_READY;
+}
+
+static enum k380_dynamic_result handle_abort_macro_upload(
+    const uint8_t *payload, size_t payload_len, uint8_t *out, size_t *out_len)
+{
+    if (payload_len != 4U) {
+        return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+    }
+    if (upload_session.active &&
+        upload_session.session_id != sys_get_le32(payload)) {
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+    }
+    upload_clear();
+    *out_len = 0U;
+    return K380_DYNAMIC_RESULT_READY;
+}
+
+static enum k380_dynamic_result handle_get_macro_run_state(
+    const uint8_t *payload, size_t payload_len, uint8_t *out, size_t *out_len)
+{
+    if (payload_len != 12U || payload[9] != 0U || payload[10] != 0U ||
+        payload[11] != 0U || payload[8] > 30U) {
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+    }
+    const uint32_t requested_run_id = sys_get_le32(&payload[0]);
+    const uint32_t cursor = sys_get_le32(&payload[4]);
+    struct k380_dynamic_macro_run_state state;
+    k380_dynamic_macro_get_run_state(&state);
+    if (requested_run_id != 0U && requested_run_id != state.run_id) {
+        return K380_DYNAMIC_RESULT_STALE_RUN;
+    }
+
+    struct k380_dynamic_macro_trace_event events[30];
+    const int event_count = k380_dynamic_macro_trace_read(
+        cursor, events, payload[8], &state);
+    if (event_count < 0) {
+        return event_count == -EOVERFLOW ? K380_DYNAMIC_RESULT_TRACE_CURSOR_LOST
+                                         : K380_DYNAMIC_RESULT_IO_FAILURE;
+    }
+    if (requested_run_id != 0U && requested_run_id != state.run_id) {
+        return K380_DYNAMIC_RESULT_STALE_RUN;
+    }
+    sys_put_le32(state.run_id, &out[0]);
+    out[4] = state.state;
+    out[5] = state.vm_error;
+    put_le16(0U, &out[6]);
+    sys_put_le32(state.next_cursor, &out[8]);
+    sys_put_le32(state.dropped, &out[12]);
+    out[16] = (uint8_t)event_count;
+    memset(&out[17], 0, 3U);
+    for (int index = 0; index < event_count; index++) {
+        uint8_t *wire = &out[20U + (size_t)index * 16U];
+        sys_put_le32(events[index].sequence, &wire[0]);
+        put_le16(events[index].pc, &wire[4]);
+        wire[6] = events[index].event;
+        wire[7] = events[index].result;
+        sys_put_le32(events[index].value, &wire[8]);
+        sys_put_le32(events[index].elapsed_ms, &wire[12]);
+    }
+    *out_len = 20U + (size_t)event_count * 16U;
+    return K380_DYNAMIC_RESULT_READY;
+}
+
+static enum k380_dynamic_result handle_stop_macro(
+    const uint8_t *payload, size_t payload_len)
+{
+    if (payload_len != 4U) {
+        return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+    }
+    const uint32_t requested_run_id = sys_get_le32(payload);
+    struct k380_dynamic_macro_run_state state;
+    k380_dynamic_macro_get_run_state(&state);
+    if (requested_run_id != 0U && requested_run_id != state.run_id) {
+        return K380_DYNAMIC_RESULT_STALE_RUN;
+    }
+    return result_from_error(k380_dynamic_macro_stop(), false);
 }
 
 static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *payload,
@@ -255,8 +533,37 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         out[4] = K380_DYNAMIC_KEY_COUNT;
         out[5] = K380_DYNAMIC_MACRO_SLOT_COUNT;
         out[6] = K380_DYNAMIC_MACRO_MAX_STEPS;
-        *out_len = 7U;
+        put_le16(K380_MACRO_VM_MAX_PACKAGE_BYTES, &out[7]);
+        put_le16(K380_MACRO_VM_MAX_CODE_BYTES, &out[9]);
+        put_le16(K380_DYNAMIC_MACRO_CHUNK_MAX, &out[11]);
+        out[13] = K380_MACRO_VM_MAX_TRACE_EVENTS;
+        *out_len = 14U;
         return K380_DYNAMIC_RESULT_READY;
+    }
+
+    if (command == K380_DYNAMIC_COMMAND_GET_MACRO_META) {
+        return handle_get_macro_meta(payload, payload_len, out, out_len);
+    }
+    if (command == K380_DYNAMIC_COMMAND_READ_MACRO_CHUNK) {
+        return handle_read_macro_chunk(payload, payload_len, out, out_len);
+    }
+    if (command == K380_DYNAMIC_COMMAND_BEGIN_MACRO_UPLOAD) {
+        return handle_begin_macro_upload(payload, payload_len, out, out_len);
+    }
+    if (command == K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK) {
+        return handle_write_macro_chunk(payload, payload_len, out, out_len);
+    }
+    if (command == K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD) {
+        return handle_commit_macro_upload(payload, payload_len, out, out_len);
+    }
+    if (command == K380_DYNAMIC_COMMAND_ABORT_MACRO_UPLOAD) {
+        return handle_abort_macro_upload(payload, payload_len, out, out_len);
+    }
+    if (command == K380_DYNAMIC_COMMAND_GET_MACRO_RUN_STATE) {
+        return handle_get_macro_run_state(payload, payload_len, out, out_len);
+    }
+    if (command == K380_DYNAMIC_COMMAND_STOP_MACRO) {
+        return handle_stop_macro(payload, payload_len);
     }
 
     err = k380_dynamic_settings_load(config);
@@ -292,14 +599,6 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
             *out_len = section_len + 3U;
             return K380_DYNAMIC_RESULT_READY;
         }
-        if (section == K380_DYNAMIC_PRESET_SECTION_MACRO && payload_len == 3U &&
-            payload[2] < K380_DYNAMIC_MACRO_SLOT_COUNT) {
-            out[3] = payload[2];
-            size_t section_len;
-            encode_macro(&config->presets[preset].macros[payload[2]], &out[4], &section_len);
-            *out_len = section_len + 4U;
-            return K380_DYNAMIC_RESULT_READY;
-        }
         if (section == K380_DYNAMIC_PRESET_SECTION_NAME && payload_len == 2U) {
             memcpy(&out[3], config->presets[preset].name, K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
             *out_len = K380_DYNAMIC_MACRO_NAME_MAX_BYTES + 3U;
@@ -315,9 +614,8 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         enum k380_dynamic_result result;
         if (payload[1] == K380_DYNAMIC_PRESET_SECTION_BINDINGS) {
             result = decode_bindings(preset, &payload[2], payload_len - 2U);
-        } else if (payload[1] == K380_DYNAMIC_PRESET_SECTION_MACRO && payload_len >= 3U &&
-                   payload[2] < K380_DYNAMIC_MACRO_SLOT_COUNT) {
-            result = decode_macro(&preset->macros[payload[2]], &payload[3], payload_len - 3U);
+        } else if (payload[1] == K380_DYNAMIC_PRESET_SECTION_MACRO) {
+            return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         } else if (payload[1] == K380_DYNAMIC_PRESET_SECTION_NAME &&
                    payload_len == K380_DYNAMIC_MACRO_NAME_MAX_BYTES + 2U) {
             memcpy(preset->name, &payload[2], K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
@@ -361,23 +659,7 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         return result_from_error(k380_dynamic_settings_restore_all(), true);
     }
     if (command == K380_DYNAMIC_COMMAND_TEST_MACRO) {
-        if (payload_len < 1U || payload[0] >= K380_DYNAMIC_MACRO_SLOT_COUNT) {
-            return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
-        }
-        if (k380_dynamic_macro_is_running()) {
-            return K380_DYNAMIC_RESULT_BUSY;
-        }
-        if (payload_len > 1U) {
-            enum k380_dynamic_result result = decode_macro(&decoded_macro, &payload[1],
-                                                           payload_len - 1U);
-            if (result != K380_DYNAMIC_RESULT_READY) {
-                return result;
-            }
-            return result_from_error(k380_dynamic_macro_test_temporary(
-                                         config->active_preset, payload[0], &decoded_macro),
-                                     false);
-        }
-        return result_from_error(k380_dynamic_macro_test(payload[0]), false);
+        return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
     }
     return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
 }
