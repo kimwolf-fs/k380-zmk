@@ -411,6 +411,7 @@ static enum k380_dynamic_result handle_commit_macro_upload(
     if (result != K380_DYNAMIC_RESULT_READY) {
         return result;
     }
+    upload_session.last_activity_ms = k380_dynamic_protocol_uptime_ms();
     if (upload_session.next_offset != upload_session.record.package_len) {
         return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
     }
