@@ -206,8 +206,26 @@ ZTEST(dynamic_macro, test_same_toggle_press_stops_running_macro) {
     sync_macro(0);
 
     zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
-    wait_until_running();
+    zassert_true(k380_dynamic_macro_is_running());
     zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
+    wait_until_stopped();
+}
+
+ZTEST(dynamic_macro, test_same_once_press_during_load_does_not_stop_macro) {
+    reset_fakes();
+    macro(0)->trigger = K380_DYNAMIC_MACRO_TRIGGER_ONCE;
+    macro(0)->step_count = 1;
+    macro(0)->steps[0].type = K380_DYNAMIC_MACRO_WAIT_MS;
+    macro(0)->steps[0].value.wait_ms = K380_DYNAMIC_WAIT_MAX_MS;
+    sync_macro(0);
+
+    zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
+    zassert_true(k380_dynamic_macro_is_running());
+    zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
+    k_sleep(K_MSEC(25));
+
+    zassert_true(k380_dynamic_macro_is_running());
+    zassert_ok(k380_dynamic_macro_stop());
     wait_until_stopped();
 }
 
