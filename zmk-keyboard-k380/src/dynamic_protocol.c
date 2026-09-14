@@ -201,7 +201,8 @@ static void expire_macro_transactions(void)
 static enum k380_dynamic_result upload_require(uint32_t session_id)
 {
     if (!upload_session.active) {
-        return session_id == expired_upload_session_id
+        return expired_upload_session_id != 0U &&
+                       session_id == expired_upload_session_id
                    ? K380_DYNAMIC_RESULT_UPLOAD_EXPIRED
                    : K380_DYNAMIC_RESULT_UPLOAD_NOT_FOUND;
     }
