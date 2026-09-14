@@ -155,7 +155,7 @@ int k380_dynamic_macro_test_settings_delete(const char *key)
 }
 
 int k380_dynamic_macro_test_settings_load_subtree_direct(
-    const char *subtree, settings_load_cb callback, void *cb_arg)
+    const char *subtree, settings_load_direct_cb callback, void *cb_arg)
 {
     if (subtree == NULL || callback == NULL) {
         return -EINVAL;
@@ -169,7 +169,7 @@ int k380_dynamic_macro_test_settings_load_subtree_direct(
             continue;
         }
         int err = callback(relative, entries[index].len, fake_read_cb,
-                           &entries[index]);
+                           &entries[index], cb_arg);
         if (err != 0) {
             return err;
         }
