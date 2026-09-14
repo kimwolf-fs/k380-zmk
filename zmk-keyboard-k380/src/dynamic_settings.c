@@ -6,6 +6,9 @@
 #include <zephyr/kernel.h>
 #include <zephyr/settings/settings.h>
 
+#if defined(CONFIG_K380_DYNAMIC_MACRO_VM) && CONFIG_K380_DYNAMIC_MACRO_VM
+#include <zmk_keyboard_k380/dynamic_macro_store.h>
+#endif
 #include <zmk_keyboard_k380/dynamic_settings.h>
 
 #define K380_DYNAMIC_SETTINGS_ACTIVE K380_DYNAMIC_SETTINGS_ROOT "/active"
@@ -16,6 +19,16 @@ static struct k380_dynamic_config baseline_config;
 static struct k380_dynamic_config *load_target;
 static int load_status;
 K_MUTEX_DEFINE(shared_config_lock);
+
+void k380_dynamic_settings_lock(void)
+{
+    k_mutex_lock(&shared_config_lock, K_FOREVER);
+}
+
+void k380_dynamic_settings_unlock(void)
+{
+    k_mutex_unlock(&shared_config_lock);
+}
 
 static bool is_zeroed(const void *data, size_t len)
 {
@@ -221,6 +234,7 @@ static int delete_preset_key(uint8_t preset, const char *leaf)
     return settings_delete(key);
 }
 
+#if !defined(CONFIG_K380_DYNAMIC_MACRO_VM) || !CONFIG_K380_DYNAMIC_MACRO_VM
 static int delete_macro_key(uint8_t preset, uint8_t slot)
 {
     char key[64];
@@ -232,6 +246,7 @@ static int delete_macro_key(uint8_t preset, uint8_t slot)
 
     return settings_delete(key);
 }
+#endif
 
 static int save_changed_unlocked(const struct k380_dynamic_config *cfg,
                                  const struct k380_dynamic_config *baseline)
@@ -396,11 +411,18 @@ int k380_dynamic_settings_restore_all(void)
             first_err = err;
         }
 
+#if defined(CONFIG_K380_DYNAMIC_MACRO_VM) && CONFIG_K380_DYNAMIC_MACRO_VM
+        err = k380_dynamic_macro_store_restore_preset(preset);
+#else
         for (uint8_t slot = 0U; slot < K380_DYNAMIC_MACRO_SLOT_COUNT; slot++) {
             err = delete_macro_key(preset, slot);
             if (first_err == 0 && err != 0) {
                 first_err = err;
             }
+        }
+#endif
+        if (first_err == 0 && err != 0) {
+            first_err = err;
         }
     }
 
