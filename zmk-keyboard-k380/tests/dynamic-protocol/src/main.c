@@ -624,7 +624,7 @@ ZTEST(dynamic_protocol, test_maximum_package_upload_uses_384_byte_chunks)
     zassert_equal(K380_DYNAMIC_RESULT_READY,
                   transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 5U, chunk,
                            sizeof(chunk), data, sizeof(data), &data_len));
-    zassert_equal(K380_DYNAMIC_MACRO_CHUNK_MAX, sys_get_le16(data));
+    zassert_equal(K380_DYNAMIC_MACRO_CHUNK_MAX, sys_get_le16(&data[4]));
 
     sys_put_le16(K380_DYNAMIC_MACRO_CHUNK_MAX, &chunk[4]);
     memcpy(&chunk[8], &record.package[K380_DYNAMIC_MACRO_CHUNK_MAX],
@@ -632,7 +632,8 @@ ZTEST(dynamic_protocol, test_maximum_package_upload_uses_384_byte_chunks)
     zassert_equal(K380_DYNAMIC_RESULT_READY,
                   transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 6U, chunk,
                            sizeof(chunk), data, sizeof(data), &data_len));
-    zassert_equal(2U * K380_DYNAMIC_MACRO_CHUNK_MAX, sys_get_le16(data));
+    zassert_equal(2U * K380_DYNAMIC_MACRO_CHUNK_MAX,
+                  sys_get_le16(&data[4]));
 
     const uint16_t final_len = K380_MACRO_VM_MAX_PACKAGE_BYTES -
                                2U * K380_DYNAMIC_MACRO_CHUNK_MAX;
@@ -644,7 +645,8 @@ ZTEST(dynamic_protocol, test_maximum_package_upload_uses_384_byte_chunks)
                   transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 7U, chunk,
                            (uint16_t)(8U + final_len), data, sizeof(data),
                            &data_len));
-    zassert_equal(K380_MACRO_VM_MAX_PACKAGE_BYTES, sys_get_le16(data));
+    zassert_equal(K380_MACRO_VM_MAX_PACKAGE_BYTES,
+                  sys_get_le16(&data[4]));
 
     uint8_t commit[4];
     sys_put_le32(session_id, commit);
@@ -903,7 +905,8 @@ ZTEST(dynamic_protocol, test_run_state_paginates_trace_and_stop_checks_run_id)
     zassert_equal(1U, sys_get_le32(&data[20]));
     zassert_equal(4U, sys_get_le16(&data[24]));
     zassert_equal(K380_MACRO_VM_TRACE_PRESS, data[26]);
-    zassert_equal(237U, sys_get_le32(&data[28]));
+    zassert_equal(4U, sys_get_le32(&data[28]));
+    zassert_equal(237U, sys_get_le32(&data[32]));
     zassert_equal(7U, sys_get_le32(&data[12]));
 
     sys_put_le32(0xDEADBEEFU, &request[0]);
