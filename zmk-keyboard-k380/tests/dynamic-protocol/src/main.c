@@ -208,8 +208,6 @@ int k380_dynamic_macro_test_temporary(uint8_t preset, uint8_t slot,
     return slot < K380_DYNAMIC_MACRO_SLOT_COUNT && macro != NULL ? 0 : -1;
 }
 
-bool k380_dynamic_macro_is_running(void) { return false; }
-
 static size_t make_frame(uint8_t *frame, uint8_t command, uint16_t sequence,
                          const uint8_t *payload, uint16_t payload_len)
 {
