@@ -325,15 +325,15 @@ struct loop_depth_context {
     uint16_t code_len;
     const struct k380_macro_vm_package_view *view;
     const struct instruction_boundaries *boundaries;
-    uint8_t state[1U + K380_MACRO_VM_MAX_FUNCTIONS];
+    uint8_t call_loop_depth_plus_one[1U + K380_MACRO_VM_MAX_FUNCTIONS]
+                                    [K380_MACRO_VM_MAX_FUNCTIONS];
+    uint8_t local_maximum[1U + K380_MACRO_VM_MAX_FUNCTIONS];
     uint8_t maximum[1U + K380_MACRO_VM_MAX_FUNCTIONS];
+    uint8_t state[1U + K380_MACRO_VM_MAX_FUNCTIONS];
 };
 
-static int analyze_loop_region(struct loop_depth_context *context,
-                               uint8_t region);
-
 static int analyze_loop_sequence(struct loop_depth_context *context,
-                                 uint16_t start, uint16_t stop,
+                                 uint8_t region, uint16_t start, uint16_t stop,
                                  uint8_t loop_depth, uint8_t *maximum)
 {
     uint8_t local_maximum = loop_depth;
@@ -352,7 +352,7 @@ static int analyze_loop_sequence(struct loop_depth_context *context,
         }
         if (is_condition_opcode(instruction.opcode)) {
             uint8_t branch_maximum = loop_depth;
-            err = analyze_loop_sequence(context, next,
+            err = analyze_loop_sequence(context, region, next,
                                         (uint16_t)instruction.operand2,
                                         loop_depth, &branch_maximum);
             if (err != K380_MACRO_VM_OK) {
@@ -378,7 +378,8 @@ static int analyze_loop_sequence(struct loop_depth_context *context,
                 return err;
             }
             uint8_t body_maximum = (uint8_t)(loop_depth + 1U);
-            err = analyze_loop_sequence(context, next, loop_end_offset,
+            err = analyze_loop_sequence(context, region, next,
+                                        loop_end_offset,
                                         (uint8_t)(loop_depth + 1U),
                                         &body_maximum);
             if (err != K380_MACRO_VM_OK) {
@@ -391,18 +392,12 @@ static int analyze_loop_sequence(struct loop_depth_context *context,
             continue;
         }
         if (instruction.opcode == K380_MACRO_VM_OP_CALL) {
-            uint8_t target_region = (uint8_t)(instruction.operand0 + 1U);
-            err = analyze_loop_region(context, target_region);
-            if (err != K380_MACRO_VM_OK) {
-                return err;
-            }
-            uint16_t combined_depth =
-                (uint16_t)loop_depth + context->maximum[target_region];
-            if (combined_depth > K380_MACRO_VM_MAX_LOOP_DEPTH) {
-                return fail(K380_MACRO_VM_LOOP_DEPTH);
-            }
-            if (combined_depth > local_maximum) {
-                local_maximum = (uint8_t)combined_depth;
+            const uint8_t target = (uint8_t)instruction.operand0;
+            const uint8_t encoded_depth = (uint8_t)(loop_depth + 1U);
+            if (encoded_depth >
+                context->call_loop_depth_plus_one[region][target]) {
+                context->call_loop_depth_plus_one[region][target] =
+                    encoded_depth;
             }
         }
         pc = next;
@@ -417,14 +412,6 @@ static int analyze_loop_sequence(struct loop_depth_context *context,
 static int analyze_loop_region(struct loop_depth_context *context,
                                uint8_t region)
 {
-    if (context->state[region] == 1U) {
-        return fail(K380_MACRO_VM_RECURSION);
-    }
-    if (context->state[region] == 2U) {
-        return K380_MACRO_VM_OK;
-    }
-
-    context->state[region] = 1U;
     uint16_t start = region == 0U
                          ? 0U
                          : context->view->functions[region - 1U].entry_offset;
@@ -435,10 +422,48 @@ static int analyze_loop_region(struct loop_depth_context *context,
                        : context->view->functions[region - 1U]
                              .end_offset_exclusive;
     uint8_t maximum = 0U;
-    int err = analyze_loop_sequence(context, start, (uint16_t)(end - 1U),
-                                    0U, &maximum);
+    int err = analyze_loop_sequence(context, region, start,
+                                    (uint16_t)(end - 1U), 0U, &maximum);
     if (err != K380_MACRO_VM_OK) {
         return err;
+    }
+    context->local_maximum[region] = maximum;
+    return K380_MACRO_VM_OK;
+}
+
+static int combine_loop_region(struct loop_depth_context *context,
+                               uint8_t region)
+{
+    if (context->state[region] == 1U) {
+        return fail(K380_MACRO_VM_RECURSION);
+    }
+    if (context->state[region] == 2U) {
+        return K380_MACRO_VM_OK;
+    }
+
+    context->state[region] = 1U;
+    uint8_t maximum = context->local_maximum[region];
+    for (uint8_t target = 0U; target < context->view->function_count;
+         target++) {
+        const uint8_t encoded_depth =
+            context->call_loop_depth_plus_one[region][target];
+        if (encoded_depth == 0U) {
+            continue;
+        }
+        const uint8_t target_region = (uint8_t)(target + 1U);
+        int err = combine_loop_region(context, target_region);
+        if (err != K380_MACRO_VM_OK) {
+            return err;
+        }
+        const uint16_t combined_depth =
+            (uint16_t)(encoded_depth - 1U) +
+            context->maximum[target_region];
+        if (combined_depth > K380_MACRO_VM_MAX_LOOP_DEPTH) {
+            return fail(K380_MACRO_VM_LOOP_DEPTH);
+        }
+        if (combined_depth > maximum) {
+            maximum = (uint8_t)combined_depth;
+        }
     }
     context->maximum[region] = maximum;
     context->state[region] = 2U;
@@ -456,7 +481,14 @@ static int validate_cross_function_loop_depth(
         .view = view,
         .boundaries = boundaries,
     };
-    return analyze_loop_region(&context, 0U);
+    /* Finish bounded block recursion before traversing the call graph. */
+    for (uint8_t region = 0U; region <= view->function_count; region++) {
+        int err = analyze_loop_region(&context, region);
+        if (err != K380_MACRO_VM_OK) {
+            return err;
+        }
+    }
+    return combine_loop_region(&context, 0U);
 }
 
 int k380_macro_vm_validate(const uint8_t *package, size_t len,

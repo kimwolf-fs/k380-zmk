@@ -123,6 +123,70 @@ static size_t make_combined_block_depth_package(uint8_t *package)
     return make_code_package(package, code, (uint16_t)offset);
 }
 
+#define MAXIMUM_DEPTH_CODE_BYTES                                      \
+    (K380_MACRO_VM_MAX_CALL_DEPTH *                                  \
+         (K380_MACRO_VM_MAX_BLOCK_DEPTH * 8U + 3U) +                 \
+     K380_MACRO_VM_MAX_BLOCK_DEPTH * 8U + 4U)
+
+static size_t make_maximum_block_and_call_depth_package(uint8_t *package)
+{
+    const uint8_t function_count = K380_MACRO_VM_MAX_CALL_DEPTH;
+    const uint8_t region_count = function_count + 1U;
+    const size_t code_offset = K380_MACRO_VM_PACKAGE_HEADER_SIZE +
+                               function_count *
+                                   K380_MACRO_VM_FUNCTION_ENTRY_SIZE;
+    uint16_t region_starts[1U + K380_MACRO_VM_MAX_CALL_DEPTH];
+    uint8_t *code = &package[code_offset];
+    uint16_t offset = 0U;
+
+    memcpy(package, canonical_package, K380_MACRO_VM_PACKAGE_HEADER_SIZE);
+    package[6] = function_count;
+    for (uint8_t region = 0U; region < region_count; region++) {
+        const bool calls_next = region < function_count;
+        const uint16_t body_size = calls_next ? 2U : 3U;
+        const uint16_t terminator_offset =
+            (uint16_t)(offset + K380_MACRO_VM_MAX_BLOCK_DEPTH * 8U +
+                       body_size);
+
+        region_starts[region] = offset;
+        for (uint8_t level = 0U; level < K380_MACRO_VM_MAX_BLOCK_DEPTH;
+             level++) {
+            code[offset] = K380_MACRO_VM_OP_TIMER_GE;
+            code[offset + 1U] = 1U;
+            sys_put_le32(0U, &code[offset + 2U]);
+            sys_put_le16(terminator_offset, &code[offset + 6U]);
+            offset = (uint16_t)(offset + 8U);
+        }
+        if (calls_next) {
+            code[offset++] = K380_MACRO_VM_OP_CALL;
+            code[offset++] = region;
+        } else {
+            code[offset++] = K380_MACRO_VM_OP_TAP;
+            sys_put_le16(4U, &code[offset]);
+            offset = (uint16_t)(offset + 2U);
+        }
+        code[offset++] = region == 0U ? K380_MACRO_VM_OP_END
+                                      : K380_MACRO_VM_OP_RETURN;
+        zassert_equal(terminator_offset + 1U, offset);
+    }
+
+    zassert_equal(MAXIMUM_DEPTH_CODE_BYTES, offset);
+    sys_put_le16(offset, &package[8]);
+    for (uint8_t index = 0U; index < function_count; index++) {
+        const size_t table_offset = K380_MACRO_VM_PACKAGE_HEADER_SIZE +
+                                    index *
+                                        K380_MACRO_VM_FUNCTION_ENTRY_SIZE;
+        sys_put_le16(region_starts[index + 1U], &package[table_offset]);
+        sys_put_le16(index + 1U < function_count
+                         ? region_starts[index + 2U]
+                         : offset,
+                     &package[table_offset + 2U]);
+    }
+    const size_t length = code_offset + offset;
+    update_crc(package, length);
+    return length;
+}
+
 ZTEST(dynamic_macro_vm_validate, test_canonical_package_is_accepted)
 {
     struct k380_macro_vm_package_view view;
@@ -265,6 +329,22 @@ ZTEST(dynamic_macro_vm_validate,
     const size_t length = make_combined_block_depth_package(package);
 
     zassert_equal(K380_MACRO_VM_BLOCK_DEPTH,
+                  k380_macro_vm_validate(package, length, &view));
+}
+
+ZTEST(dynamic_macro_vm_validate,
+      test_maximum_block_depth_across_maximum_call_chain_is_accepted)
+{
+    uint8_t package[K380_MACRO_VM_PACKAGE_HEADER_SIZE +
+                    K380_MACRO_VM_MAX_CALL_DEPTH *
+                        K380_MACRO_VM_FUNCTION_ENTRY_SIZE +
+                    MAXIMUM_DEPTH_CODE_BYTES];
+    struct k380_macro_vm_package_view view;
+    const size_t length = make_maximum_block_and_call_depth_package(package);
+
+    zassert_equal(K380_MACRO_VM_MAX_CALL_DEPTH, package[6]);
+    zassert_true(sys_get_le16(&package[8]) <= K380_MACRO_VM_MAX_CODE_BYTES);
+    zassert_equal(K380_MACRO_VM_OK,
                   k380_macro_vm_validate(package, length, &view));
 }
 
