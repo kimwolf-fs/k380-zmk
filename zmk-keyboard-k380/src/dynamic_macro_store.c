@@ -12,10 +12,11 @@
 #include <zmk_keyboard_k380/dynamic_macro_record.h>
 #include <zmk_keyboard_k380/dynamic_macro_store.h>
 #include <zmk_keyboard_k380/dynamic_settings.h>
+#include <zmk_keyboard_k380/dynamic_macro_vm.h>
 
 #ifdef K380_DYNAMIC_MACRO_STORE_TEST_BACKEND
 extern int k380_dynamic_macro_test_settings_load_subtree_direct(
-    const char *subtree, settings_load_cb callback, void *cb_arg);
+    const char *subtree, settings_load_direct_cb callback, void *cb_arg);
 extern int k380_dynamic_macro_test_settings_save_one(const char *key,
                                                      const void *value,
                                                      size_t len);
@@ -309,8 +310,10 @@ static int read_wire(size_t len, settings_read_cb read_cb, void *cb_arg,
 }
 
 static int load_v2_record(const char *name, size_t len,
-                          settings_read_cb read_cb, void *cb_arg)
+                          settings_read_cb read_cb, void *cb_arg,
+                          void *param)
 {
+    (void)param;
     const char *next = NULL;
     if (!settings_name_steq(name, "p", &next)) {
         return 0;
@@ -361,8 +364,10 @@ static int load_record_from_settings(uint8_t preset, uint8_t slot,
 }
 
 static int load_legacy_record_callback(const char *name, size_t len,
-                                       settings_read_cb read_cb, void *cb_arg)
+                                       settings_read_cb read_cb, void *cb_arg,
+                                       void *param)
 {
+    (void)param;
     const char *next = NULL;
     if (!settings_name_steq(name, "p", &next)) {
         return 0;

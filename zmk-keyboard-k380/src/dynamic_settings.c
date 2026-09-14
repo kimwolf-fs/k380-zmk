@@ -117,8 +117,9 @@ static int read_record(size_t len, settings_read_cb read_cb, void *cb_arg,
 }
 
 static int load_record(const char *name, size_t len, settings_read_cb read_cb,
-                       void *cb_arg)
+                       void *cb_arg, void *param)
 {
+    (void)param;
     const char *next;
     int err = 0;
 
