@@ -28,6 +28,13 @@ static uint8_t response_frame[K380_DYNAMIC_PROTOCOL_MAX_FRAME_SIZE];
 static bool dynamic_frame_active;
 static bool request_pending;
 
+BUILD_ASSERT(sizeof(request_frame) ==
+                 K380_DYNAMIC_PROTOCOL_FRAME_SIZE(K380_DYNAMIC_MAX_PAYLOAD),
+             "dynamic request frame buffer size changed");
+BUILD_ASSERT(sizeof(response_frame) ==
+                 K380_DYNAMIC_PROTOCOL_FRAME_SIZE(K380_DYNAMIC_MAX_PAYLOAD),
+             "dynamic response frame buffer size changed");
+
 static void dynamic_transport_work_handler(struct k_work *work);
 K_WORK_DEFINE(dynamic_transport_work, dynamic_transport_work_handler);
 

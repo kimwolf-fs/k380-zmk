@@ -25,6 +25,10 @@ struct k380_dynamic_macro_runner {
     uint8_t preset;
     uint8_t slot;
     uint8_t trigger;
+    uint8_t state;
+    uint8_t vm_error;
+    uint16_t reserved;
+    uint32_t run_id;
     uint32_t repeat_count;
     struct k380_dynamic_macro_record record;
     uint32_t macro_held_usage_bitmap[8];
@@ -36,6 +40,13 @@ static struct k380_dynamic_macro_record loaded_record;
 static struct k380_dynamic_macro_record temporary_record;
 static bool hold_key_pressed;
 static uint8_t physical_usage_counts[256];
+static uint32_t next_run_id = 1U;
+static struct k380_dynamic_macro_trace_event trace_ring[K380_MACRO_VM_MAX_TRACE_EVENTS];
+static size_t trace_head;
+static size_t trace_count;
+static uint32_t trace_next_sequence;
+static uint32_t trace_dropped;
+static struct k_spinlock trace_lock;
 
 K_MUTEX_DEFINE(runner_lock);
 K_SEM_DEFINE(macro_start_signal, 0, 1);
@@ -215,6 +226,41 @@ static void vm_yield_cpu(void *user_data)
     k_yield();
 }
 
+static void trace_reset_locked(void)
+{
+    k_spinlock_key_t key = k_spin_lock(&trace_lock);
+    trace_head = 0U;
+    trace_count = 0U;
+    trace_next_sequence = 1U;
+    trace_dropped = 0U;
+    k_spin_unlock(&trace_lock, key);
+}
+
+static void vm_trace(uint16_t pc, uint8_t event, uint8_t result,
+                     uint32_t value, uint32_t elapsed_ms, void *user_data)
+{
+    ARG_UNUSED(user_data);
+
+    k_spinlock_key_t key = k_spin_lock(&trace_lock);
+    struct k380_dynamic_macro_trace_event *trace = &trace_ring[trace_head];
+    trace->sequence = trace_next_sequence;
+    trace->pc = pc;
+    trace->event = event;
+    trace->result = result;
+    trace->value = value;
+    trace->elapsed_ms = elapsed_ms;
+    trace_head = (trace_head + 1U) % ARRAY_SIZE(trace_ring);
+    if (trace_count < ARRAY_SIZE(trace_ring)) {
+        trace_count++;
+    } else {
+        trace_dropped++;
+    }
+    if (trace_next_sequence != UINT32_MAX) {
+        trace_next_sequence++;
+    }
+    k_spin_unlock(&trace_lock, key);
+}
+
 static struct k380_macro_vm_host vm_host(void)
 {
     return (struct k380_macro_vm_host){
@@ -225,6 +271,7 @@ static struct k380_macro_vm_host vm_host(void)
         .random_u32 = vm_random_u32,
         .stop_requested = vm_stop_requested,
         .yield_cpu = vm_yield_cpu,
+        .trace = vm_trace,
     };
 }
 
@@ -259,6 +306,13 @@ static int start_record_locked(uint8_t preset, uint8_t slot,
     runner.preset = preset;
     runner.slot = slot;
     runner.trigger = trigger;
+    runner.state = K380_DYNAMIC_MACRO_RUN_RUNNING;
+    runner.vm_error = 0U;
+    runner.run_id = next_run_id;
+    next_run_id++;
+    if (next_run_id == 0U) {
+        next_run_id = 1U;
+    }
     runner.repeat_count = record->repeat_count == 0U ? 1U :
                                                           record->repeat_count;
     runner.record = *record;
@@ -266,6 +320,7 @@ static int start_record_locked(uint8_t preset, uint8_t slot,
            sizeof(runner.macro_held_usage_bitmap));
     atomic_clear(&runner.stop_requested);
     k_sem_reset(&macro_stop_signal);
+    trace_reset_locked();
     hold_key_pressed = trigger == K380_DYNAMIC_MACRO_TRIGGER_HOLD;
     k_sem_give(&macro_start_signal);
     return 0;
@@ -315,6 +370,7 @@ static int run_record(void)
     error = k380_macro_vm_validate(runner.record.package,
                                    runner.record.package_len, &view);
     if (error != K380_MACRO_VM_OK) {
+        (void)release_all_macro_held();
         return -(int)error;
     }
 
@@ -353,7 +409,11 @@ static int run_record(void)
              trigger == K380_DYNAMIC_MACRO_TRIGGER_TOGGLE ||
              trigger == K380_DYNAMIC_MACRO_TRIGGER_COUNT);
 
-    return release_all_macro_held();
+    const int cleanup_error = release_all_macro_held();
+    if (error == K380_MACRO_VM_OK && cleanup_error != 0) {
+        return -(int)K380_MACRO_VM_HOST_FAILURE;
+    }
+    return error == K380_MACRO_VM_OK ? 0 : -(int)error;
 }
 
 static void dynamic_macro_thread(void *arg1, void *arg2, void *arg3)
@@ -364,10 +424,22 @@ static void dynamic_macro_thread(void *arg1, void *arg2, void *arg3)
 
     while (true) {
         k_sem_take(&macro_start_signal, K_FOREVER);
-        (void)run_record();
+        const int result = run_record();
 
         k_mutex_lock(&runner_lock, K_FOREVER);
         runner.running = false;
+        if (result == 0) {
+            runner.state = stop_requested()
+                               ? K380_DYNAMIC_MACRO_RUN_STOPPED
+                               : K380_DYNAMIC_MACRO_RUN_COMPLETED;
+            runner.vm_error = 0U;
+        } else {
+            const enum k380_macro_vm_error error = (enum k380_macro_vm_error)-result;
+            runner.vm_error = (uint8_t)error;
+            runner.state = error == K380_MACRO_VM_STOPPED
+                               ? K380_DYNAMIC_MACRO_RUN_STOPPED
+                               : K380_DYNAMIC_MACRO_RUN_ERROR;
+        }
         k_mutex_unlock(&runner_lock);
     }
 }
@@ -453,6 +525,32 @@ int k380_dynamic_macro_test_temporary(
     return err;
 }
 
+int k380_dynamic_macro_test_record(
+    uint8_t preset, uint8_t slot,
+    const struct k380_dynamic_macro_record *record)
+{
+    if (preset >= K380_DYNAMIC_PRESET_COUNT ||
+        slot >= K380_DYNAMIC_MACRO_SLOT_COUNT || record == NULL) {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&runner_lock, K_FOREVER);
+    if (runner.running) {
+        k_mutex_unlock(&runner_lock);
+        return -EBUSY;
+    }
+    int err = record->package_len == 0U ||
+                      k380_dynamic_macro_record_validate(record) != 0
+                  ? -EINVAL
+                  : 0;
+    if (err == 0) {
+        err = start_record_locked(preset, slot, record,
+                                  K380_DYNAMIC_MACRO_TRIGGER_ONCE);
+    }
+    k_mutex_unlock(&runner_lock);
+    return err;
+}
+
 int k380_dynamic_macro_stop(void)
 {
     k_mutex_lock(&runner_lock, K_FOREVER);
@@ -473,6 +571,78 @@ bool k380_dynamic_macro_is_running(void)
     const bool running = runner.running;
     k_mutex_unlock(&runner_lock);
     return running;
+}
+
+void k380_dynamic_macro_get_run_state(
+    struct k380_dynamic_macro_run_state *state)
+{
+    if (state == NULL) {
+        return;
+    }
+
+    k_mutex_lock(&runner_lock, K_FOREVER);
+    *state = (struct k380_dynamic_macro_run_state){
+        .run_id = runner.run_id,
+        .state = runner.run_id == 0U ? K380_DYNAMIC_MACRO_RUN_IDLE : runner.state,
+        .vm_error = runner.vm_error,
+        .next_cursor = 0U,
+    };
+    k_mutex_unlock(&runner_lock);
+
+    k_spinlock_key_t key = k_spin_lock(&trace_lock);
+    state->next_cursor = trace_next_sequence == 0U ? 0U : trace_next_sequence - 1U;
+    state->dropped = trace_dropped;
+    k_spin_unlock(&trace_lock, key);
+}
+
+int k380_dynamic_macro_trace_read(
+    uint32_t cursor, struct k380_dynamic_macro_trace_event *events,
+    size_t capacity, struct k380_dynamic_macro_run_state *state)
+{
+    if (state == NULL || (capacity > 0U && events == NULL) ||
+        capacity > K380_MACRO_VM_MAX_TRACE_EVENTS) {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&runner_lock, K_FOREVER);
+    *state = (struct k380_dynamic_macro_run_state){
+        .run_id = runner.run_id,
+        .state = runner.run_id == 0U ? K380_DYNAMIC_MACRO_RUN_IDLE : runner.state,
+        .vm_error = runner.vm_error,
+    };
+
+    k_spinlock_key_t key = k_spin_lock(&trace_lock);
+    const uint32_t latest = trace_next_sequence == 0U
+                                ? 0U
+                                : trace_next_sequence - 1U;
+    state->next_cursor = latest;
+    state->dropped = trace_dropped;
+    if (cursor > latest) {
+        k_spin_unlock(&trace_lock, key);
+        k_mutex_unlock(&runner_lock);
+        return -EOVERFLOW;
+    }
+    const uint32_t oldest = trace_count == 0U ? latest + 1U
+                                              : latest - (uint32_t)trace_count + 1U;
+    if (trace_count > 0U && cursor < oldest - 1U) {
+        k_spin_unlock(&trace_lock, key);
+        k_mutex_unlock(&runner_lock);
+        return -EOVERFLOW;
+    }
+
+    const uint32_t available = latest - cursor;
+    const size_t copied = MIN((size_t)available, capacity);
+    for (size_t index = 0U; index < copied; index++) {
+        const uint32_t sequence = cursor + (uint32_t)index + 1U;
+        const uint32_t offset = sequence - oldest;
+        const size_t ring_index =
+            (trace_head + ARRAY_SIZE(trace_ring) - trace_count + offset) %
+            ARRAY_SIZE(trace_ring);
+        events[index] = trace_ring[ring_index];
+    }
+    k_spin_unlock(&trace_lock, key);
+    k_mutex_unlock(&runner_lock);
+    return (int)copied;
 }
 
 void k380_dynamic_macro_stop_before_preset_switch(void)
