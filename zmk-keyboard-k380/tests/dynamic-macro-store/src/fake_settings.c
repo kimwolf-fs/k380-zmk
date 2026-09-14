@@ -26,6 +26,8 @@ static struct fake_settings_entry entries[FAKE_SETTINGS_MAX_ENTRIES];
 static char operations[FAKE_SETTINGS_MAX_OPERATIONS][FAKE_SETTINGS_MAX_KEY_BYTES + 5U];
 static size_t operation_count;
 static bool fail_next_save;
+static bool fail_next_delete;
+static k_tid_t last_load_thread;
 
 void k380_dynamic_settings_lock(void)
 {
@@ -72,6 +74,8 @@ void k380_dynamic_macro_test_settings_reset(void)
     memset(operations, 0, sizeof(operations));
     operation_count = 0U;
     fail_next_save = false;
+    fail_next_delete = false;
+    last_load_thread = NULL;
 }
 
 void k380_dynamic_macro_test_settings_put(const char *key, const void *data,
@@ -98,6 +102,16 @@ bool k380_dynamic_macro_test_settings_has(const char *key)
 void k380_dynamic_macro_test_settings_fail_next_save(void)
 {
     fail_next_save = true;
+}
+
+void k380_dynamic_macro_test_settings_fail_next_delete(void)
+{
+    fail_next_delete = true;
+}
+
+k_tid_t k380_dynamic_macro_test_settings_last_load_thread(void)
+{
+    return last_load_thread;
 }
 
 size_t k380_dynamic_macro_test_settings_operation_count(void)
@@ -147,6 +161,10 @@ int k380_dynamic_macro_test_settings_save_one(const char *key,
 int k380_dynamic_macro_test_settings_delete(const char *key)
 {
     record_operation("delete:", key);
+    if (fail_next_delete) {
+        fail_next_delete = false;
+        return -EIO;
+    }
     struct fake_settings_entry *entry = find_entry(key);
     if (entry != NULL) {
         memset(entry, 0, sizeof(*entry));
@@ -160,6 +178,7 @@ int k380_dynamic_macro_test_settings_load_subtree_direct(
     if (subtree == NULL || callback == NULL) {
         return -EINVAL;
     }
+    last_load_thread = k_current_get();
     for (size_t index = 0U; index < FAKE_SETTINGS_MAX_ENTRIES; index++) {
         if (!entries[index].used) {
             continue;

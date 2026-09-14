@@ -15,6 +15,13 @@ struct decoded_instruction {
     uint32_t operand2;
 };
 
+#define K380_MACRO_VM_BOUNDARY_BYTES \
+    ((K380_MACRO_VM_MAX_CODE_BYTES + 1U + 7U) / 8U)
+
+struct instruction_boundaries {
+    uint8_t bits[K380_MACRO_VM_BOUNDARY_BYTES];
+};
+
 static int fail(enum k380_macro_vm_error error)
 {
     return (int)error;
@@ -129,18 +136,27 @@ static int decode_instruction(const uint8_t *code, size_t code_len,
     }
 }
 
-static bool boundary(const bool *boundaries, uint16_t code_len, uint16_t target)
+static void mark_boundary(struct instruction_boundaries *boundaries,
+                          uint16_t offset)
 {
-    return target < code_len && boundaries[target];
+    boundaries->bits[offset / 8U] |= (uint8_t)(1U << (offset % 8U));
 }
 
-static int previous_instruction(const bool *boundaries,
+static bool boundary(const struct instruction_boundaries *boundaries,
+                     uint16_t code_len, uint16_t target)
+{
+    return target <= code_len &&
+           (boundaries->bits[target / 8U] &
+            (uint8_t)(1U << (target % 8U))) != 0U;
+}
+
+static int previous_instruction(const struct instruction_boundaries *boundaries,
                                 const uint8_t *code, uint16_t code_len,
                                 uint16_t end, uint16_t *offset,
                                 struct decoded_instruction *instruction)
 {
     for (uint16_t candidate = 0U; candidate < end; candidate++) {
-        if (!boundaries[candidate]) {
+        if (!boundary(boundaries, code_len, candidate)) {
             continue;
         }
         struct decoded_instruction current;
@@ -162,9 +178,11 @@ static int previous_instruction(const bool *boundaries,
 }
 
 static int validate_sequence(const uint8_t *code, uint16_t code_len,
-                             const bool *boundaries, uint16_t start,
+                             const struct instruction_boundaries *boundaries,
+                             uint16_t start,
                              uint16_t stop, uint16_t region_start,
-                             uint16_t region_terminator, uint8_t loop_depth)
+                             uint16_t region_terminator, uint8_t loop_depth,
+                             uint8_t block_depth)
 {
     if (start == stop) {
         return fail(K380_MACRO_VM_EMPTY_BLOCK);
@@ -187,6 +205,9 @@ static int validate_sequence(const uint8_t *code, uint16_t code_len,
             return fail(K380_MACRO_VM_UNMATCHED_CONTROL_FLOW);
         }
         if (is_condition_opcode(instruction.opcode)) {
+            if (block_depth >= K380_MACRO_VM_MAX_BLOCK_DEPTH) {
+                return fail(K380_MACRO_VM_BLOCK_DEPTH);
+            }
             uint16_t target = (uint16_t)instruction.operand2;
             if (!boundary(boundaries, code_len, target) ||
                 target <= next || target > stop || target < region_start ||
@@ -195,7 +216,7 @@ static int validate_sequence(const uint8_t *code, uint16_t code_len,
             }
             err = validate_sequence(code, code_len, boundaries, next, target,
                                     region_start, region_terminator,
-                                    loop_depth);
+                                    loop_depth, block_depth + 1U);
             if (err != K380_MACRO_VM_OK) {
                 return err;
             }
@@ -212,6 +233,9 @@ static int validate_sequence(const uint8_t *code, uint16_t code_len,
             if (loop_depth >= K380_MACRO_VM_MAX_LOOP_DEPTH) {
                 return fail(K380_MACRO_VM_LOOP_DEPTH);
             }
+            if (block_depth >= K380_MACRO_VM_MAX_BLOCK_DEPTH) {
+                return fail(K380_MACRO_VM_BLOCK_DEPTH);
+            }
             uint16_t loop_end_offset;
             struct decoded_instruction loop_end;
             int err = previous_instruction(boundaries, code, code_len, target,
@@ -223,7 +247,8 @@ static int validate_sequence(const uint8_t *code, uint16_t code_len,
             }
             err = validate_sequence(code, code_len, boundaries, next,
                                     loop_end_offset, region_start,
-                                    region_terminator, loop_depth + 1U);
+                                    region_terminator, loop_depth + 1U,
+                                    block_depth + 1U);
             if (err != K380_MACRO_VM_OK) {
                 return err;
             }
@@ -299,7 +324,7 @@ struct loop_depth_context {
     const uint8_t *code;
     uint16_t code_len;
     const struct k380_macro_vm_package_view *view;
-    const bool *boundaries;
+    const struct instruction_boundaries *boundaries;
     uint8_t state[1U + K380_MACRO_VM_MAX_FUNCTIONS];
     uint8_t maximum[1U + K380_MACRO_VM_MAX_FUNCTIONS];
 };
@@ -423,7 +448,7 @@ static int analyze_loop_region(struct loop_depth_context *context,
 static int validate_cross_function_loop_depth(
     const uint8_t *code, uint16_t code_len,
     const struct k380_macro_vm_package_view *view,
-    const bool *boundaries)
+    const struct instruction_boundaries *boundaries)
 {
     struct loop_depth_context context = {
         .code = code,
@@ -486,10 +511,10 @@ int k380_macro_vm_validate(const uint8_t *package, size_t len,
     }
 
     const uint8_t *code = &package[code_offset];
-    bool boundaries[K380_MACRO_VM_MAX_CODE_BYTES + 1U] = {false};
+    struct instruction_boundaries boundaries = {0};
     uint16_t offset = 0U;
     while (offset < code_len) {
-        boundaries[offset] = true;
+        mark_boundary(&boundaries, offset);
         struct decoded_instruction instruction;
         int err = decode_instruction(code, code_len, offset, &instruction);
         if (err != K380_MACRO_VM_OK) {
@@ -524,7 +549,7 @@ int k380_macro_vm_validate(const uint8_t *package, size_t len,
     if (offset != code_len) {
         return fail(K380_MACRO_VM_INVALID_CODE_LENGTH);
     }
-    boundaries[code_len] = true;
+    mark_boundary(&boundaries, code_len);
 
     memset(view, 0, sizeof(*view));
     view->package = package;
@@ -541,7 +566,8 @@ int k380_macro_vm_validate(const uint8_t *package, size_t len,
         uint16_t function_entry = sys_get_le16(&package[table_offset]);
         uint16_t function_end = sys_get_le16(&package[table_offset + 2U]);
         if (function_entry >= function_end || function_end > code_len ||
-            !boundaries[function_entry] || !boundaries[function_end]) {
+            !boundary(&boundaries, code_len, function_entry) ||
+            !boundary(&boundaries, code_len, function_end)) {
             return fail(K380_MACRO_VM_INVALID_FUNCTION_RANGE);
         }
         if ((index > 0U && function_entry <= previous_entry) ||
@@ -549,7 +575,7 @@ int k380_macro_vm_validate(const uint8_t *package, size_t len,
             return fail(K380_MACRO_VM_OVERLAPPING_FUNCTIONS);
         }
         struct decoded_instruction terminator;
-        int err = previous_instruction(boundaries, code, code_len, function_end,
+        int err = previous_instruction(&boundaries, code, code_len, function_end,
                                        NULL, &terminator);
         if (err != K380_MACRO_VM_OK || terminator.opcode != K380_MACRO_VM_OP_RETURN) {
             return fail(K380_MACRO_VM_INVALID_FUNCTION_TERMINATOR);
@@ -572,7 +598,7 @@ int k380_macro_vm_validate(const uint8_t *package, size_t len,
     }
     uint16_t entry_end = function_count > 0U ? view->functions[0].entry_offset : code_len;
     struct decoded_instruction entry_terminator;
-    int err = previous_instruction(boundaries, code, code_len, entry_end, NULL,
+    int err = previous_instruction(&boundaries, code, code_len, entry_end, NULL,
                                    &entry_terminator);
     if (err != K380_MACRO_VM_OK || entry_terminator.opcode != K380_MACRO_VM_OP_END) {
         return fail(K380_MACRO_VM_INVALID_ENTRY_TERMINATOR);
@@ -590,9 +616,9 @@ int k380_macro_vm_validate(const uint8_t *package, size_t len,
     }
 
     if (entry_end > 1U) {
-        err = validate_sequence(code, code_len, boundaries, 0U,
+        err = validate_sequence(code, code_len, &boundaries, 0U,
                                 (uint16_t)(entry_end - 1U), 0U,
-                                (uint16_t)(entry_end - 1U), 0U);
+                                (uint16_t)(entry_end - 1U), 0U, 0U);
         if (err != K380_MACRO_VM_OK) {
             return err;
         }
@@ -601,10 +627,11 @@ int k380_macro_vm_validate(const uint8_t *package, size_t len,
         uint16_t start = view->functions[index].entry_offset;
         uint16_t end = view->functions[index].end_offset_exclusive;
         struct decoded_instruction terminator;
-        (void)previous_instruction(boundaries, code, code_len, end, NULL, &terminator);
-        err = validate_sequence(code, code_len, boundaries, start,
+        (void)previous_instruction(&boundaries, code, code_len, end, NULL,
+                                   &terminator);
+        err = validate_sequence(code, code_len, &boundaries, start,
                                 (uint16_t)(end - 1U), start,
-                                (uint16_t)(end - 1U), 0U);
+                                (uint16_t)(end - 1U), 0U, 0U);
         if (err != K380_MACRO_VM_OK) {
             return err;
         }
@@ -614,5 +641,5 @@ int k380_macro_vm_validate(const uint8_t *package, size_t len,
         return err;
     }
     return validate_cross_function_loop_depth(code, code_len, view,
-                                              boundaries);
+                                              &boundaries);
 }

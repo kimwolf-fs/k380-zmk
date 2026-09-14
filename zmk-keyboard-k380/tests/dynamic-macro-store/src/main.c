@@ -101,6 +101,20 @@ ZTEST(dynamic_macro_store, test_legacy_flat_macro_converts_to_vm)
     zassert_equal(K380_MACRO_VM_OP_RELEASE, record.package[24]);
 }
 
+ZTEST(dynamic_macro_store, test_empty_legacy_macro_converts_to_empty_record)
+{
+    struct k380_dynamic_macro legacy = {
+        .trigger = K380_DYNAMIC_MACRO_TRIGGER_ONCE,
+        .count = 1U,
+    };
+    struct k380_dynamic_macro_record record;
+
+    zassert_ok(k380_dynamic_macro_record_from_legacy(&legacy, &record));
+    zassert_equal(0U, record.package_len);
+    zassert_equal(0U, record.package_crc32);
+    zassert_ok(k380_dynamic_macro_record_validate(&record));
+}
+
 ZTEST(dynamic_macro_store, test_save_load_and_slots_are_independent)
 {
     struct k380_dynamic_macro_record source;
@@ -207,7 +221,31 @@ ZTEST(dynamic_macro_store, test_restore_slot_deletes_both_versions)
     zassert_false(k380_dynamic_macro_test_settings_has(
         "k380/dynamic_config/v2/p/0/m/0"));
     zassert_false(k380_dynamic_macro_test_settings_has(
+                  "k380/dynamic_config/p/0/m/0"));
+}
+
+ZTEST(dynamic_macro_store,
+      test_restore_slot_attempts_legacy_delete_after_v2_delete_failure)
+{
+    struct k380_dynamic_macro_record record;
+    struct k380_dynamic_macro legacy;
+
+    k380_dynamic_macro_test_settings_reset();
+    make_record(&record);
+    make_legacy(&legacy);
+    k380_dynamic_macro_test_settings_put(
+        "k380/dynamic_config/v2/p/0/m/0", &record,
+        k380_dynamic_macro_record_wire_size(&record));
+    k380_dynamic_macro_test_settings_put(
+        "k380/dynamic_config/p/0/m/0", &legacy, sizeof(legacy));
+    k380_dynamic_macro_test_settings_fail_next_delete();
+
+    zassert_equal(-EIO, k380_dynamic_macro_store_restore_slot(0U, 0U));
+    zassert_true(k380_dynamic_macro_test_settings_has(
+        "k380/dynamic_config/v2/p/0/m/0"));
+    zassert_false(k380_dynamic_macro_test_settings_has(
         "k380/dynamic_config/p/0/m/0"));
+    zassert_equal(2U, k380_dynamic_macro_test_settings_operation_count());
 }
 
 ZTEST(dynamic_macro_store, test_invalid_indexes_are_rejected)

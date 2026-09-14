@@ -70,6 +70,59 @@ static size_t make_nested_call_package(uint8_t *package)
     return 24U + sizeof(code);
 }
 
+static size_t make_nested_condition_package(uint8_t *package, uint8_t depth)
+{
+    uint8_t code[9U * 8U + 4U] = {0};
+    const uint16_t block_end = (uint16_t)(depth * 8U + 3U);
+    uint16_t offset = 0U;
+
+    for (uint8_t level = 0U; level < depth; level++) {
+        code[offset] = K380_MACRO_VM_OP_TIMER_GE;
+        code[offset + 1U] = 1U;
+        sys_put_le32(0U, &code[offset + 2U]);
+        sys_put_le16(block_end, &code[offset + 6U]);
+        offset = (uint16_t)(offset + 8U);
+    }
+    code[offset] = K380_MACRO_VM_OP_TAP;
+    sys_put_le16(4U, &code[offset + 1U]);
+    code[block_end] = K380_MACRO_VM_OP_END;
+
+    return make_code_package(package, code, (uint16_t)(block_end + 1U));
+}
+
+static size_t make_combined_block_depth_package(uint8_t *package)
+{
+    uint8_t code[82U] = {0};
+    const uint16_t loop_bodies[] = {7U, 14U, 21U};
+    const uint16_t loop_targets[] = {81U, 78U, 75U};
+    uint16_t offset = 0U;
+
+    for (uint8_t index = 0U; index < 3U; index++) {
+        code[offset] = K380_MACRO_VM_OP_LOOP_COUNT_BEGIN;
+        sys_put_le32(1U, &code[offset + 1U]);
+        sys_put_le16(loop_targets[index], &code[offset + 5U]);
+        offset = (uint16_t)(offset + 7U);
+    }
+    for (uint8_t index = 0U; index < 6U; index++) {
+        code[offset] = K380_MACRO_VM_OP_TIMER_GE;
+        code[offset + 1U] = 1U;
+        sys_put_le16(72U, &code[offset + 6U]);
+        offset = (uint16_t)(offset + 8U);
+    }
+    code[offset] = K380_MACRO_VM_OP_TAP;
+    sys_put_le16(4U, &code[offset + 1U]);
+    offset = (uint16_t)(offset + 3U);
+    for (int index = 2; index >= 0; index--) {
+        code[offset] = K380_MACRO_VM_OP_LOOP_END;
+        sys_put_le16(loop_bodies[index], &code[offset + 1U]);
+        offset = (uint16_t)(offset + 3U);
+    }
+    code[offset++] = K380_MACRO_VM_OP_END;
+
+    zassert_equal(sizeof(code), offset);
+    return make_code_package(package, code, (uint16_t)offset);
+}
+
 ZTEST(dynamic_macro_vm_validate, test_canonical_package_is_accepted)
 {
     struct k380_macro_vm_package_view view;
@@ -179,6 +232,39 @@ ZTEST(dynamic_macro_vm_validate,
     size_t length = make_nested_call_package(package);
 
     zassert_equal(K380_MACRO_VM_LOOP_DEPTH,
+                  k380_macro_vm_validate(package, length, &view));
+}
+
+ZTEST(dynamic_macro_vm_validate, test_total_block_depth_accepts_eight_levels)
+{
+    uint8_t package[K380_MACRO_VM_PACKAGE_HEADER_SIZE + 68U];
+    struct k380_macro_vm_package_view view;
+    const size_t length = make_nested_condition_package(
+        package, K380_MACRO_VM_MAX_BLOCK_DEPTH);
+
+    zassert_equal(K380_MACRO_VM_OK,
+                  k380_macro_vm_validate(package, length, &view));
+}
+
+ZTEST(dynamic_macro_vm_validate, test_total_block_depth_rejects_nine_levels)
+{
+    uint8_t package[K380_MACRO_VM_PACKAGE_HEADER_SIZE + 76U];
+    struct k380_macro_vm_package_view view;
+    const size_t length = make_nested_condition_package(
+        package, K380_MACRO_VM_MAX_BLOCK_DEPTH + 1U);
+
+    zassert_equal(K380_MACRO_VM_BLOCK_DEPTH,
+                  k380_macro_vm_validate(package, length, &view));
+}
+
+ZTEST(dynamic_macro_vm_validate,
+      test_total_block_depth_combines_condition_and_loop_nesting)
+{
+    uint8_t package[K380_MACRO_VM_PACKAGE_HEADER_SIZE + 82U];
+    struct k380_macro_vm_package_view view;
+    const size_t length = make_combined_block_depth_package(package);
+
+    zassert_equal(K380_MACRO_VM_BLOCK_DEPTH,
                   k380_macro_vm_validate(package, length, &view));
 }
 

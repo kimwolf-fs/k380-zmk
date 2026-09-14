@@ -44,6 +44,7 @@ enum k380_macro_vm_error {
     K380_MACRO_VM_LOOP_FRAME_MISMATCH = 33,
     K380_MACRO_VM_HOST_FAILURE = 34,
     K380_MACRO_VM_INVALID_RUNTIME_STATE = 35,
+    K380_MACRO_VM_BLOCK_DEPTH = 36,
 };
 
 enum k380_macro_vm_trace_event {
