@@ -26,6 +26,9 @@ static uint16_t emitted_usages[32];
 static bool emitted_states[32];
 static size_t emitted_count;
 static int fail_emit_at = -1;
+static struct k380_dynamic_macro_record trace_test_record;
+static struct k380_dynamic_macro_trace_event
+    trace_test_events[K380_MACRO_VM_MAX_TRACE_EVENTS];
 
 int k380_dynamic_settings_load(struct k380_dynamic_config *cfg) {
     *cfg = config;
@@ -128,6 +131,24 @@ static void make_wait_record(struct k380_dynamic_macro_record *record,
     record->package[16] = K380_MACRO_VM_OP_WAIT;
     sys_put_le32(duration_ms, &record->package[17]);
     record->package[21] = K380_MACRO_VM_OP_END;
+    record->package_crc32 = package_crc32_without_field(
+        record->package, record->package_len);
+    sys_put_le32(record->package_crc32, &record->package[12]);
+}
+
+static void make_trace_record(struct k380_dynamic_macro_record *record,
+                              uint8_t trace_count) {
+    memset(record, 0, sizeof(*record));
+    record->record_version = K380_DYNAMIC_MACRO_RECORD_VERSION;
+    record->trigger = K380_DYNAMIC_MACRO_TRIGGER_ONCE;
+    record->repeat_count = 1U;
+    record->package_len = (uint16_t)(17U + trace_count);
+    memcpy(record->package, K380_MACRO_VM_PACKAGE_MAGIC,
+           K380_MACRO_VM_PACKAGE_MAGIC_SIZE);
+    record->package[4] = K380_MACRO_VM_PACKAGE_VERSION;
+    sys_put_le16((uint16_t)(trace_count + 1U), &record->package[8]);
+    memset(&record->package[16], K380_MACRO_VM_OP_RELEASE_ALL, trace_count);
+    record->package[16U + trace_count] = K380_MACRO_VM_OP_END;
     record->package_crc32 = package_crc32_without_field(
         record->package, record->package_len);
     sys_put_le32(record->package_crc32, &record->package[12]);
@@ -378,6 +399,36 @@ ZTEST(dynamic_macro, test_empty_record_cannot_be_tested_or_executed) {
     k_sleep(K_MSEC(25));
     zassert_false(k380_dynamic_macro_is_running());
     zassert_equal(0U, emitted_count);
+}
+
+ZTEST(dynamic_macro, test_trace_dropped_is_relative_to_requested_cursor) {
+    struct k380_dynamic_macro_run_state state;
+    uint32_t run_id;
+
+    reset_fakes();
+    make_trace_record(&trace_test_record, 70U);
+    zassert_ok(k380_dynamic_macro_test_record_start(
+        0U, 0U, &trace_test_record, &run_id));
+    wait_until_stopped();
+
+    zassert_equal(-EOVERFLOW,
+                  k380_dynamic_macro_trace_read(
+                      0U, trace_test_events, ARRAY_SIZE(trace_test_events),
+                      &state));
+    zassert_equal(6U, state.next_cursor);
+    zassert_equal(6U, state.dropped);
+
+    zassert_equal(64, k380_dynamic_macro_trace_read(
+                          state.next_cursor, trace_test_events,
+                          ARRAY_SIZE(trace_test_events), &state));
+    zassert_equal(70U, state.next_cursor);
+    zassert_equal(0U, state.dropped);
+    zassert_equal(7U, trace_test_events[0].sequence);
+
+    zassert_equal(10, k380_dynamic_macro_trace_read(
+                          60U, trace_test_events,
+                          ARRAY_SIZE(trace_test_events), &state));
+    zassert_equal(0U, state.dropped);
 }
 
 ZTEST_SUITE(dynamic_macro, NULL, NULL, NULL, NULL, NULL);

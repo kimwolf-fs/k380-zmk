@@ -29,7 +29,6 @@ enum k380_dynamic_macro_upload_operation {
 
 struct k380_dynamic_macro_upload_session {
     bool active;
-    bool expired;
     uint8_t operation;
     uint8_t preset;
     uint8_t slot;
@@ -39,8 +38,17 @@ struct k380_dynamic_macro_upload_session {
     struct k380_dynamic_macro_record record;
 };
 
+struct k380_dynamic_macro_commit_cache {
+    bool valid;
+    uint32_t session_id;
+    uint64_t completed_at_ms;
+    uint8_t result[8];
+};
+
 static struct k380_dynamic_macro_upload_session upload_session;
+static struct k380_dynamic_macro_commit_cache commit_cache;
 static uint32_t next_upload_session_id = 1U;
+static uint32_t expired_upload_session_id;
 
 BUILD_ASSERT(K380_DYNAMIC_MAX_PAYLOAD == 512U,
              "dynamic protocol payload size changed");
@@ -168,37 +176,39 @@ static uint32_t package_crc32_without_field(const uint8_t *package,
     return crc ^ 0xFFFFFFFFU;
 }
 
-static bool upload_is_expired(void)
+static void upload_clear(void)
 {
-    if (!upload_session.active) {
-        return false;
+    memset(&upload_session, 0, sizeof(upload_session));
+}
+
+static void expire_macro_transactions(void)
+{
+    const uint64_t now_ms = k380_dynamic_protocol_uptime_ms();
+
+    if (upload_session.active &&
+        (now_ms < upload_session.last_activity_ms ||
+         now_ms - upload_session.last_activity_ms >= 5000U)) {
+        expired_upload_session_id = upload_session.session_id;
+        upload_clear();
     }
-    if (upload_session.expired ||
-        k380_dynamic_protocol_uptime_ms() - upload_session.last_activity_ms >=
-            5000U) {
-        upload_session.expired = true;
-        return true;
+    if (commit_cache.valid &&
+        (now_ms < commit_cache.completed_at_ms ||
+         now_ms - commit_cache.completed_at_ms >= 5000U)) {
+        memset(&commit_cache, 0, sizeof(commit_cache));
     }
-    return false;
 }
 
 static enum k380_dynamic_result upload_require(uint32_t session_id)
 {
     if (!upload_session.active) {
-        return K380_DYNAMIC_RESULT_UPLOAD_NOT_FOUND;
-    }
-    if (upload_is_expired()) {
-        return K380_DYNAMIC_RESULT_UPLOAD_EXPIRED;
+        return session_id == expired_upload_session_id
+                   ? K380_DYNAMIC_RESULT_UPLOAD_EXPIRED
+                   : K380_DYNAMIC_RESULT_UPLOAD_NOT_FOUND;
     }
     if (upload_session.session_id != session_id) {
         return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
     }
     return K380_DYNAMIC_RESULT_READY;
-}
-
-static void upload_clear(void)
-{
-    memset(&upload_session, 0, sizeof(upload_session));
 }
 
 static enum k380_dynamic_result validate_upload_record(void)
@@ -318,10 +328,12 @@ static enum k380_dynamic_result handle_begin_macro_upload(
             return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
     }
-    if (upload_session.active && !upload_is_expired()) {
+    if (upload_session.active) {
         return K380_DYNAMIC_RESULT_BUSY;
     }
 
+    memset(&commit_cache, 0, sizeof(commit_cache));
+    expired_upload_session_id = 0U;
     upload_clear();
     upload_session.active = true;
     upload_session.operation = payload[0];
@@ -389,6 +401,11 @@ static enum k380_dynamic_result handle_commit_macro_upload(
         return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
     }
     const uint32_t session_id = sys_get_le32(payload);
+    if (commit_cache.valid && commit_cache.session_id == session_id) {
+        memcpy(out, commit_cache.result, sizeof(commit_cache.result));
+        *out_len = sizeof(commit_cache.result);
+        return K380_DYNAMIC_RESULT_READY;
+    }
     enum k380_dynamic_result result = upload_require(session_id);
     if (result != K380_DYNAMIC_RESULT_READY) {
         return result;
@@ -409,21 +426,17 @@ static enum k380_dynamic_result handle_commit_macro_upload(
                                           &upload_session.record),
             true);
     } else {
-        if (k380_dynamic_macro_is_running()) {
-            return K380_DYNAMIC_RESULT_BUSY;
+        if (upload_session.record.package_len == 0U) {
+            return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
         result = result_from_error(
-            k380_dynamic_macro_test_record(upload_session.preset,
-                                           upload_session.slot,
-                                           &upload_session.record),
+            k380_dynamic_macro_test_record_start(upload_session.preset,
+                                                 upload_session.slot,
+                                                 &upload_session.record,
+                                                 &run_id),
             false);
-        if (result == K380_DYNAMIC_RESULT_READY) {
-            struct k380_dynamic_macro_run_state state;
-            k380_dynamic_macro_get_run_state(&state);
-            run_id = state.run_id;
-            if (run_id == 0U) {
-                result = K380_DYNAMIC_RESULT_IO_FAILURE;
-            }
+        if (result == K380_DYNAMIC_RESULT_READY && run_id == 0U) {
+            result = K380_DYNAMIC_RESULT_IO_FAILURE;
         }
     }
     if (result != K380_DYNAMIC_RESULT_READY) {
@@ -432,6 +445,10 @@ static enum k380_dynamic_result handle_commit_macro_upload(
     sys_put_le32(session_id, &out[0]);
     sys_put_le32(run_id, &out[4]);
     *out_len = 8U;
+    commit_cache.valid = true;
+    commit_cache.session_id = session_id;
+    commit_cache.completed_at_ms = k380_dynamic_protocol_uptime_ms();
+    memcpy(commit_cache.result, out, sizeof(commit_cache.result));
     upload_clear();
     return K380_DYNAMIC_RESULT_READY;
 }
@@ -445,6 +462,13 @@ static enum k380_dynamic_result handle_abort_macro_upload(
     if (upload_session.active &&
         upload_session.session_id != sys_get_le32(payload)) {
         return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
+    }
+    if (commit_cache.valid &&
+        commit_cache.session_id == sys_get_le32(payload)) {
+        memset(&commit_cache, 0, sizeof(commit_cache));
+    }
+    if (expired_upload_session_id == sys_get_le32(payload)) {
+        expired_upload_session_id = 0U;
     }
     upload_clear();
     *out_len = 0U;
@@ -469,10 +493,6 @@ static enum k380_dynamic_result handle_get_macro_run_state(
     struct k380_dynamic_macro_trace_event events[30];
     const int event_count = k380_dynamic_macro_trace_read(
         cursor, events, payload[8], &state);
-    if (event_count < 0) {
-        return event_count == -EOVERFLOW ? K380_DYNAMIC_RESULT_TRACE_CURSOR_LOST
-                                         : K380_DYNAMIC_RESULT_IO_FAILURE;
-    }
     if (requested_run_id != 0U && requested_run_id != state.run_id) {
         return K380_DYNAMIC_RESULT_STALE_RUN;
     }
@@ -482,8 +502,14 @@ static enum k380_dynamic_result handle_get_macro_run_state(
     put_le16(0U, &out[6]);
     sys_put_le32(state.next_cursor, &out[8]);
     sys_put_le32(state.dropped, &out[12]);
-    out[16] = (uint8_t)event_count;
+    out[16] = event_count < 0 ? 0U : (uint8_t)event_count;
     memset(&out[17], 0, 3U);
+    if (event_count < 0) {
+        *out_len = 20U;
+        return event_count == -EOVERFLOW
+                   ? K380_DYNAMIC_RESULT_TRACE_CURSOR_LOST
+                   : K380_DYNAMIC_RESULT_IO_FAILURE;
+    }
     for (int index = 0; index < event_count; index++) {
         uint8_t *wire = &out[20U + (size_t)index * 16U];
         sys_put_le32(events[index].sequence, &wire[0]);
@@ -503,13 +529,11 @@ static enum k380_dynamic_result handle_stop_macro(
     if (payload_len != 4U) {
         return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
     }
-    const uint32_t requested_run_id = sys_get_le32(payload);
-    struct k380_dynamic_macro_run_state state;
-    k380_dynamic_macro_get_run_state(&state);
-    if (requested_run_id != 0U && requested_run_id != state.run_id) {
+    const int err = k380_dynamic_macro_stop_if_run_id(sys_get_le32(payload));
+    if (err == -ESTALE) {
         return K380_DYNAMIC_RESULT_STALE_RUN;
     }
-    return result_from_error(k380_dynamic_macro_stop(), false);
+    return result_from_error(err, false);
 }
 
 static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *payload,
@@ -545,6 +569,11 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         out[13] = K380_MACRO_VM_MAX_TRACE_EVENTS;
         *out_len = 14U;
         return K380_DYNAMIC_RESULT_READY;
+    }
+
+    if (command >= K380_DYNAMIC_COMMAND_GET_MACRO_META &&
+        command <= K380_DYNAMIC_COMMAND_STOP_MACRO) {
+        expire_macro_transactions();
     }
 
     if (command == K380_DYNAMIC_COMMAND_GET_MACRO_META) {

@@ -37,6 +37,10 @@ static struct k380_dynamic_macro_run_state fake_run_state;
 static struct k380_dynamic_macro_trace_event fake_trace_events[4];
 static size_t fake_trace_event_count;
 static size_t stop_calls;
+static size_t stop_if_run_id_calls;
+static uint32_t last_stop_run_id;
+static size_t test_record_start_calls;
+static uint32_t fake_trace_oldest_sequence;
 
 bool k380_dynamic_protocol_is_unlocked(void) { return unlocked; }
 
@@ -132,11 +136,36 @@ int k380_dynamic_macro_test_record(
     return 0;
 }
 
+int k380_dynamic_macro_test_record_start(
+    uint8_t preset, uint8_t slot,
+    const struct k380_dynamic_macro_record *record, uint32_t *run_id) {
+    if (fake_macro_running) {
+        return -EBUSY;
+    }
+    const int err = k380_dynamic_macro_test_record(preset, slot, record);
+
+    if (err != 0 || run_id == NULL) {
+        return err != 0 ? err : -EINVAL;
+    }
+    test_record_start_calls++;
+    *run_id = fake_run_state.run_id;
+    return 0;
+}
+
 int k380_dynamic_macro_stop(void) {
     stop_calls++;
     fake_macro_running = false;
     fake_run_state.state = K380_DYNAMIC_MACRO_RUN_STOPPED;
     return 0;
+}
+
+int k380_dynamic_macro_stop_if_run_id(uint32_t run_id) {
+    stop_if_run_id_calls++;
+    last_stop_run_id = run_id;
+    if (run_id != 0U && run_id != fake_run_state.run_id) {
+        return -ESTALE;
+    }
+    return k380_dynamic_macro_stop();
 }
 
 bool k380_dynamic_macro_is_running(void) { return fake_macro_running; }
@@ -155,7 +184,15 @@ int k380_dynamic_macro_trace_read(
         return -EINVAL;
     }
     *state = fake_run_state;
+    state->dropped = 0U;
     if (cursor > fake_run_state.next_cursor) {
+        state->next_cursor = fake_run_state.next_cursor;
+        return -EOVERFLOW;
+    }
+    if (fake_trace_oldest_sequence > 0U &&
+        cursor < fake_trace_oldest_sequence - 1U) {
+        state->next_cursor = fake_trace_oldest_sequence - 1U;
+        state->dropped = state->next_cursor - cursor;
         return -EOVERFLOW;
     }
     size_t copied = 0U;
@@ -339,7 +376,11 @@ static void reset_test_state(void)
     memset(&fake_run_state, 0, sizeof(fake_run_state));
     memset(fake_trace_events, 0, sizeof(fake_trace_events));
     fake_trace_event_count = 0U;
+    fake_trace_oldest_sequence = 0U;
     stop_calls = 0U;
+    stop_if_run_id_calls = 0U;
+    last_stop_run_id = 0U;
+    test_record_start_calls = 0U;
 }
 
 ZTEST(dynamic_protocol, test_valid_hello_returns_ready)
@@ -509,21 +550,19 @@ ZTEST(dynamic_protocol, test_test_macro_accepts_temporary_macro_payload)
 
 ZTEST(dynamic_protocol, test_info_exposes_v2_macro_transfer_limits)
 {
-    uint8_t data[32];
+    uint8_t data[64];
     size_t data_len;
+    const uint8_t expected[] = {
+        0x02U, 0x02U, 0x04U, 0x02U, 0x50U, 0x10U, 0x40U,
+        0x50U, 0x04U, 0x00U, 0x04U, 0x80U, 0x01U, 0x40U,
+    };
 
     reset_test_state();
     zassert_equal(K380_DYNAMIC_RESULT_READY,
                   transact(K380_DYNAMIC_COMMAND_GET_INFO, 1U, NULL, 0U, data,
                            sizeof(data), &data_len));
-    zassert_true(data_len >= 12U);
-    zassert_equal(2U, data[0]);
-    zassert_equal(2U, data[1]);
-    zassert_equal(K380_MACRO_VM_MAX_PACKAGE_BYTES,
-                  sys_get_le16(&data[7]));
-    zassert_equal(K380_MACRO_VM_MAX_CODE_BYTES,
-                  sys_get_le16(&data[9]));
-    zassert_equal(K380_DYNAMIC_MACRO_CHUNK_MAX, sys_get_le16(&data[11]));
+    zassert_equal(sizeof(expected), data_len);
+    zassert_mem_equal(expected, data, sizeof(expected));
 }
 
 ZTEST(dynamic_protocol, test_macro_meta_returns_saved_record_and_empty_slot)
@@ -662,13 +701,30 @@ ZTEST(dynamic_protocol, test_maximum_package_upload_uses_384_byte_chunks)
     zassert_true(stored_record_valid[0U][4U]);
     zassert_mem_equal(stored_records[0U][4U].package, record.package,
                       sizeof(record.package));
+
+    uint8_t first_commit_result[8];
+    memcpy(first_commit_result, data, sizeof(first_commit_result));
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 9U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+    zassert_equal(sizeof(first_commit_result), data_len);
+    zassert_mem_equal(first_commit_result, data, sizeof(first_commit_result));
+    zassert_equal(1U, store_save_calls);
+
+    fake_uptime_ms = 5000U;
+    zassert_equal(K380_DYNAMIC_RESULT_UPLOAD_NOT_FOUND,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 10U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+    zassert_equal(1U, store_save_calls);
 }
 
 ZTEST(dynamic_protocol, test_upload_rejects_offset_gap_and_expiry)
 {
     struct k380_dynamic_macro_record record;
     uint8_t begin[64];
-    uint8_t data[32];
+    uint8_t data[64];
     size_t data_len;
     uint8_t chunk[8U + K380_DYNAMIC_MACRO_CHUNK_MAX];
 
@@ -688,12 +744,56 @@ ZTEST(dynamic_protocol, test_upload_rejects_offset_gap_and_expiry)
                            9U, data, sizeof(data), &data_len));
 
     fake_uptime_ms = 5000U;
+    uint8_t meta_request[] = {0U, 0U};
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_GET_MACRO_META, 11U,
+                           meta_request, sizeof(meta_request), data,
+                           sizeof(data), &data_len));
     zassert_equal(K380_DYNAMIC_RESULT_UPLOAD_EXPIRED,
-                  transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 11U, chunk,
+                  transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 12U, chunk,
                            9U, data, sizeof(data), &data_len));
     zassert_equal(K380_DYNAMIC_RESULT_READY,
-                  transact(K380_DYNAMIC_COMMAND_ABORT_MACRO_UPLOAD, 12U,
+                  transact(K380_DYNAMIC_COMMAND_ABORT_MACRO_UPLOAD, 13U,
                            (uint8_t[]){session_id, 0U, 0U, 0U}, 4U, data,
+                           sizeof(data), &data_len));
+}
+
+ZTEST(dynamic_protocol, test_successful_write_refreshes_upload_expiry)
+{
+    struct k380_dynamic_macro_record record;
+    uint8_t begin[64];
+    uint8_t chunk[9] = {0};
+    uint8_t data[64];
+    size_t data_len;
+
+    reset_test_state();
+    make_record(&record, 17U, false);
+    const size_t begin_len = make_begin_payload(begin, 0U, 0U, 0U, &record);
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_BEGIN_MACRO_UPLOAD, 30U,
+                           begin, begin_len, data, sizeof(data), &data_len));
+    const uint32_t session_id = sys_get_le32(data);
+
+    fake_uptime_ms = 4999U;
+    sys_put_le32(session_id, &chunk[0]);
+    sys_put_le16(0U, &chunk[4]);
+    sys_put_le16(1U, &chunk[6]);
+    chunk[8] = record.package[0];
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 31U,
+                           chunk, sizeof(chunk), data, sizeof(data),
+                           &data_len));
+
+    uint8_t meta_request[] = {0U, 0U};
+    fake_uptime_ms = 9998U;
+    zassert_equal(K380_DYNAMIC_RESULT_BUSY,
+                  transact(K380_DYNAMIC_COMMAND_GET_MACRO_META, 32U,
+                           meta_request, sizeof(meta_request), data,
+                           sizeof(data), &data_len));
+    fake_uptime_ms = 9999U;
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_GET_MACRO_META, 33U,
+                           meta_request, sizeof(meta_request), data,
                            sizeof(data), &data_len));
 }
 
@@ -847,31 +947,90 @@ ZTEST(dynamic_protocol, test_test_upload_is_unsaved_and_busy_test_is_rejected)
                            commit, sizeof(commit), data, sizeof(data),
                            &data_len));
     zassert_equal(0U, store_save_calls);
+    zassert_equal(1U, test_record_start_calls);
+    zassert_equal(fake_run_state.run_id, sys_get_le32(&data[4]));
     zassert_mem_equal(last_test_record.package, record.package,
                       sizeof(record.package));
+
+    uint8_t first_commit_result[8];
+    memcpy(first_commit_result, data, sizeof(first_commit_result));
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 19U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+    zassert_mem_equal(first_commit_result, data, sizeof(first_commit_result));
+    zassert_equal(1U, test_record_start_calls);
 
     struct k380_dynamic_macro_record second;
     make_record(&second, 17U, false);
     const size_t second_len = make_begin_payload(begin, 1U, 2U, 4U, &second);
     zassert_equal(K380_DYNAMIC_RESULT_READY,
-                  transact(K380_DYNAMIC_COMMAND_BEGIN_MACRO_UPLOAD, 19U, begin,
+                  transact(K380_DYNAMIC_COMMAND_BEGIN_MACRO_UPLOAD, 20U, begin,
                            second_len, data, sizeof(data), &data_len));
     const uint32_t second_session_id = sys_get_le32(data);
+    zassert_not_equal(session_id, second_session_id);
+    sys_put_le32(session_id, commit);
+    zassert_equal(K380_DYNAMIC_RESULT_INVALID_ARGUMENT,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 21U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+
     sys_put_le32(second_session_id, chunk);
     sys_put_le16(0U, &chunk[4]);
     sys_put_le16(second.package_len, &chunk[6]);
     memcpy(&chunk[8], second.package, second.package_len);
     zassert_equal(K380_DYNAMIC_RESULT_READY,
-                  transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 20U, chunk,
+                  transact(K380_DYNAMIC_COMMAND_WRITE_MACRO_CHUNK, 22U, chunk,
                            8U + second.package_len, data, sizeof(data),
                            &data_len));
     sys_put_le32(second_session_id, commit);
     zassert_equal(K380_DYNAMIC_RESULT_BUSY,
-                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 21U,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 23U,
                            commit, sizeof(commit), data, sizeof(data),
                            &data_len));
     zassert_equal(K380_DYNAMIC_RESULT_READY,
-                  transact(K380_DYNAMIC_COMMAND_ABORT_MACRO_UPLOAD, 22U,
+                  transact(K380_DYNAMIC_COMMAND_ABORT_MACRO_UPLOAD, 24U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+}
+
+ZTEST(dynamic_protocol, test_empty_macro_can_be_saved_but_not_tested)
+{
+    struct k380_dynamic_macro_record empty = {
+        .record_version = K380_DYNAMIC_MACRO_RECORD_VERSION,
+        .trigger = K380_DYNAMIC_MACRO_TRIGGER_ONCE,
+        .repeat_count = 1U,
+    };
+    uint8_t begin[64];
+    uint8_t commit[4];
+    uint8_t data[16];
+    size_t data_len;
+
+    reset_test_state();
+    size_t begin_len = make_begin_payload(begin, 0U, 0U, 6U, &empty);
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_BEGIN_MACRO_UPLOAD, 40U,
+                           begin, begin_len, data, sizeof(data), &data_len));
+    sys_put_le32(sys_get_le32(data), commit);
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 41U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+    zassert_true(stored_record_valid[0U][6U]);
+    zassert_equal(0U, stored_records[0U][6U].package_len);
+
+    begin_len = make_begin_payload(begin, 1U, 0U, 7U, &empty);
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_BEGIN_MACRO_UPLOAD, 42U,
+                           begin, begin_len, data, sizeof(data), &data_len));
+    sys_put_le32(sys_get_le32(data), commit);
+    zassert_equal(K380_DYNAMIC_RESULT_INVALID_ARGUMENT,
+                  transact(K380_DYNAMIC_COMMAND_COMMIT_MACRO_UPLOAD, 43U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
+    zassert_equal(0U, test_record_start_calls);
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_ABORT_MACRO_UPLOAD, 44U,
                            commit, sizeof(commit), data, sizeof(data),
                            &data_len));
 }
@@ -886,7 +1045,7 @@ ZTEST(dynamic_protocol, test_run_state_paginates_trace_and_stop_checks_run_id)
     fake_run_state.run_id = 0xAABBCCDDU;
     fake_run_state.state = K380_DYNAMIC_MACRO_RUN_COMPLETED;
     fake_run_state.next_cursor = 2U;
-    fake_run_state.dropped = 7U;
+    fake_run_state.dropped = 0U;
     fake_trace_event_count = 2U;
     fake_trace_events[0] = (struct k380_dynamic_macro_trace_event){
         .sequence = 1U, .pc = 4U, .event = K380_MACRO_VM_TRACE_PRESS,
@@ -910,7 +1069,7 @@ ZTEST(dynamic_protocol, test_run_state_paginates_trace_and_stop_checks_run_id)
     zassert_equal(K380_MACRO_VM_TRACE_PRESS, data[26]);
     zassert_equal(4U, sys_get_le32(&data[28]));
     zassert_equal(237U, sys_get_le32(&data[32]));
-    zassert_equal(7U, sys_get_le32(&data[12]));
+    zassert_equal(0U, sys_get_le32(&data[12]));
 
     sys_put_le32(0xDEADBEEFU, &request[0]);
     zassert_equal(K380_DYNAMIC_RESULT_STALE_RUN,
@@ -924,12 +1083,53 @@ ZTEST(dynamic_protocol, test_run_state_paginates_trace_and_stop_checks_run_id)
                   transact(K380_DYNAMIC_COMMAND_GET_MACRO_RUN_STATE, 22U,
                            request, sizeof(request), data, sizeof(data),
                            &data_len));
+    zassert_equal(20U, data_len);
+    zassert_equal(fake_run_state.run_id, sys_get_le32(&data[0]));
+    zassert_equal(2U, sys_get_le32(&data[8]));
+    zassert_equal(0U, sys_get_le32(&data[12]));
+    zassert_equal(0U, data[16]);
 
-    sys_put_le32(0U, &request[0]);
-    zassert_equal(K380_DYNAMIC_RESULT_READY,
+    sys_put_le32(0xDEADBEEFU, &request[0]);
+    zassert_equal(K380_DYNAMIC_RESULT_STALE_RUN,
                   transact(K380_DYNAMIC_COMMAND_STOP_MACRO, 23U, request, 4U,
                            data, sizeof(data), &data_len));
+    zassert_equal(1U, stop_if_run_id_calls);
+    zassert_equal(0U, stop_calls);
+
+    sys_put_le32(fake_run_state.run_id, &request[0]);
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_STOP_MACRO, 24U, request, 4U,
+                           data, sizeof(data), &data_len));
+    zassert_equal(2U, stop_if_run_id_calls);
+    zassert_equal(fake_run_state.run_id, last_stop_run_id);
     zassert_equal(1U, stop_calls);
+}
+
+ZTEST(dynamic_protocol, test_trace_cursor_lost_returns_recovery_state_header)
+{
+    uint8_t request[12] = {0};
+    uint8_t data[64];
+    size_t data_len;
+
+    reset_test_state();
+    fake_run_state.run_id = 0x01020304U;
+    fake_run_state.state = K380_DYNAMIC_MACRO_RUN_COMPLETED;
+    fake_run_state.next_cursor = 70U;
+    fake_trace_oldest_sequence = 7U;
+    sys_put_le32(fake_run_state.run_id, &request[0]);
+    sys_put_le32(0U, &request[4]);
+    request[8] = 30U;
+
+    zassert_equal(K380_DYNAMIC_RESULT_TRACE_CURSOR_LOST,
+                  transact(K380_DYNAMIC_COMMAND_GET_MACRO_RUN_STATE, 25U,
+                           request, sizeof(request), data, sizeof(data),
+                           &data_len));
+    zassert_equal(20U, data_len);
+    zassert_equal(fake_run_state.run_id, sys_get_le32(&data[0]));
+    zassert_equal(K380_DYNAMIC_MACRO_RUN_COMPLETED, data[4]);
+    zassert_equal(6U, sys_get_le32(&data[8]));
+    zassert_equal(6U, sys_get_le32(&data[12]));
+    zassert_equal(0U, data[16]);
 }
 
 ZTEST_SUITE(dynamic_protocol, NULL, NULL, NULL, NULL, NULL);
