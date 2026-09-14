@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <zephyr/kernel.h>
 #include <zephyr/settings/settings.h>
 
 #include <zmk_keyboard_k380/dynamic_macro_record.h>
