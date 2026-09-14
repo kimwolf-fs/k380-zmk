@@ -762,6 +762,10 @@ ZTEST(dynamic_protocol, test_crc_and_vm_failures_preserve_previous_saved_record)
     zassert_equal(0U, store_save_calls);
     zassert_mem_equal(stored_records[0U][1U].package, old_record.package,
                       sizeof(old_record.package));
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_ABORT_MACRO_UPLOAD, 24U,
+                           commit, sizeof(commit), data, sizeof(data),
+                           &data_len));
 }
 
 ZTEST(dynamic_protocol, test_save_failure_keeps_previous_record)
@@ -896,8 +900,9 @@ ZTEST(dynamic_protocol, test_run_state_paginates_trace_and_stop_checks_run_id)
     zassert_equal(36U, data_len);
     zassert_equal(fake_run_state.run_id, sys_get_le32(data));
     zassert_equal(1U, data[16]);
-    zassert_equal(1U, sys_get_le16(&data[20]));
-    zassert_equal(1U, data[24]);
+    zassert_equal(1U, sys_get_le32(&data[20]));
+    zassert_equal(4U, sys_get_le16(&data[24]));
+    zassert_equal(K380_MACRO_VM_TRACE_PRESS, data[26]);
     zassert_equal(237U, sys_get_le32(&data[28]));
     zassert_equal(7U, sys_get_le32(&data[12]));
 
