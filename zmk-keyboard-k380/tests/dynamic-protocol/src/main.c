@@ -289,18 +289,19 @@ static void make_record(struct k380_dynamic_macro_record *record,
                                         K380_MACRO_VM_FUNCTION_ENTRY_SIZE];
     if (maximum_code) {
         code[0] = K380_MACRO_VM_OP_END;
+        uint16_t code_offset = 1U;
         for (uint8_t index = 0U; index < function_count; index++) {
-            const uint16_t entry = 1U + index;
-            sys_put_le16(entry,
+            sys_put_le16(code_offset,
                          &record->package[K380_MACRO_VM_PACKAGE_HEADER_SIZE +
                                           index * K380_MACRO_VM_FUNCTION_ENTRY_SIZE]);
-            sys_put_le16(entry + 1U,
+            code[code_offset++] = K380_MACRO_VM_OP_RELEASE_ALL;
+            code[code_offset++] = K380_MACRO_VM_OP_RETURN;
+            sys_put_le16(code_offset,
                          &record->package[K380_MACRO_VM_PACKAGE_HEADER_SIZE +
                                           index * K380_MACRO_VM_FUNCTION_ENTRY_SIZE + 2U]);
-            code[entry] = K380_MACRO_VM_OP_RETURN;
         }
-        memset(&code[1U + function_count], K380_MACRO_VM_OP_RELEASE_ALL,
-               code_len - 1U - function_count);
+        memset(&code[code_offset], K380_MACRO_VM_OP_RELEASE_ALL,
+               code_len - code_offset);
     } else {
         code[0] = K380_MACRO_VM_OP_END;
     }
