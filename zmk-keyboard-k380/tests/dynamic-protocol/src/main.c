@@ -237,7 +237,7 @@ static enum k380_dynamic_result transact(uint8_t command, uint16_t sequence,
                                         payload_len);
 
     k380_dynamic_protocol_parser_init(&parser);
-    enum k380_dynamic_result result = k380_dynamic_protocol_feed(
+    (void)k380_dynamic_protocol_feed(
         &parser, frame, frame_len, response, sizeof(response), &response_len,
         NULL);
     zassert_true(response_len >= K380_DYNAMIC_PROTOCOL_FRAME_SIZE(1));
@@ -503,9 +503,9 @@ ZTEST(dynamic_protocol, test_info_exposes_v2_macro_transfer_limits)
     zassert_true(data_len >= 12U);
     zassert_equal(2U, data[0]);
     zassert_equal(2U, data[1]);
-    zassert_equal(K380_DYNAMIC_MACRO_VM_MAX_PACKAGE_BYTES,
+    zassert_equal(K380_MACRO_VM_MAX_PACKAGE_BYTES,
                   sys_get_le16(&data[7]));
-    zassert_equal(K380_DYNAMIC_MACRO_VM_MAX_CODE_BYTES,
+    zassert_equal(K380_MACRO_VM_MAX_CODE_BYTES,
                   sys_get_le16(&data[9]));
     zassert_equal(K380_DYNAMIC_MACRO_CHUNK_MAX, sys_get_le16(&data[11]));
 }
