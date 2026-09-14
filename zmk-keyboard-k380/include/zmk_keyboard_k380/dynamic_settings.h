@@ -8,6 +8,8 @@
 typedef int (*k380_dynamic_settings_config_cb_t)(struct k380_dynamic_config *cfg,
                                                  void *user_data);
 
+void k380_dynamic_settings_lock(void);
+void k380_dynamic_settings_unlock(void);
 int k380_dynamic_settings_load(struct k380_dynamic_config *cfg);
 int k380_dynamic_settings_save(const struct k380_dynamic_config *cfg);
 int k380_dynamic_settings_with_config(k380_dynamic_settings_config_cb_t callback,
