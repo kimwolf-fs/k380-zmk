@@ -270,7 +270,8 @@ int k380_dynamic_macro_record_from_legacy(
             emit_u16(code, &code_offset, step->value.key_usage);
             break;
         case K380_DYNAMIC_MACRO_WAIT_MS:
-            if (step->value.wait_ms == 0U ||
+            if (step->value.wait_ms < K380_DYNAMIC_WAIT_MIN_MS ||
+                step->value.wait_ms > K380_DYNAMIC_WAIT_MAX_MS ||
                 code_offset + 5U > K380_MACRO_VM_MAX_CODE_BYTES) {
                 return -EINVAL;
             }
@@ -278,7 +279,10 @@ int k380_dynamic_macro_record_from_legacy(
             emit_u32(code, &code_offset, step->value.wait_ms);
             break;
         case K380_DYNAMIC_MACRO_WAIT_RANDOM:
-            if (step->value.wait_random.min_ms == 0U ||
+            if (step->value.wait_random.min_ms < K380_DYNAMIC_WAIT_MIN_MS ||
+                step->value.wait_random.min_ms > K380_DYNAMIC_WAIT_MAX_MS ||
+                step->value.wait_random.max_ms < K380_DYNAMIC_WAIT_MIN_MS ||
+                step->value.wait_random.max_ms > K380_DYNAMIC_WAIT_MAX_MS ||
                 step->value.wait_random.min_ms > step->value.wait_random.max_ms ||
                 code_offset + 9U > K380_MACRO_VM_MAX_CODE_BYTES) {
                 return -EINVAL;
@@ -444,8 +448,9 @@ static int format_legacy_key(char *key, size_t key_len, uint8_t preset,
         key_len);
 }
 
-static int save_record_unlocked(uint8_t preset, uint8_t slot,
-                                const struct k380_dynamic_macro_record *record)
+static int write_final_record_unlocked(
+    uint8_t preset, uint8_t slot,
+    const struct k380_dynamic_macro_record *record)
 {
     if (k380_dynamic_macro_record_validate(record) != 0) {
         return -EINVAL;
@@ -461,6 +466,30 @@ static int save_record_unlocked(uint8_t preset, uint8_t slot,
     err = format_final_key(key, sizeof(key), preset, slot);
     return err == 0 ? settings_save_one(key, store_wire_scratch, wire_len)
                     : err;
+}
+
+static int delete_temporary_record_unlocked(uint8_t preset, uint8_t slot)
+{
+    char key[64];
+    int err = format_temporary_key(key, sizeof(key), preset, slot);
+
+    return err == 0 ? settings_delete(key) : err;
+}
+
+static int delete_legacy_record_unlocked(uint8_t preset, uint8_t slot)
+{
+    char key[64];
+    int err = format_legacy_key(key, sizeof(key), preset, slot);
+
+    return err == 0 ? settings_delete(key) : err;
+}
+
+static int cleanup_old_records_unlocked(uint8_t preset, uint8_t slot)
+{
+    int first_err = delete_temporary_record_unlocked(preset, slot);
+    int err = delete_legacy_record_unlocked(preset, slot);
+
+    return first_err != 0 ? first_err : err;
 }
 
 int k380_dynamic_macro_store_load(uint8_t preset, uint8_t slot,
@@ -479,13 +508,9 @@ int k380_dynamic_macro_store_load(uint8_t preset, uint8_t slot,
                                         temporary_record_leaf, preset, slot,
                                         record);
         if (err == 0) {
-            err = save_record_unlocked(preset, slot, record);
+            err = write_final_record_unlocked(preset, slot, record);
             if (err == 0) {
-                char key[64];
-                err = format_temporary_key(key, sizeof(key), preset, slot);
-                if (err == 0) {
-                    err = settings_delete(key);
-                }
+                err = delete_temporary_record_unlocked(preset, slot);
             }
         }
     }
@@ -495,13 +520,9 @@ int k380_dynamic_macro_store_load(uint8_t preset, uint8_t slot,
             err = k380_dynamic_macro_record_from_legacy(&legacy_scratch,
                                                         record);
             if (err == 0) {
-                err = save_record_unlocked(preset, slot, record);
+                err = write_final_record_unlocked(preset, slot, record);
                 if (err == 0) {
-                    char key[64];
-                    err = format_legacy_key(key, sizeof(key), preset, slot);
-                    if (err == 0) {
-                        err = settings_delete(key);
-                    }
+                    err = delete_legacy_record_unlocked(preset, slot);
                 }
             }
         }
@@ -521,7 +542,10 @@ int k380_dynamic_macro_store_save(uint8_t preset, uint8_t slot,
         return -EINVAL;
     }
     k380_dynamic_settings_lock();
-    int err = save_record_unlocked(preset, slot, record);
+    int err = write_final_record_unlocked(preset, slot, record);
+    if (err == 0) {
+        err = cleanup_old_records_unlocked(preset, slot);
+    }
     k380_dynamic_settings_unlock();
     return err;
 }
@@ -540,18 +564,7 @@ int k380_dynamic_macro_store_restore_slot(uint8_t preset, uint8_t slot)
         first_err = settings_delete(key);
     }
 
-    int err = format_temporary_key(key, sizeof(key), preset, slot);
-    if (err == 0) {
-        err = settings_delete(key);
-    }
-    if (first_err == 0 && err != 0) {
-        first_err = err;
-    }
-
-    err = format_legacy_key(key, sizeof(key), preset, slot);
-    if (err == 0) {
-        err = settings_delete(key);
-    }
+    int err = cleanup_old_records_unlocked(preset, slot);
 
     k380_dynamic_settings_unlock();
     return first_err != 0 ? first_err : err;
