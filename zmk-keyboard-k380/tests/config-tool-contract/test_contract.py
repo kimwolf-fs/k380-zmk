@@ -102,19 +102,21 @@ def record_storage_declarations(sources):
                     continue
                 name = re.match(r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)", storage)
                 if name:
-                    owners.append((path, line, name.group("name")))
+                    shape = storage[name.end() :].strip()
+                    owners.append((path, line, name.group("name"), shape))
     return owners
 
 
 def validate_record_owner_inventory(sources):
     owners = record_storage_declarations(sources)
     expected = {
-        ("zmk-keyboard-k380/src/dynamic_macro.c", "record"),
-        ("zmk-keyboard-k380/src/dynamic_protocol.c", "record"),
+        ("zmk-keyboard-k380/src/dynamic_macro.c", "record", ""),
+        ("zmk-keyboard-k380/src/dynamic_protocol.c", "record", ""),
     }
-    actual = {(path, name) for path, _, name in owners}
+    actual = {(path, name, shape) for path, _, name, shape in owners}
     assert len(owners) == 2 and actual == expected, (
-        "expected exactly two macro record storage owners "
+        "expected exactly two macro record storage owners; "
+        "scalar macro record storage owners required "
         f"(runner.record and upload_session.record), found {owners}"
     )
     return ["runner.record", "upload_session.record"]
@@ -149,35 +151,86 @@ def map_objects(source):
 
     lines = self_map[2].splitlines()
     objects = {}
-    for index, line in enumerate(lines):
-        match = re.match(
-            r"^\s+(?P<section>\.[^\s]+)"
-            r"(?:\s+(?P<address>0x[0-9a-fA-F]+)"
-            r"\s+(?P<size>0x[0-9a-fA-F]+))?",
-            line,
+    current = None
+
+    def add_object(name, address, size):
+        if address == 0 or size == 0:
+            return
+        entry = (address, size)
+        entries = objects.setdefault(name, [])
+        if entry not in entries:
+            entries.append(entry)
+
+    def is_code_section(name):
+        return any(
+            name == prefix or name.startswith(prefix + ".")
+            for prefix in (".text", ".init", ".fini", ".gnu.linkonce.t")
         )
-        if not match:
+
+    def set_extent(context, match):
+        context["address"] = int(match.group("address"), 16)
+        context["size"] = int(match.group("size"), 16)
+        context["object"] = match.group("object")
+        leaf = context["section"].rsplit(".", 1)[-1]
+        if (
+            not context["code"]
+            and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", leaf)
+        ):
+            add_object(leaf, context["address"], context["size"])
+
+    section_pattern = re.compile(
+        r"^ (?P<section>\.[^\s]+)"
+        r"(?:\s+(?P<address>0x[0-9a-fA-F]+)"
+        r"\s+(?P<size>0x[0-9a-fA-F]+)"
+        r"\s+(?P<object>\S.*))?\s*$"
+    )
+    extent_pattern = re.compile(
+        r"^\s+(?P<address>0x[0-9a-fA-F]+)"
+        r"\s+(?P<size>0x[0-9a-fA-F]+)"
+        r"\s+(?P<object>\S.*)\s*$"
+    )
+    symbol_pattern = re.compile(
+        r"^\s+(?P<address>0x[0-9a-fA-F]+)"
+        r"\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*$"
+    )
+
+    for line in lines:
+        section = section_pattern.match(line)
+        if section:
+            current = {
+                "section": section.group("section"),
+                "code": is_code_section(section.group("section")),
+                "address": None,
+                "size": None,
+                "object": None,
+            }
+            if section.group("address") is not None:
+                set_extent(current, section)
             continue
-        address = match.group("address")
-        size = match.group("size")
-        if address is None and index + 1 < len(lines):
-            value = re.match(
-                r"^\s+(?P<address>0x[0-9a-fA-F]+)"
-                r"\s+(?P<size>0x[0-9a-fA-F]+)",
-                lines[index + 1],
-            )
-            if value:
-                address = value.group("address")
-                size = value.group("size")
-        if address is None or size is None:
+
+        if current is None:
             continue
-        address_value = int(address, 16)
-        size_value = int(size, 16)
-        if address_value != 0 and size_value != 0:
-            name = match.group("section").rsplit(".", 1)[-1]
-            objects.setdefault(name, []).append(
-                (address_value, size_value)
-            )
+
+        if current["address"] is None:
+            extent = extent_pattern.match(line)
+            if extent:
+                set_extent(current, extent)
+                continue
+
+        symbol = symbol_pattern.match(line)
+        if (
+            symbol
+            and not current["code"]
+            and current["address"] is not None
+            and current["object"] is not None
+        ):
+            address = int(symbol.group("address"), 16)
+            start = current["address"]
+            if start <= address < start + current["size"]:
+                add_object(symbol.group("name"), address, current["size"])
+
+        if not line.strip() or not line[0].isspace() or re.match(r"^\s+\*\(", line):
+            current = None
     return objects
 
 
@@ -457,6 +510,30 @@ class K380ConfigToolContract(unittest.TestCase):
         )
         self.assertEqual(expected, validate_record_owner_inventory(pointer_only))
 
+    def test_allowed_record_owner_fields_must_remain_scalar(self):
+        source_root = REPO_ROOT / "zmk-keyboard-k380" / "src"
+        sources = {
+            path.relative_to(REPO_ROOT).as_posix(): path.read_text(encoding="utf-8")
+            for path in source_root.glob("*.c")
+        }
+        for owner, path in (
+            ("runner.record", "zmk-keyboard-k380/src/dynamic_macro.c"),
+            ("upload_session.record", "zmk-keyboard-k380/src/dynamic_protocol.c"),
+        ):
+            with self.subTest(owner=owner):
+                mutated = dict(sources)
+                mutated[path], replacements = re.subn(
+                    r"struct\s+k380_dynamic_macro_record\s+record\s*;",
+                    "struct k380_dynamic_macro_record record[2];",
+                    mutated[path],
+                    count=1,
+                )
+                self.assertEqual(1, replacements)
+                with self.assertRaisesRegex(
+                    AssertionError, "scalar macro record storage owners"
+                ):
+                    validate_record_owner_inventory(mutated)
+
     def test_formal_k380_ci_runs_every_macro_vm_suite(self):
         source = read(".github/workflows/k380-ci.yml")
 
@@ -520,6 +597,44 @@ Linker script and memory map
             with self.subTest(message=message):
                 with self.assertRaisesRegex(AssertionError, message):
                     validate_resource_map(resource_map)
+
+        symbol_line_regressions = {
+            "legacy baseline_config": valid.replace(
+                " .bss.shared_config",
+                ' .noinit."WEST_TOPDIR/zmk-keyboard-k380/src/'
+                'dynamic_settings.c".0\n'
+                "                0x0000000020009000     0x7384 "
+                "app/libapp.a(dynamic_settings.c.obj)\n"
+                "                0x0000000020009000                "
+                "baseline_config\n"
+                " .bss.shared_config",
+            ),
+            "legacy protocol_config": valid.replace(
+                " .bss.shared_config",
+                " .k380-retained\n"
+                "                0x0000000020009000     0x7384 "
+                "app/libapp.a(dynamic_protocol.c.obj)\n"
+                "                0x0000000020009000                "
+                "protocol_config\n"
+                " .bss.shared_config",
+            ),
+        }
+        for message, resource_map in symbol_line_regressions.items():
+            with self.subTest(symbol_line=message):
+                with self.assertRaisesRegex(AssertionError, message):
+                    validate_resource_map(resource_map)
+
+        code_symbol = valid.replace(
+            " .bss.shared_config",
+            " .text.baseline_config\n"
+            "                0x0000000000040000       0x20 "
+            "app/libapp.a(legitimate.c.obj)\n"
+            "                0x0000000000040000                "
+            "baseline_config\n"
+            " .bss.shared_config",
+        )
+        with self.subTest(symbol_line="small .text function is not a resource object"):
+            validate_resource_map(code_symbol)
 
     def test_formal_k380_ci_gates_flashable_artifact_in_named_step_order(self):
         source = read(".github/workflows/k380-ci.yml")
