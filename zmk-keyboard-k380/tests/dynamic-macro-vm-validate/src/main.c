@@ -44,9 +44,9 @@ static size_t make_nested_call_package(uint8_t *package)
     uint8_t code[50] = {
         K380_MACRO_VM_OP_CALL, 0U,
         K380_MACRO_VM_OP_END,
-        K380_MACRO_VM_OP_LOOP_COUNT_BEGIN, 1U, 0U, 0U, 0U, 36U, 0U,
-        K380_MACRO_VM_OP_LOOP_COUNT_BEGIN, 1U, 0U, 0U, 0U, 36U, 0U,
-        K380_MACRO_VM_OP_LOOP_COUNT_BEGIN, 1U, 0U, 0U, 0U, 36U, 0U,
+        K380_MACRO_VM_OP_LOOP_COUNT_BEGIN, 1U, 0U, 0U, 0U, 35U, 0U,
+        K380_MACRO_VM_OP_LOOP_COUNT_BEGIN, 1U, 0U, 0U, 0U, 32U, 0U,
+        K380_MACRO_VM_OP_LOOP_COUNT_BEGIN, 1U, 0U, 0U, 0U, 29U, 0U,
         K380_MACRO_VM_OP_CALL, 1U,
         K380_MACRO_VM_OP_LOOP_END, 17U, 0U,
         K380_MACRO_VM_OP_LOOP_END, 10U, 0U,
