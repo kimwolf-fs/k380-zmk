@@ -106,6 +106,19 @@ class K380ConfigToolContract(unittest.TestCase):
         self.assertIn("k380,config-uart", source)
         self.assertIn('"zmk,studio-rpc-uart" not in dts', source)
 
+    def test_formal_k380_ci_covers_compact_settings_and_macro_store(self):
+        source = read(".github/workflows/k380-ci.yml")
+
+        self.assertIn(
+            "west twister -T zmk-keyboard-k380/tests/dynamic-macro-store",
+            source,
+        )
+        self.assertIn('"write_snapshot = shared_config;" not in update.group(0)', source)
+        self.assertNotIn(
+            '"baseline_config = shared_config;" not in update.group(0)', source
+        )
+        self.assertIn('re.search(r"\\bbaseline_config\\b", source)', source)
+
     def test_k380_keymap_does_not_bind_studio_unlock(self):
         source = read("app/boards/kimwolf/k380/k380.keymap")
         self.assertNotIn("&studio_unlock", source)
