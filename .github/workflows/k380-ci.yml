@@ -895,7 +895,8 @@ jobs:
           PY
       - name: Validate K380 config tool contract
         run: python3 zmk-keyboard-k380/tests/config-tool-contract/test_contract.py
-      - run: |
+      - name: Build formal K380 firmware
+        run: |
           west build -s app -d build/k380-firmware -p always -b k380/nrf52840/zmk \
             -S k380-config-usb-uart -- \
             -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380"
@@ -1044,7 +1045,8 @@ jobs:
       - if: failure()
         run: |
           find build/k380-firmware -type f -name '*.log' -print -exec tail -n 200 {} \;
-      - if: always()
+      - name: Upload formal K380 firmware
+        if: success()
         uses: actions/upload-artifact@v7
         with:
           name: k380-zmk-firmware

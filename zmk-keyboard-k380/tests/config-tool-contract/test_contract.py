@@ -42,10 +42,103 @@ def macro_definition(source, symbol):
 
 def integer_macro(source, symbol):
     value = macro_definition(source, symbol)
-    match = re.fullmatch(r"(?P<value>[0-9]+)(?:U|UL|L)?", value)
+    match = re.fullmatch(
+        r"(?P<value>(?:0[xX][0-9a-fA-F]+|[0-9]+))"
+        r"(?:[uU](?:[lL]{1,2})?|[lL]{1,2}[uU]?)?",
+        value,
+    )
     if not match:
         raise AssertionError(f"{symbol} is not a literal integer: {value}")
-    return int(match.group("value"))
+    literal = match.group("value")
+    return int(literal, 16 if literal.lower().startswith("0x") else 10)
+
+
+def c_source_without_comments(source):
+    pattern = re.compile(
+        r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
+        re.S,
+    )
+
+    def replace(match):
+        return "".join("\n" if character == "\n" else " " for character in match.group(0))
+
+    return pattern.sub(replace, source)
+
+
+def split_c_declarators(source):
+    parts = []
+    start = 0
+    depths = {"[": 0, "{": 0}
+    for index, character in enumerate(source):
+        if character in depths:
+            depths[character] += 1
+        elif character == "]":
+            depths["["] -= 1
+        elif character == "}":
+            depths["{"] -= 1
+        elif character == "," and not any(depths.values()):
+            parts.append(source[start:index])
+            start = index + 1
+    parts.append(source[start:])
+    return parts
+
+
+def record_storage_declarations(sources):
+    declaration = re.compile(
+        r"(?P<prefix>(?:(?:static|extern|const|volatile|register|auto|typedef)\s+)*)"
+        r"struct\s+k380_dynamic_macro_record\b"
+        r"(?P<declarators>[^;()]*)\s*;"
+    )
+    owners = []
+    for path, source in sorted(sources.items()):
+        source = c_source_without_comments(source)
+        for match in declaration.finditer(source):
+            if re.search(r"\b(?:extern|typedef)\b", match.group("prefix")):
+                continue
+            line = source[: match.start()].count("\n") + 1
+            for declarator in split_c_declarators(match.group("declarators")):
+                storage = declarator.split("=", 1)[0].strip()
+                if "*" in storage:
+                    continue
+                name = re.match(r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)", storage)
+                if name:
+                    owners.append((path, line, name.group("name")))
+    return owners
+
+
+def validate_record_owner_inventory(sources):
+    owners = record_storage_declarations(sources)
+    expected = {
+        ("zmk-keyboard-k380/src/dynamic_macro.c", "record"),
+        ("zmk-keyboard-k380/src/dynamic_protocol.c", "record"),
+    }
+    actual = {(path, name) for path, _, name in owners}
+    assert len(owners) == 2 and actual == expected, (
+        "expected exactly two macro record storage owners "
+        f"(runner.record and upload_session.record), found {owners}"
+    )
+    return ["runner.record", "upload_session.record"]
+
+
+def workflow_job(source, name):
+    match = re.search(
+        rf"(?ms)^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+        source,
+    )
+    if not match:
+        raise AssertionError(f"workflow is missing job: {name}")
+    return match.group("body")
+
+
+def workflow_named_steps(job_source):
+    steps = {}
+    for match in re.finditer(
+        r"(?ms)^      - name: (?P<name>[^\n]+)\n"
+        r"(?P<body>.*?)(?=^      - |\Z)",
+        job_source,
+    ):
+        steps[match.group("name").strip()] = match.group(0)
+    return steps
 
 
 def map_objects(source):
@@ -58,7 +151,7 @@ def map_objects(source):
     objects = {}
     for index, line in enumerate(lines):
         match = re.match(
-            r"^\s+\.(?:bss|data)\.(?P<name>[A-Za-z0-9_]+)"
+            r"^\s+(?P<section>\.[^\s]+)"
             r"(?:\s+(?P<address>0x[0-9a-fA-F]+)"
             r"\s+(?P<size>0x[0-9a-fA-F]+))?",
             line,
@@ -81,7 +174,8 @@ def map_objects(source):
         address_value = int(address, 16)
         size_value = int(size, 16)
         if address_value != 0 and size_value != 0:
-            objects.setdefault(match.group("name"), []).append(
+            name = match.group("section").rsplit(".", 1)[-1]
+            objects.setdefault(name, []).append(
                 (address_value, size_value)
             )
     return objects
@@ -187,6 +281,20 @@ def binding_refs(layer_body):
 
 
 class K380ConfigToolContract(unittest.TestCase):
+    def test_integer_macro_accepts_decimal_and_hexadecimal_literals(self):
+        for literal, expected in (
+            ("512", 512),
+            ("512U", 512),
+            ("0x200", 512),
+            ("0x200U", 512),
+            ("0X200UL", 512),
+        ):
+            with self.subTest(literal=literal):
+                self.assertEqual(
+                    expected,
+                    integer_macro(f"#define TEST_VALUE {literal}\n", "TEST_VALUE"),
+                )
+
     def test_macro_vm_vector_is_a_reviewed_literal_and_header_is_current(self):
         fixture = VECTOR_DIR / "macro_vm_v1_vectors.json"
         document = json.loads(fixture.read_text(encoding="utf-8"))
@@ -296,6 +404,59 @@ class K380ConfigToolContract(unittest.TestCase):
             ),
         )
 
+    def test_full_production_record_owner_inventory_rejects_extra_storage(self):
+        source_root = REPO_ROOT / "zmk-keyboard-k380" / "src"
+        sources = {
+            path.relative_to(REPO_ROOT).as_posix(): path.read_text(encoding="utf-8")
+            for path in source_root.glob("*.c")
+        }
+        expected = ["runner.record", "upload_session.record"]
+        self.assertEqual(expected, validate_record_owner_inventory(sources))
+
+        appended_mutations = {
+            "standalone staging record": (
+                "zmk-keyboard-k380/src/dynamic_protocol.c",
+                "\nstatic struct k380_dynamic_macro_record retry_upload_record;\n",
+            ),
+            "standalone running record": (
+                "zmk-keyboard-k380/src/dynamic_macro.c",
+                "\nstatic struct k380_dynamic_macro_record retry_running_record;\n",
+            ),
+            "record array": (
+                "zmk-keyboard-k380/src/dynamic_protocol.c",
+                "\nstatic struct k380_dynamic_macro_record retry_records[2];\n",
+            ),
+        }
+        for label, (path, addition) in appended_mutations.items():
+            with self.subTest(mutation=label):
+                mutated = dict(sources)
+                mutated[path] += addition
+                with self.assertRaisesRegex(
+                    AssertionError, "exactly two macro record storage owners"
+                ):
+                    validate_record_owner_inventory(mutated)
+
+        field_mutation = dict(sources)
+        runner_path = "zmk-keyboard-k380/src/dynamic_macro.c"
+        runner_record = "    struct k380_dynamic_macro_record record;\n"
+        field_mutation[runner_path] = field_mutation[runner_path].replace(
+            runner_record,
+            runner_record.rstrip("\n")
+            + " struct k380_dynamic_macro_record fallback_record;\n",
+            1,
+        )
+        self.assertNotEqual(sources[runner_path], field_mutation[runner_path])
+        with self.assertRaisesRegex(
+            AssertionError, "exactly two macro record storage owners"
+        ):
+            validate_record_owner_inventory(field_mutation)
+
+        pointer_only = dict(sources)
+        pointer_only["zmk-keyboard-k380/src/dynamic_macro_store.c"] += (
+            "\nstatic struct k380_dynamic_macro_record *retry_record;\n"
+        )
+        self.assertEqual(expected, validate_record_owner_inventory(pointer_only))
+
     def test_formal_k380_ci_runs_every_macro_vm_suite(self):
         source = read(".github/workflows/k380-ci.yml")
 
@@ -327,6 +488,8 @@ Linker script and memory map
                 0x0000000020008e0e      0xa84 app/libapp.a(dynamic_settings.c.obj)
  .bss.shared_config
                 0x0000000020009892      0xa84 app/libapp.a(dynamic_settings.c.obj)
+ .noinit.legitimate_cache
+                0x000000002000a316      0x480 app/libapp.a(legitimate.c.obj)
                 0x00000000000383c0                _flash_used = ((LOADADDR (.last_section) + SIZEOF (.last_section)) - __rom_region_start)
                 0x00000000000114fc                _image_ram_size = (_image_ram_end - _image_ram_start)
 """
@@ -336,10 +499,19 @@ Linker script and memory map
             "exactly one upload_session": valid.replace(
                 " .bss.runner", " .bss.upload_session 0x0000000020001830 0x498 app/libapp.a(dynamic_protocol.c.obj)\n .bss.runner"
             ),
-            "shared_config exceeds 3000": valid.replace("0xa84 app/libapp.a(dynamic_settings.c.obj)\n                0x00000000000383c0", "0xbb9 app/libapp.a(dynamic_settings.c.obj)\n                0x00000000000383c0", 1),
-            "legacy shared_config": valid.replace("0xa84 app/libapp.a(dynamic_settings.c.obj)\n                0x00000000000383c0", "0x7384 app/libapp.a(dynamic_settings.c.obj)\n                0x00000000000383c0", 1),
+            "shared_config exceeds 3000": valid.replace(
+                " .bss.shared_config\n                0x0000000020009892      0xa84",
+                " .bss.shared_config\n                0x0000000020009892      0xbb9",
+            ),
+            "legacy shared_config": valid.replace(
+                " .bss.shared_config\n                0x0000000020009892      0xa84",
+                " .bss.shared_config\n                0x0000000020009892      0x7384",
+            ),
             "legacy baseline_config": valid.replace(
-                " .bss.shared_config", " .bss.baseline_config 0x0000000020009000 0x7384 app/libapp.a(dynamic_settings.c.obj)\n .bss.shared_config"
+                " .bss.shared_config", " .noinit.baseline_config 0x0000000020009000 0x7384 app/libapp.a(dynamic_settings.c.obj)\n .bss.shared_config"
+            ),
+            "legacy protocol_config": valid.replace(
+                " .bss.shared_config", " .k380-retained.protocol_config 0x0000000020009000 0x7384 app/libapp.a(dynamic_protocol.c.obj)\n .bss.shared_config"
             ),
             "Flash usage": valid.replace("0x00000000000383c0", "0x00000000000a4001"),
             "RAM usage": valid.replace("0x00000000000114fc", "0x0000000000040001"),
@@ -349,14 +521,31 @@ Linker script and memory map
                 with self.assertRaisesRegex(AssertionError, message):
                     validate_resource_map(resource_map)
 
-    def test_formal_k380_ci_invokes_resource_map_gate(self):
+    def test_formal_k380_ci_gates_flashable_artifact_in_named_step_order(self):
         source = read(".github/workflows/k380-ci.yml")
+        firmware_job = workflow_job(source, "firmware-build")
+        steps = workflow_named_steps(firmware_job)
+        ordered_names = list(steps)
+        build_name = "Build formal K380 firmware"
+        gate_name = "Validate K380 firmware resource contract"
+        upload_name = "Upload formal K380 firmware"
 
+        for name in (build_name, gate_name, upload_name):
+            self.assertIn(name, steps)
+        self.assertLess(ordered_names.index(build_name), ordered_names.index(gate_name))
+        self.assertLess(ordered_names.index(gate_name), ordered_names.index(upload_name))
+        self.assertIn("west build -s app -d build/k380-firmware", steps[build_name])
         self.assertIn(
             "python3 zmk-keyboard-k380/tests/config-tool-contract/test_contract.py "
             "--resource-map build/k380-firmware/zephyr/zmk.map",
-            source,
+            steps[gate_name],
         )
+        self.assertIn("uses: actions/upload-artifact@v7", steps[upload_name])
+        self.assertRegex(steps[upload_name], r"(?m)^        if: success\(\)\s*$")
+        self.assertNotRegex(steps[upload_name], r"(?m)^        if: always\(\)\s*$")
+        self.assertIn("name: k380-zmk-firmware", steps[upload_name])
+        self.assertIn("build/k380-firmware/**/zephyr/zmk.hex", steps[upload_name])
+        self.assertIn("build/k380-firmware/**/zephyr/zmk.uf2", steps[upload_name])
 
     def test_dynamic_base_config_has_no_embedded_macro_payloads(self):
         header = read(
