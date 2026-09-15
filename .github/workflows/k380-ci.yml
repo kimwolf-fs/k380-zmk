@@ -63,6 +63,7 @@ jobs:
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-config -p native_sim
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-macro-store -p native_sim
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-macro -p native_sim
+      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-macro-vm-validate -p native_sim
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-macro-vm -p native_sim
       - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-protocol -p native_sim
       - if: always()
@@ -898,6 +899,8 @@ jobs:
           west build -s app -d build/k380-firmware -p always -b k380/nrf52840/zmk \
             -S k380-config-usb-uart -- \
             -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380"
+      - name: Validate K380 firmware resource contract
+        run: python3 zmk-keyboard-k380/tests/config-tool-contract/test_contract.py --resource-map build/k380-firmware/zephyr/zmk.map
       - name: Validate K380 firmware keymap
         run: |
           python3 - <<'PY'

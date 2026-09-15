@@ -1,13 +1,172 @@
+import json
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+VECTOR_DIR = REPO_ROOT / "zmk-keyboard-k380" / "tests" / "macro-vm-vectors"
+CANONICAL_VECTOR = {
+    "name": "wait-600000",
+    "source": "\u6309\u4e0b A\n\u7b49\u5f85 600000\n\u5f39\u8d77 A\n",
+    "code_hex": "01040010c027090002040000",
+    "package_crc32": "9c245561",
+    "package_hex": (
+        "4b564d31010000000c0000006155249c01040010c027090002040000"
+    ),
+}
+CANONICAL_PACKAGE_LENGTH = 28
+CANONICAL_PACKAGE_CRC32 = 0x9C245561
 
 
 def read(path):
     return (REPO_ROOT / path).read_text(encoding="utf-8")
+
+
+def macro_definition(source, symbol):
+    lines = source.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(rf"#define\s+{re.escape(symbol)}\s+(?P<value>.*)", line)
+        if not match:
+            continue
+        value = match.group("value")
+        while value.rstrip().endswith("\\"):
+            value = value.rstrip()[:-1] + " " + lines[index + 1].strip()
+            index += 1
+        return re.sub(r"\s+", " ", value).strip()
+    raise AssertionError(f"missing macro definition: {symbol}")
+
+
+def integer_macro(source, symbol):
+    value = macro_definition(source, symbol)
+    match = re.fullmatch(r"(?P<value>[0-9]+)(?:U|UL|L)?", value)
+    if not match:
+        raise AssertionError(f"{symbol} is not a literal integer: {value}")
+    return int(match.group("value"))
+
+
+def map_objects(source):
+    marker = "Linker script and memory map"
+    self_map = source.partition(marker)
+    if not self_map[1]:
+        raise AssertionError("linker map is missing the memory map section")
+
+    lines = self_map[2].splitlines()
+    objects = {}
+    for index, line in enumerate(lines):
+        match = re.match(
+            r"^\s+\.(?:bss|data)\.(?P<name>[A-Za-z0-9_]+)"
+            r"(?:\s+(?P<address>0x[0-9a-fA-F]+)"
+            r"\s+(?P<size>0x[0-9a-fA-F]+))?",
+            line,
+        )
+        if not match:
+            continue
+        address = match.group("address")
+        size = match.group("size")
+        if address is None and index + 1 < len(lines):
+            value = re.match(
+                r"^\s+(?P<address>0x[0-9a-fA-F]+)"
+                r"\s+(?P<size>0x[0-9a-fA-F]+)",
+                lines[index + 1],
+            )
+            if value:
+                address = value.group("address")
+                size = value.group("size")
+        if address is None or size is None:
+            continue
+        address_value = int(address, 16)
+        size_value = int(size, 16)
+        if address_value != 0 and size_value != 0:
+            objects.setdefault(match.group("name"), []).append(
+                (address_value, size_value)
+            )
+    return objects
+
+
+def map_region(source, name):
+    match = re.search(
+        rf"(?m)^{re.escape(name)}\s+"
+        r"(?P<origin>0x[0-9a-fA-F]+)\s+"
+        r"(?P<length>0x[0-9a-fA-F]+)\s+",
+        source,
+    )
+    if not match:
+        raise AssertionError(f"linker map is missing the {name} region")
+    return int(match.group("origin"), 16), int(match.group("length"), 16)
+
+
+def map_symbol_value(source, name):
+    match = re.search(
+        rf"(?m)^\s*(?P<value>0x[0-9a-fA-F]+)\s+{re.escape(name)}\s*=",
+        source,
+    )
+    if not match:
+        raise AssertionError(f"linker map is missing {name}")
+    return int(match.group("value"), 16)
+
+
+def validate_resource_map(source):
+    flash_origin, flash_length = map_region(source, "FLASH")
+    ram_origin, ram_length = map_region(source, "RAM")
+    assert (flash_origin, flash_length) == (0x26000, 0xA4000), (
+        "Flash partition differs from 0x26000+0xA4000"
+    )
+    assert (ram_origin, ram_length) == (0x20000000, 0x40000), (
+        "RAM partition differs from 0x20000000+0x40000"
+    )
+
+    flash_used = map_symbol_value(source, "_flash_used")
+    ram_used = map_symbol_value(source, "_image_ram_size")
+    assert flash_used <= flash_length, (
+        f"Flash usage {flash_used:#x} exceeds partition {flash_length:#x}"
+    )
+    assert ram_used <= ram_length, (
+        f"RAM usage {ram_used:#x} exceeds partition {ram_length:#x}"
+    )
+
+    objects = map_objects(source)
+    for name in ("upload_session", "runner", "write_snapshot", "shared_config"):
+        assert len(objects.get(name, [])) == 1, (
+            f"expected exactly one {name} object in the formal firmware map"
+        )
+    for name in ("baseline_config", "shared_config", "protocol_config"):
+        for _, size in objects.get(name, []):
+            assert size < 0x7000, (
+                f"legacy {name} is approximately the old 0x7384-byte object: "
+                f"{size:#x}"
+            )
+    for name in ("baseline_config", "protocol_config"):
+        assert not objects.get(name), f"legacy {name} object is present in the map"
+
+    shared_size = objects["shared_config"][0][1]
+    snapshot_size = objects["write_snapshot"][0][1]
+    assert shared_size <= 3000, f"shared_config exceeds 3000 bytes: {shared_size}"
+    assert snapshot_size <= 3000, (
+        f"write_snapshot exceeds 3000 bytes: {snapshot_size}"
+    )
+
+    record_size = 48 + 1104
+    upload_size = objects["upload_session"][0][1]
+    runner_size = objects["runner"][0][1]
+    assert record_size <= upload_size < 2 * record_size, (
+        f"upload_session must contain one staging record: {upload_size} bytes"
+    )
+    assert record_size <= runner_size < 2 * record_size, (
+        f"runner must contain one running record: {runner_size} bytes"
+    )
+
+    return {
+        "flash_used": flash_used,
+        "ram_used": ram_used,
+        "upload_session": upload_size,
+        "runner": runner_size,
+        "write_snapshot": snapshot_size,
+        "shared_config": shared_size,
+    }
 
 
 def kconfig_body(source, symbol):
@@ -28,6 +187,177 @@ def binding_refs(layer_body):
 
 
 class K380ConfigToolContract(unittest.TestCase):
+    def test_macro_vm_vector_is_a_reviewed_literal_and_header_is_current(self):
+        fixture = VECTOR_DIR / "macro_vm_v1_vectors.json"
+        document = json.loads(fixture.read_text(encoding="utf-8"))
+
+        self.assertEqual("k380-macro-vm-v1", document["format"])
+        self.assertEqual([CANONICAL_VECTOR], document["vectors"])
+        package = bytes.fromhex(CANONICAL_VECTOR["package_hex"])
+        self.assertEqual(CANONICAL_PACKAGE_LENGTH, len(package))
+        self.assertEqual(
+            CANONICAL_PACKAGE_CRC32,
+            int.from_bytes(package[12:16], "little"),
+        )
+        self.assertEqual(
+            bytes.fromhex(CANONICAL_VECTOR["code_hex"]),
+            package[16:],
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            generated = Path(directory) / "macro_vm_vectors.h"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(VECTOR_DIR / "generate_macro_vm_header.py"),
+                    str(fixture),
+                    str(generated),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                (VECTOR_DIR / "macro_vm_vectors.h").read_bytes(),
+                generated.read_bytes(),
+            )
+
+    def test_macro_vm_resource_limits_and_single_record_owners_are_static_contracts(self):
+        protocol_header = read(
+            "zmk-keyboard-k380/include/zmk_keyboard_k380/dynamic_protocol.h"
+        )
+        vm_header = read(
+            "zmk-keyboard-k380/include/zmk_keyboard_k380/dynamic_macro_vm_format.h"
+        )
+        config_header = read(
+            "zmk-keyboard-k380/include/zmk_keyboard_k380/dynamic_config.h"
+        )
+        protocol_source = read("zmk-keyboard-k380/src/dynamic_protocol.c")
+        macro_source = read("zmk-keyboard-k380/src/dynamic_macro.c")
+
+        self.assertLessEqual(
+            integer_macro(protocol_header, "K380_DYNAMIC_MAX_PAYLOAD"), 512
+        )
+        self.assertEqual(
+            384,
+            integer_macro(protocol_header, "K380_DYNAMIC_MACRO_CHUNK_MAX"),
+        )
+        self.assertEqual(
+            1024,
+            integer_macro(vm_header, "K380_MACRO_VM_MAX_CODE_BYTES"),
+        )
+        header_size = integer_macro(vm_header, "K380_MACRO_VM_PACKAGE_HEADER_SIZE")
+        function_count = integer_macro(vm_header, "K380_MACRO_VM_MAX_FUNCTIONS")
+        function_size = integer_macro(vm_header, "K380_MACRO_VM_FUNCTION_ENTRY_SIZE")
+        self.assertEqual(1104, header_size + function_count * function_size + 1024)
+        self.assertEqual(
+            "(K380_MACRO_VM_PACKAGE_HEADER_SIZE + "
+            "K380_MACRO_VM_MAX_FUNCTIONS * K380_MACRO_VM_FUNCTION_ENTRY_SIZE + "
+            "K380_MACRO_VM_MAX_CODE_BYTES)",
+            macro_definition(vm_header, "K380_MACRO_VM_MAX_PACKAGE_BYTES"),
+        )
+        self.assertRegex(
+            config_header,
+            r"_Static_assert\(sizeof\(struct k380_dynamic_config\) <= 3000U,",
+        )
+
+        upload = re.search(
+            r"struct k380_dynamic_macro_upload_session\s*\{(?P<body>.*?)\n\};",
+            protocol_source,
+            re.S,
+        )
+        runner = re.search(
+            r"struct k380_dynamic_macro_runner\s*\{(?P<body>.*?)\n\};",
+            macro_source,
+            re.S,
+        )
+        self.assertIsNotNone(upload)
+        self.assertIsNotNone(runner)
+        record = r"\bstruct\s+k380_dynamic_macro_record\s+record\s*;"
+        self.assertEqual(1, len(re.findall(record, upload.group("body"))))
+        self.assertEqual(1, len(re.findall(record, runner.group("body"))))
+        self.assertEqual(
+            1,
+            len(
+                re.findall(
+                    r"static\s+struct\s+k380_dynamic_macro_upload_session\s+"
+                    r"upload_session\s*;",
+                    protocol_source,
+                )
+            ),
+        )
+        self.assertEqual(
+            1,
+            len(
+                re.findall(
+                    r"static\s+struct\s+k380_dynamic_macro_runner\s+runner\s*;",
+                    macro_source,
+                )
+            ),
+        )
+
+    def test_formal_k380_ci_runs_every_macro_vm_suite(self):
+        source = read(".github/workflows/k380-ci.yml")
+
+        for suite in (
+            "dynamic-macro-vm-validate",
+            "dynamic-macro-store",
+            "dynamic-macro-vm",
+            "dynamic-protocol",
+            "dynamic-macro",
+            "dynamic-config",
+        ):
+            self.assertIn(
+                f"west twister -T zmk-keyboard-k380/tests/{suite} -p native_sim",
+                source,
+            )
+
+    def test_resource_map_gate_accepts_real_layout_and_rejects_regressions(self):
+        valid = """Memory Configuration
+
+Name             Origin             Length             Attributes
+FLASH            0x0000000000026000 0x00000000000a4000 xr
+RAM              0x0000000020000000 0x0000000000040000 xw
+
+Linker script and memory map
+ .bss.upload_session
+                0x0000000020001398      0x498 app/libapp.a(dynamic_protocol.c.obj)
+ .bss.runner    0x0000000020004694      0x4b8 app/libapp.a(dynamic_macro.c.obj)
+ .bss.write_snapshot
+                0x0000000020008e0e      0xa84 app/libapp.a(dynamic_settings.c.obj)
+ .bss.shared_config
+                0x0000000020009892      0xa84 app/libapp.a(dynamic_settings.c.obj)
+                0x00000000000383c0                _flash_used = ((LOADADDR (.last_section) + SIZEOF (.last_section)) - __rom_region_start)
+                0x00000000000114fc                _image_ram_size = (_image_ram_end - _image_ram_start)
+"""
+        validate_resource_map(valid)
+
+        regressions = {
+            "exactly one upload_session": valid.replace(
+                " .bss.runner", " .bss.upload_session 0x0000000020001830 0x498 app/libapp.a(dynamic_protocol.c.obj)\n .bss.runner"
+            ),
+            "shared_config exceeds 3000": valid.replace("0xa84 app/libapp.a(dynamic_settings.c.obj)\n                0x00000000000383c0", "0xbb9 app/libapp.a(dynamic_settings.c.obj)\n                0x00000000000383c0", 1),
+            "legacy shared_config": valid.replace("0xa84 app/libapp.a(dynamic_settings.c.obj)\n                0x00000000000383c0", "0x7384 app/libapp.a(dynamic_settings.c.obj)\n                0x00000000000383c0", 1),
+            "legacy baseline_config": valid.replace(
+                " .bss.shared_config", " .bss.baseline_config 0x0000000020009000 0x7384 app/libapp.a(dynamic_settings.c.obj)\n .bss.shared_config"
+            ),
+            "Flash usage": valid.replace("0x00000000000383c0", "0x00000000000a4001"),
+            "RAM usage": valid.replace("0x00000000000114fc", "0x0000000000040001"),
+        }
+        for message, resource_map in regressions.items():
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(AssertionError, message):
+                    validate_resource_map(resource_map)
+
+    def test_formal_k380_ci_invokes_resource_map_gate(self):
+        source = read(".github/workflows/k380-ci.yml")
+
+        self.assertIn(
+            "python3 zmk-keyboard-k380/tests/config-tool-contract/test_contract.py "
+            "--resource-map build/k380-firmware/zephyr/zmk.map",
+            source,
+        )
+
     def test_dynamic_base_config_has_no_embedded_macro_payloads(self):
         header = read(
             "zmk-keyboard-k380/include/zmk_keyboard_k380/dynamic_config.h"
@@ -140,4 +470,14 @@ class K380ConfigToolContract(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    if len(sys.argv) == 3 and sys.argv[1] == "--resource-map":
+        resource_map = Path(sys.argv[2])
+        measurements = validate_resource_map(resource_map.read_text(encoding="utf-8"))
+        print(
+            "K380 resource contract: "
+            + ", ".join(
+                f"{name}={value:#x}" for name, value in measurements.items()
+            )
+        )
+    else:
+        unittest.main()
