@@ -6,16 +6,13 @@
 #include <zephyr/kernel.h>
 #include <zephyr/settings/settings.h>
 
-#if defined(CONFIG_K380_DYNAMIC_MACRO_VM) && CONFIG_K380_DYNAMIC_MACRO_VM
-#include <zmk_keyboard_k380/dynamic_macro_store.h>
-#endif
 #include <zmk_keyboard_k380/dynamic_settings.h>
 
 #define K380_DYNAMIC_SETTINGS_ACTIVE K380_DYNAMIC_SETTINGS_ROOT "/active"
 #define K380_DYNAMIC_SETTINGS_LEGACY_BLOB K380_DYNAMIC_SETTINGS_ROOT "/blob"
 
 static struct k380_dynamic_config shared_config;
-static struct k380_dynamic_config baseline_config;
+static struct k380_dynamic_config write_snapshot;
 static struct k380_dynamic_config *load_target;
 static int load_status;
 K_MUTEX_DEFINE(shared_config_lock);
@@ -54,15 +51,6 @@ static int format_preset_key(char *key, size_t key_len, uint8_t preset,
     return check_formatted_len(
         snprintf(key, key_len, K380_DYNAMIC_SETTINGS_ROOT "/p/%u/%s", preset,
                  leaf),
-        key_len);
-}
-
-static int format_macro_key(char *key, size_t key_len, uint8_t preset,
-                            uint8_t slot)
-{
-    return check_formatted_len(
-        snprintf(key, key_len, K380_DYNAMIC_SETTINGS_ROOT "/p/%u/m/%u", preset,
-                 slot),
         key_len);
 }
 
@@ -149,17 +137,7 @@ static int load_record(const char *name, size_t len, settings_read_cb read_cb,
                           sizeof(target->bindings));
         goto done;
     }
-    if (!settings_name_steq(next, "m", &next)) {
-        return 0;
-    }
-
-    const int slot = parse_index(next, K380_DYNAMIC_MACRO_SLOT_COUNT, &next);
-    if (slot < 0 || next != NULL) {
-        return 0;
-    }
-
-    err = read_record(len, read_cb, cb_arg, &target->macros[slot],
-                      sizeof(target->macros[slot]));
+    return 0;
 
 done:
     if (err != 0 && load_status == 0) {
@@ -210,19 +188,6 @@ static int save_preset_key(uint8_t preset, const char *leaf, const void *value,
     return save_or_delete(key, value, value_len);
 }
 
-static int save_macro_key(uint8_t preset, uint8_t slot, const void *value,
-                          size_t value_len)
-{
-    char key[64];
-    int err = format_macro_key(key, sizeof(key), preset, slot);
-
-    if (err != 0) {
-        return err;
-    }
-
-    return save_or_delete(key, value, value_len);
-}
-
 static int delete_preset_key(uint8_t preset, const char *leaf)
 {
     char key[64];
@@ -234,20 +199,6 @@ static int delete_preset_key(uint8_t preset, const char *leaf)
 
     return settings_delete(key);
 }
-
-#if !defined(CONFIG_K380_DYNAMIC_MACRO_VM) || !CONFIG_K380_DYNAMIC_MACRO_VM
-static int delete_macro_key(uint8_t preset, uint8_t slot)
-{
-    char key[64];
-    int err = format_macro_key(key, sizeof(key), preset, slot);
-
-    if (err != 0) {
-        return err;
-    }
-
-    return settings_delete(key);
-}
-#endif
 
 static int save_changed_unlocked(const struct k380_dynamic_config *cfg,
                                  const struct k380_dynamic_config *baseline)
@@ -285,63 +236,12 @@ static int save_changed_unlocked(const struct k380_dynamic_config *cfg,
                 return err;
             }
         }
-
-        for (uint8_t slot = 0U; slot < K380_DYNAMIC_MACRO_SLOT_COUNT; slot++) {
-            if (memcmp(&current->macros[slot], &previous->macros[slot],
-                       sizeof(current->macros[slot])) == 0) {
-                continue;
-            }
-            err = save_macro_key(preset, slot, &current->macros[slot],
-                                 sizeof(current->macros[slot]));
-            if (err != 0) {
-                return err;
-            }
-        }
     }
 
     return 0;
 }
 
-int k380_dynamic_settings_load(struct k380_dynamic_config *cfg)
-{
-    int err;
-
-    if (cfg == NULL) {
-        return -EINVAL;
-    }
-
-    k_mutex_lock(&shared_config_lock, K_FOREVER);
-    err = load_unlocked(&shared_config);
-    if (err == 0) {
-        *cfg = shared_config;
-    }
-    k_mutex_unlock(&shared_config_lock);
-
-    return err;
-}
-
-int k380_dynamic_settings_save(const struct k380_dynamic_config *cfg)
-{
-    int err;
-
-    if (cfg == NULL || k380_dynamic_config_validate(cfg) != 0) {
-        return -EINVAL;
-    }
-
-    k_mutex_lock(&shared_config_lock, K_FOREVER);
-    err = load_unlocked(&baseline_config);
-    if (err == 0) {
-        err = save_changed_unlocked(cfg, &baseline_config);
-    }
-    if (err == 0) {
-        shared_config = *cfg;
-    }
-    k_mutex_unlock(&shared_config_lock);
-
-    return err;
-}
-
-int k380_dynamic_settings_with_config(k380_dynamic_settings_config_cb_t callback,
+int k380_dynamic_settings_with_config(k380_dynamic_settings_read_cb_t callback,
                                       void *user_data)
 {
     int err;
@@ -353,9 +253,6 @@ int k380_dynamic_settings_with_config(k380_dynamic_settings_config_cb_t callback
     k_mutex_lock(&shared_config_lock, K_FOREVER);
     err = load_unlocked(&shared_config);
     if (err == 0) {
-        baseline_config = shared_config;
-    }
-    if (err == 0) {
         err = callback(&shared_config, user_data);
     }
     k_mutex_unlock(&shared_config_lock);
@@ -363,7 +260,7 @@ int k380_dynamic_settings_with_config(k380_dynamic_settings_config_cb_t callback
     return err;
 }
 
-int k380_dynamic_settings_update(k380_dynamic_settings_config_cb_t callback,
+int k380_dynamic_settings_update(k380_dynamic_settings_update_cb_t callback,
                                  void *user_data)
 {
     int err;
@@ -375,7 +272,7 @@ int k380_dynamic_settings_update(k380_dynamic_settings_config_cb_t callback,
     k_mutex_lock(&shared_config_lock, K_FOREVER);
     err = load_unlocked(&shared_config);
     if (err == 0) {
-        baseline_config = shared_config;
+        write_snapshot = shared_config;
     }
     if (err == 0) {
         err = callback(&shared_config, user_data);
@@ -384,48 +281,53 @@ int k380_dynamic_settings_update(k380_dynamic_settings_config_cb_t callback,
         err = k380_dynamic_config_validate(&shared_config);
     }
     if (err == 0) {
-        err = save_changed_unlocked(&shared_config, &baseline_config);
+        err = save_changed_unlocked(&shared_config, &write_snapshot);
     }
     k_mutex_unlock(&shared_config_lock);
 
     return err;
 }
 
+static void record_first_error(int err, int *first_err)
+{
+    if (*first_err == 0 && err != 0) {
+        *first_err = err;
+    }
+}
+
+static int restore_preset_unlocked(uint8_t preset)
+{
+    int first_err = delete_preset_key(preset, "name");
+
+    record_first_error(delete_preset_key(preset, "bindings"), &first_err);
+    return first_err;
+}
+
+int k380_dynamic_settings_restore_preset(uint8_t preset)
+{
+    if (preset >= K380_DYNAMIC_PRESET_COUNT) {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&shared_config_lock, K_FOREVER);
+    const int err = restore_preset_unlocked(preset);
+    k_mutex_unlock(&shared_config_lock);
+    return err;
+}
+
 int k380_dynamic_settings_restore_all(void)
 {
-    int err = settings_delete(K380_DYNAMIC_SETTINGS_ACTIVE);
-    int first_err = err;
+    int first_err;
 
-    err = settings_delete(K380_DYNAMIC_SETTINGS_LEGACY_BLOB);
-    if (first_err == 0 && err != 0) {
-        first_err = err;
-    }
+    k_mutex_lock(&shared_config_lock, K_FOREVER);
+    first_err = settings_delete(K380_DYNAMIC_SETTINGS_ACTIVE);
+    record_first_error(settings_delete(K380_DYNAMIC_SETTINGS_LEGACY_BLOB),
+                       &first_err);
 
     for (uint8_t preset = 0U; preset < K380_DYNAMIC_PRESET_COUNT; preset++) {
-        err = delete_preset_key(preset, "name");
-        if (first_err == 0 && err != 0) {
-            first_err = err;
-        }
-
-        err = delete_preset_key(preset, "bindings");
-        if (first_err == 0 && err != 0) {
-            first_err = err;
-        }
-
-#if defined(CONFIG_K380_DYNAMIC_MACRO_VM) && CONFIG_K380_DYNAMIC_MACRO_VM
-        err = k380_dynamic_macro_store_restore_preset(preset);
-#else
-        for (uint8_t slot = 0U; slot < K380_DYNAMIC_MACRO_SLOT_COUNT; slot++) {
-            err = delete_macro_key(preset, slot);
-            if (first_err == 0 && err != 0) {
-                first_err = err;
-            }
-        }
-#endif
-        if (first_err == 0 && err != 0) {
-            first_err = err;
-        }
+        record_first_error(restore_preset_unlocked(preset), &first_err);
     }
 
+    k_mutex_unlock(&shared_config_lock);
     return first_err;
 }

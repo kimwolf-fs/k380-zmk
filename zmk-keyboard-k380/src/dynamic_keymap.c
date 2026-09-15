@@ -47,7 +47,7 @@ static int emit_keyboard_usage(uint16_t usage, bool pressed) {
     return err;
 }
 
-static int load_binding(struct k380_dynamic_config *cfg, void *user_data)
+static int load_binding(const struct k380_dynamic_config *cfg, void *user_data)
 {
     struct dispatch_context *ctx = user_data;
 

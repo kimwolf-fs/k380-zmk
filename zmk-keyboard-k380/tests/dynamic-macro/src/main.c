@@ -21,6 +21,7 @@
 #include "fake_settings.h"
 
 static struct k380_dynamic_config config;
+static struct k380_dynamic_macro legacy_macros[K380_DYNAMIC_MACRO_SLOT_COUNT];
 static bool physical_keys[256];
 static uint16_t emitted_usages[32];
 static bool emitted_states[32];
@@ -30,12 +31,7 @@ static struct k380_dynamic_macro_record trace_test_record;
 static struct k380_dynamic_macro_trace_event
     trace_test_events[K380_MACRO_VM_MAX_TRACE_EVENTS];
 
-int k380_dynamic_settings_load(struct k380_dynamic_config *cfg) {
-    *cfg = config;
-    return 0;
-}
-
-int k380_dynamic_settings_with_config(k380_dynamic_settings_config_cb_t callback,
+int k380_dynamic_settings_with_config(k380_dynamic_settings_read_cb_t callback,
                                       void *user_data) {
     return callback(&config, user_data);
 }
@@ -65,6 +61,7 @@ static void reset_fakes(void) {
     k380_dynamic_macro_stop();
     k_sleep(K_MSEC(25));
     k380_dynamic_config_init_defaults(&config);
+    memset(legacy_macros, 0, sizeof(legacy_macros));
     k380_dynamic_macro_test_settings_reset();
     memset(physical_keys, 0, sizeof(physical_keys));
     emitted_count = 0;
@@ -85,7 +82,7 @@ static void wait_until_stopped(void) {
 }
 
 static struct k380_dynamic_macro *macro(uint8_t slot) {
-    return &config.presets[0].macros[slot];
+    return &legacy_macros[slot];
 }
 
 static void sync_macro(uint8_t slot) {
@@ -98,7 +95,7 @@ static void sync_macro(uint8_t slot) {
     zassert_ok(k380_dynamic_macro_record_encode(&record, wire, sizeof(wire),
                                                 &wire_len));
     zassert_true(snprintf(key, sizeof(key),
-                          "k380/dynamic_config/v2/p/0/m/%u", slot) <
+                          "k380/dynamic_config/p/0/vm/%u", slot) <
                  (int)sizeof(key));
     k380_dynamic_macro_test_settings_put(key, wire, wire_len);
 }
@@ -328,7 +325,7 @@ ZTEST(dynamic_macro, test_saved_macro_load_and_v1_migration_run_on_macro_thread)
     zassert_not_equal(caller,
                       k380_dynamic_macro_test_settings_last_load_thread());
     zassert_true(k380_dynamic_macro_test_settings_has(
-        "k380/dynamic_config/v2/p/0/m/0"));
+        "k380/dynamic_config/p/0/vm/0"));
     zassert_false(k380_dynamic_macro_test_settings_has(
         "k380/dynamic_config/p/0/m/0"));
 }

@@ -30,6 +30,15 @@ static bool stored_record_valid[K380_DYNAMIC_PRESET_COUNT]
                                [K380_DYNAMIC_MACRO_SLOT_COUNT];
 static int store_save_result;
 static size_t store_save_calls;
+static int store_delete_result;
+static size_t store_delete_calls;
+static size_t settings_read_calls;
+static size_t settings_update_calls;
+static size_t settings_restore_preset_calls;
+static size_t settings_restore_all_calls;
+static int settings_restore_preset_result;
+static int settings_restore_all_result;
+static uint8_t last_restored_preset;
 static bool fake_macro_running;
 static struct k380_dynamic_macro_record last_test_record;
 static uint64_t fake_uptime_ms;
@@ -69,7 +78,7 @@ int k380_dynamic_macro_test_settings_load_subtree_direct(
     if (subtree == NULL || callback == NULL) {
         return -EINVAL;
     }
-    if (strcmp(subtree, K380_DYNAMIC_SETTINGS_ROOT "/v2") != 0) {
+    if (strcmp(subtree, K380_DYNAMIC_SETTINGS_ROOT) != 0) {
         return 0;
     }
     for (uint8_t preset = 0U; preset < K380_DYNAMIC_PRESET_COUNT; preset++) {
@@ -78,7 +87,7 @@ int k380_dynamic_macro_test_settings_load_subtree_direct(
                 continue;
             }
             char name[16];
-            snprintf(name, sizeof(name), "p/%u/m/%u", preset, slot);
+            snprintf(name, sizeof(name), "p/%u/vm/%u", preset, slot);
             const int err = callback(name,
                                      k380_dynamic_macro_record_wire_size(
                                          &stored_records[preset][slot]),
@@ -104,7 +113,7 @@ int k380_dynamic_macro_test_settings_save_one(const char *key,
         return store_save_result;
     }
     if (key == NULL || value == NULL ||
-        sscanf(key, K380_DYNAMIC_SETTINGS_ROOT "/v2/p/%u/m/%u", &preset,
+        sscanf(key, K380_DYNAMIC_SETTINGS_ROOT "/p/%u/vm/%u", &preset,
                &slot) != 2 || preset >= K380_DYNAMIC_PRESET_COUNT ||
         slot >= K380_DYNAMIC_MACRO_SLOT_COUNT ||
         k380_dynamic_macro_record_decode(&record, value, len) != 0) {
@@ -117,7 +126,18 @@ int k380_dynamic_macro_test_settings_save_one(const char *key,
 
 int k380_dynamic_macro_test_settings_delete(const char *key)
 {
-    ARG_UNUSED(key);
+    unsigned int preset;
+    unsigned int slot;
+
+    store_delete_calls++;
+    if (store_delete_result != 0) {
+        return store_delete_result;
+    }
+    if (sscanf(key, K380_DYNAMIC_SETTINGS_ROOT "/p/%u/vm/%u", &preset,
+               &slot) == 2 && preset < K380_DYNAMIC_PRESET_COUNT &&
+        slot < K380_DYNAMIC_MACRO_SLOT_COUNT) {
+        stored_record_valid[preset][slot] = false;
+    }
     return 0;
 }
 
@@ -208,19 +228,38 @@ int k380_dynamic_macro_trace_read(
     return (int)copied;
 }
 
-int k380_dynamic_settings_load(struct k380_dynamic_config *cfg) {
-    *cfg = config;
-    return 0;
+int k380_dynamic_settings_with_config(k380_dynamic_settings_read_cb_t callback,
+                                      void *user_data) {
+    settings_read_calls++;
+    return callback == NULL ? -EINVAL : callback(&config, user_data);
 }
 
-int k380_dynamic_settings_save(const struct k380_dynamic_config *cfg) {
-    config = *cfg;
-    return 0;
+int k380_dynamic_settings_update(k380_dynamic_settings_update_cb_t callback,
+                                 void *user_data) {
+    settings_update_calls++;
+    if (callback == NULL) {
+        return -EINVAL;
+    }
+    const int err = callback(&config, user_data);
+
+    return err == 0 ? k380_dynamic_config_validate(&config) : err;
+}
+
+int k380_dynamic_settings_restore_preset(uint8_t preset) {
+    settings_restore_preset_calls++;
+    last_restored_preset = preset;
+    if (settings_restore_preset_result == 0) {
+        k380_dynamic_config_restore_preset(&config, preset);
+    }
+    return settings_restore_preset_result;
 }
 
 int k380_dynamic_settings_restore_all(void) {
-    k380_dynamic_config_init_defaults(&config);
-    return 0;
+    settings_restore_all_calls++;
+    if (settings_restore_all_result == 0) {
+        k380_dynamic_config_init_defaults(&config);
+    }
+    return settings_restore_all_result;
 }
 
 int k380_dynamic_set_active_preset(uint8_t preset) {
@@ -366,10 +405,20 @@ static size_t make_begin_payload(uint8_t *payload, uint8_t operation,
 
 static void reset_test_state(void)
 {
+    k380_dynamic_config_init_defaults(&config);
     memset(stored_records, 0, sizeof(stored_records));
     memset(stored_record_valid, 0, sizeof(stored_record_valid));
     store_save_result = 0;
     store_save_calls = 0U;
+    store_delete_result = 0;
+    store_delete_calls = 0U;
+    settings_read_calls = 0U;
+    settings_update_calls = 0U;
+    settings_restore_preset_calls = 0U;
+    settings_restore_all_calls = 0U;
+    settings_restore_preset_result = 0;
+    settings_restore_all_result = 0;
+    last_restored_preset = 0U;
     fake_macro_running = false;
     memset(&last_test_record, 0, sizeof(last_test_record));
     fake_uptime_ms = 0U;
@@ -563,6 +612,97 @@ ZTEST(dynamic_protocol, test_info_exposes_v2_macro_transfer_limits)
                            sizeof(data), &data_len));
     zassert_equal(sizeof(expected), data_len);
     zassert_mem_equal(expected, data, sizeof(expected));
+}
+
+ZTEST(dynamic_protocol, test_base_reads_encode_inside_settings_callback)
+{
+    uint8_t data[160];
+    size_t data_len;
+    const uint8_t request[] = {1U, K380_DYNAMIC_PRESET_SECTION_NAME};
+
+    reset_test_state();
+    config.active_preset = 2U;
+    memcpy(config.presets[1].name, "work", 4U);
+
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_GET_PRESETS, 51U, NULL, 0U,
+                           data, sizeof(data), &data_len));
+    zassert_equal(1U, settings_read_calls);
+    zassert_equal(0U, settings_update_calls);
+    zassert_equal(2U, data[0]);
+
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_GET_PRESET, 52U, request,
+                           sizeof(request), data, sizeof(data), &data_len));
+    zassert_equal(2U, settings_read_calls);
+    zassert_equal(0U, settings_update_calls);
+    zassert_mem_equal("work", &data[3], 4U);
+}
+
+ZTEST(dynamic_protocol, test_base_mutations_use_settings_update_callback)
+{
+    uint8_t save_name[2U + K380_DYNAMIC_MACRO_NAME_MAX_BYTES] = {
+        1U, K380_DYNAMIC_PRESET_SECTION_NAME};
+    uint8_t restore_key[] = {1U, 0U, 3U};
+    uint8_t data[8];
+    size_t data_len;
+
+    reset_test_state();
+    memcpy(&save_name[2], "gaming", 6U);
+    config.presets[1].bindings[0][3].type = K380_DYNAMIC_BINDING_KEY;
+    config.presets[1].bindings[0][3].value.key_usage = 4U;
+
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_SAVE_PRESET, 53U, save_name,
+                           sizeof(save_name), data, sizeof(data), &data_len));
+    zassert_equal(1U, settings_update_calls);
+    zassert_equal(0U, settings_read_calls);
+    zassert_mem_equal("gaming", config.presets[1].name, 6U);
+
+    zassert_equal(K380_DYNAMIC_RESULT_READY,
+                  transact(K380_DYNAMIC_COMMAND_RESTORE_KEY, 54U, restore_key,
+                           sizeof(restore_key), data, sizeof(data), &data_len));
+    zassert_equal(2U, settings_update_calls);
+    zassert_equal(K380_DYNAMIC_BINDING_DEFAULT,
+                  config.presets[1].bindings[0][3].type);
+}
+
+ZTEST(dynamic_protocol,
+      test_restore_preset_attempts_base_and_macro_and_returns_first_error)
+{
+    uint8_t request[] = {2U};
+    uint8_t data[8];
+    size_t data_len;
+
+    reset_test_state();
+    settings_restore_preset_result = -EINVAL;
+    store_delete_result = -EIO;
+
+    zassert_equal(K380_DYNAMIC_RESULT_INVALID_ARGUMENT,
+                  transact(K380_DYNAMIC_COMMAND_RESTORE_PRESET, 55U, request,
+                           sizeof(request), data, sizeof(data), &data_len));
+    zassert_equal(1U, settings_restore_preset_calls);
+    zassert_equal(2U, last_restored_preset);
+    zassert_equal(3U * K380_DYNAMIC_MACRO_SLOT_COUNT, store_delete_calls);
+}
+
+ZTEST(dynamic_protocol,
+      test_restore_all_attempts_base_and_macro_and_returns_first_error)
+{
+    uint8_t data[8];
+    size_t data_len;
+
+    reset_test_state();
+    settings_restore_all_result = -EINVAL;
+    store_delete_result = -EIO;
+
+    zassert_equal(K380_DYNAMIC_RESULT_INVALID_ARGUMENT,
+                  transact(K380_DYNAMIC_COMMAND_RESTORE_ALL, 56U, NULL, 0U,
+                           data, sizeof(data), &data_len));
+    zassert_equal(1U, settings_restore_all_calls);
+    zassert_equal(3U * K380_DYNAMIC_PRESET_COUNT *
+                      K380_DYNAMIC_MACRO_SLOT_COUNT,
+                  store_delete_calls);
 }
 
 ZTEST(dynamic_protocol, test_macro_meta_returns_saved_record_and_empty_slot)

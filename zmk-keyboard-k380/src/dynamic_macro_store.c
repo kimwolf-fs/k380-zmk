@@ -27,10 +27,8 @@ extern int k380_dynamic_macro_test_settings_delete(const char *key);
 #define settings_delete k380_dynamic_macro_test_settings_delete
 #endif
 
-#define K380_DYNAMIC_MACRO_V2_SETTINGS_ROOT \
+#define K380_DYNAMIC_MACRO_TEMP_SETTINGS_ROOT \
     K380_DYNAMIC_SETTINGS_ROOT "/v2"
-#define K380_DYNAMIC_MACRO_V2_SETTINGS_PREFIX \
-    K380_DYNAMIC_MACRO_V2_SETTINGS_ROOT "/p"
 
 BUILD_ASSERT(sizeof(struct k380_dynamic_macro) == 0x1a4U,
              "legacy macro settings record layout changed");
@@ -47,6 +45,8 @@ static uint8_t legacy_preset;
 static uint8_t legacy_slot;
 static uint8_t store_wire_scratch[K380_DYNAMIC_MACRO_RECORD_MAX_BYTES];
 static struct k380_dynamic_macro legacy_scratch;
+static char final_record_leaf[] = "vm";
+static char temporary_record_leaf[] = "m";
 
 static bool is_keyboard_keypad_usage(uint16_t usage)
 {
@@ -76,12 +76,22 @@ static int check_formatted_len(int written, size_t capacity)
     return written < 0 || (size_t)written >= capacity ? -ENAMETOOLONG : 0;
 }
 
-static int format_v2_key(char *key, size_t key_len, uint8_t preset,
-                         uint8_t slot)
+static int format_final_key(char *key, size_t key_len, uint8_t preset,
+                            uint8_t slot)
 {
     return check_formatted_len(
-        snprintf(key, key_len, K380_DYNAMIC_MACRO_V2_SETTINGS_PREFIX
-                              "/%u/m/%u", preset, slot),
+        snprintf(key, key_len, K380_DYNAMIC_SETTINGS_ROOT "/p/%u/vm/%u",
+                 preset, slot),
+        key_len);
+}
+
+static int format_temporary_key(char *key, size_t key_len, uint8_t preset,
+                                uint8_t slot)
+{
+    return check_formatted_len(
+        snprintf(key, key_len,
+                 K380_DYNAMIC_MACRO_TEMP_SETTINGS_ROOT "/p/%u/m/%u", preset,
+                 slot),
         key_len);
 }
 
@@ -314,17 +324,17 @@ static int read_wire(size_t len, settings_read_cb read_cb, void *cb_arg,
     return read_len < 0 ? read_len : (size_t)read_len == len ? 0 : -EMSGSIZE;
 }
 
-static int load_v2_record(const char *name, size_t len,
-                          settings_read_cb read_cb, void *cb_arg,
-                          void *param)
+static int load_wire_record(const char *name, size_t len,
+                            settings_read_cb read_cb, void *cb_arg,
+                            void *param)
 {
-    (void)param;
+    const char *leaf = param;
     const char *next = NULL;
     if (!settings_name_steq(name, "p", &next)) {
         return 0;
     }
     int preset = parse_index(next, K380_DYNAMIC_PRESET_COUNT, &next);
-    if (preset < 0 || next == NULL || !settings_name_steq(next, "m", &next)) {
+    if (preset < 0 || next == NULL || !settings_name_steq(next, leaf, &next)) {
         return 0;
     }
     int slot = parse_index(next, K380_DYNAMIC_MACRO_SLOT_COUNT, &next);
@@ -348,7 +358,8 @@ static int load_v2_record(const char *name, size_t len,
     return err;
 }
 
-static int load_record_from_settings(uint8_t preset, uint8_t slot,
+static int load_record_from_settings(const char *root, void *leaf,
+                                     uint8_t preset, uint8_t slot,
                                      struct k380_dynamic_macro_record *record)
 {
     memset(record, 0, sizeof(*record));
@@ -357,8 +368,7 @@ static int load_record_from_settings(uint8_t preset, uint8_t slot,
     load_target = record;
     load_found = false;
     load_status = 0;
-    int err = settings_load_subtree_direct(K380_DYNAMIC_MACRO_V2_SETTINGS_ROOT,
-                                            load_v2_record, NULL);
+    int err = settings_load_subtree_direct(root, load_wire_record, leaf);
     load_target = NULL;
     if (err != 0) {
         return err;
@@ -448,7 +458,7 @@ static int save_record_unlocked(uint8_t preset, uint8_t slot,
         return err;
     }
     char key[64];
-    err = format_v2_key(key, sizeof(key), preset, slot);
+    err = format_final_key(key, sizeof(key), preset, slot);
     return err == 0 ? settings_save_one(key, store_wire_scratch, wire_len)
                     : err;
 }
@@ -461,7 +471,24 @@ int k380_dynamic_macro_store_load(uint8_t preset, uint8_t slot,
         return -EINVAL;
     }
     k380_dynamic_settings_lock();
-    int err = load_record_from_settings(preset, slot, record);
+    int err = load_record_from_settings(K380_DYNAMIC_SETTINGS_ROOT,
+                                        final_record_leaf, preset, slot,
+                                        record);
+    if (err == -ENOENT) {
+        err = load_record_from_settings(K380_DYNAMIC_MACRO_TEMP_SETTINGS_ROOT,
+                                        temporary_record_leaf, preset, slot,
+                                        record);
+        if (err == 0) {
+            err = save_record_unlocked(preset, slot, record);
+            if (err == 0) {
+                char key[64];
+                err = format_temporary_key(key, sizeof(key), preset, slot);
+                if (err == 0) {
+                    err = settings_delete(key);
+                }
+            }
+        }
+    }
     if (err == -ENOENT) {
         err = load_legacy_record(preset, slot, &legacy_scratch);
         if (err == 0) {
@@ -508,12 +535,20 @@ int k380_dynamic_macro_store_restore_slot(uint8_t preset, uint8_t slot)
     char key[64];
     k380_dynamic_settings_lock();
 
-    int first_err = format_v2_key(key, sizeof(key), preset, slot);
+    int first_err = format_final_key(key, sizeof(key), preset, slot);
     if (first_err == 0) {
         first_err = settings_delete(key);
     }
 
-    int err = format_legacy_key(key, sizeof(key), preset, slot);
+    int err = format_temporary_key(key, sizeof(key), preset, slot);
+    if (err == 0) {
+        err = settings_delete(key);
+    }
+    if (first_err == 0 && err != 0) {
+        first_err = err;
+    }
+
+    err = format_legacy_key(key, sizeof(key), preset, slot);
     if (err == 0) {
         err = settings_delete(key);
     }

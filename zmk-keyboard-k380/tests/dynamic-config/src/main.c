@@ -19,7 +19,7 @@ ZTEST(dynamic_config, test_defaults_are_valid)
     zassert_equal(0, cfg.active_preset);
     zassert_equal(K380_DYNAMIC_PRESET_COUNT, 4);
     zassert_equal(K380_DYNAMIC_MACRO_SLOT_COUNT, 16);
-    zassert_equal(K380_DYNAMIC_MACRO_MAX_STEPS, 64);
+    zassert_true(sizeof(cfg) <= 3000U);
 }
 
 ZTEST(dynamic_config, test_restore_all_resets_presets_but_not_external_settings)
@@ -34,7 +34,6 @@ ZTEST(dynamic_config, test_restore_all_resets_presets_but_not_external_settings)
             .type = K380_DYNAMIC_BINDING_KEY;
         cfg.presets[preset].bindings[preset % K380_DYNAMIC_LAYER_COUNT][preset]
             .value.key_usage = 0x4A + preset;
-        cfg.presets[preset].macros[preset].step_count = preset + 1;
     }
 
     k380_dynamic_config_restore_all(&cfg);
@@ -49,7 +48,7 @@ ZTEST(dynamic_config, test_restore_all_resets_presets_but_not_external_settings)
     zassert_equal(0, k380_dynamic_config_validate(&cfg));
 }
 
-ZTEST(dynamic_config, test_invalid_macro_limits_are_rejected)
+ZTEST(dynamic_config, test_invalid_base_config_limits_are_rejected)
 {
     struct k380_dynamic_config cfg;
 
@@ -64,46 +63,7 @@ ZTEST(dynamic_config, test_invalid_macro_limits_are_rejected)
     zassert_not_equal(0, k380_dynamic_config_validate(&cfg));
 
     k380_dynamic_config_init_defaults(&cfg);
-
-    cfg.presets[0].macros[0].step_count = K380_DYNAMIC_MACRO_MAX_STEPS + 1;
-    zassert_not_equal(0, k380_dynamic_config_validate(&cfg));
-
-    k380_dynamic_config_init_defaults(&cfg);
-    cfg.presets[0].macros[0].step_count = 1;
-    cfg.presets[0].macros[0].steps[0].type = K380_DYNAMIC_MACRO_WAIT_MS;
-    cfg.presets[0].macros[0].steps[0].value.wait_ms = 1;
-    zassert_equal(0, k380_dynamic_config_validate(&cfg));
-
-    cfg.presets[0].macros[0].steps[0].value.wait_ms = 60000;
-    zassert_equal(0, k380_dynamic_config_validate(&cfg));
-
-    cfg.presets[0].macros[0].steps[0].value.wait_ms = 60001;
-    zassert_not_equal(0, k380_dynamic_config_validate(&cfg));
-
-    k380_dynamic_config_init_defaults(&cfg);
-    cfg.presets[0].macros[0].step_count = 1;
-    cfg.presets[0].macros[0].steps[0].type = K380_DYNAMIC_MACRO_WAIT_RANDOM;
-    cfg.presets[0].macros[0].steps[0].value.wait_random.min_ms = 1;
-    cfg.presets[0].macros[0].steps[0].value.wait_random.max_ms = 60000;
-    zassert_equal(0, k380_dynamic_config_validate(&cfg));
-
-    cfg.presets[0].macros[0].steps[0].value.wait_random.min_ms = 60000;
-    cfg.presets[0].macros[0].steps[0].value.wait_random.max_ms = 60000;
-    zassert_equal(0, k380_dynamic_config_validate(&cfg));
-
-    cfg.presets[0].macros[0].steps[0].value.wait_random.min_ms = 2;
-    cfg.presets[0].macros[0].steps[0].value.wait_random.max_ms = 1;
-    zassert_not_equal(0, k380_dynamic_config_validate(&cfg));
-
-    k380_dynamic_config_init_defaults(&cfg);
-    cfg.presets[0].macros[0].trigger = K380_DYNAMIC_MACRO_TRIGGER_COUNT;
-    cfg.presets[0].macros[0].count = 1;
-    zassert_equal(0, k380_dynamic_config_validate(&cfg));
-
-    cfg.presets[0].macros[0].count = 65535;
-    zassert_equal(0, k380_dynamic_config_validate(&cfg));
-
-    cfg.presets[0].macros[0].count = 0;
+    cfg.presets[0].bindings[0][0].type = K380_DYNAMIC_BINDING_MACRO + 1U;
     zassert_not_equal(0, k380_dynamic_config_validate(&cfg));
 }
 
@@ -115,7 +75,6 @@ ZTEST(dynamic_config, test_restore_helpers_ignore_invalid_indexes)
     k380_dynamic_config_init_defaults(&cfg);
     cfg.presets[0].bindings[0][0].type = K380_DYNAMIC_BINDING_KEY;
     cfg.presets[0].bindings[0][0].value.key_usage = 0x4A;
-    cfg.presets[0].macros[0].step_count = 1;
     before = cfg;
 
     k380_dynamic_config_restore_key(&cfg, K380_DYNAMIC_PRESET_COUNT, 0, 0);

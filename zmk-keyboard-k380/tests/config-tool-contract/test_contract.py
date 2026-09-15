@@ -28,6 +28,28 @@ def binding_refs(layer_body):
 
 
 class K380ConfigToolContract(unittest.TestCase):
+    def test_dynamic_base_config_has_no_embedded_macro_payloads(self):
+        header = read(
+            "zmk-keyboard-k380/include/zmk_keyboard_k380/dynamic_config.h"
+        )
+        preset = re.search(
+            r"struct k380_dynamic_preset\s*\{(?P<body>.*?)\n\};",
+            header,
+            re.S,
+        )
+
+        self.assertIsNotNone(preset)
+        self.assertNotRegex(preset.group("body"), r"\bmacros\s*\[")
+        self.assertIn(
+            "_Static_assert(sizeof(struct k380_dynamic_config) <= 3000U",
+            header,
+        )
+
+        settings_source = read("zmk-keyboard-k380/src/dynamic_settings.c")
+        protocol_source = read("zmk-keyboard-k380/src/dynamic_protocol.c")
+        self.assertNotRegex(settings_source, r"\bbaseline_config\b")
+        self.assertNotRegex(protocol_source, r"\bprotocol_config\b")
+
     def test_config_tool_symbol_owns_host_configuration_channel(self):
         source = read("zmk-keyboard-k380/Kconfig")
         body = kconfig_body(source, "K380_CONFIG_TOOL")

@@ -29,6 +29,17 @@ static void make_record(struct k380_dynamic_macro_record *record)
     memcpy(record->package, canonical_package, sizeof(canonical_package));
 }
 
+static void put_record(const char *key,
+                       const struct k380_dynamic_macro_record *record)
+{
+    uint8_t wire[K380_DYNAMIC_MACRO_RECORD_MAX_BYTES];
+    size_t wire_len = 0U;
+
+    zassert_ok(k380_dynamic_macro_record_encode(record, wire, sizeof(wire),
+                                                &wire_len));
+    k380_dynamic_macro_test_settings_put(key, wire, wire_len);
+}
+
 static void make_legacy(struct k380_dynamic_macro *legacy)
 {
     memset(legacy, 0, sizeof(*legacy));
@@ -162,7 +173,82 @@ ZTEST(dynamic_macro_store, test_missing_slot_is_canonical_empty)
                       sizeof(loaded));
 }
 
-ZTEST(dynamic_macro_store, test_legacy_migration_saves_v2_before_deleting_v1)
+ZTEST(dynamic_macro_store, test_final_record_wins_over_temporary_and_legacy)
+{
+    struct k380_dynamic_macro_record final_record;
+    struct k380_dynamic_macro_record temporary_record;
+    struct k380_dynamic_macro legacy;
+    struct k380_dynamic_macro_record loaded;
+
+    k380_dynamic_macro_test_settings_reset();
+    make_record(&final_record);
+    make_record(&temporary_record);
+    temporary_record.name[0] = 'x';
+    make_legacy(&legacy);
+    put_record("k380/dynamic_config/p/0/vm/0", &final_record);
+    put_record("k380/dynamic_config/v2/p/0/m/0", &temporary_record);
+    k380_dynamic_macro_test_settings_put(
+        "k380/dynamic_config/p/0/m/0", &legacy, sizeof(legacy));
+
+    zassert_ok(k380_dynamic_macro_store_load(0U, 0U, &loaded));
+    zassert_equal('t', loaded.name[0]);
+    zassert_true(k380_dynamic_macro_test_settings_has(
+        "k380/dynamic_config/v2/p/0/m/0"));
+    zassert_true(k380_dynamic_macro_test_settings_has(
+        "k380/dynamic_config/p/0/m/0"));
+    zassert_equal(0U, k380_dynamic_macro_test_settings_operation_count());
+}
+
+ZTEST(dynamic_macro_store,
+      test_temporary_migration_saves_final_before_deleting_temporary)
+{
+    struct k380_dynamic_macro_record temporary_record;
+    struct k380_dynamic_macro legacy;
+    struct k380_dynamic_macro_record loaded;
+
+    k380_dynamic_macro_test_settings_reset();
+    make_record(&temporary_record);
+    make_legacy(&legacy);
+    legacy.name[0] = 'l';
+    put_record("k380/dynamic_config/v2/p/0/m/0", &temporary_record);
+    k380_dynamic_macro_test_settings_put(
+        "k380/dynamic_config/p/0/m/0", &legacy, sizeof(legacy));
+
+    zassert_ok(k380_dynamic_macro_store_load(0U, 0U, &loaded));
+    zassert_equal('t', loaded.name[0]);
+    zassert_true(k380_dynamic_macro_test_settings_has(
+        "k380/dynamic_config/p/0/vm/0"));
+    zassert_false(k380_dynamic_macro_test_settings_has(
+        "k380/dynamic_config/v2/p/0/m/0"));
+    zassert_true(k380_dynamic_macro_test_settings_has(
+        "k380/dynamic_config/p/0/m/0"));
+    zassert_equal(2U, k380_dynamic_macro_test_settings_operation_count());
+    zassert_equal(0, strcmp("save:k380/dynamic_config/p/0/vm/0",
+                             k380_dynamic_macro_test_settings_operation(0U)));
+    zassert_equal(0, strcmp("delete:k380/dynamic_config/v2/p/0/m/0",
+                             k380_dynamic_macro_test_settings_operation(1U)));
+}
+
+ZTEST(dynamic_macro_store, test_failed_temporary_migration_preserves_source)
+{
+    struct k380_dynamic_macro_record temporary_record;
+    struct k380_dynamic_macro_record loaded;
+
+    k380_dynamic_macro_test_settings_reset();
+    make_record(&temporary_record);
+    put_record("k380/dynamic_config/v2/p/0/m/0", &temporary_record);
+    k380_dynamic_macro_test_settings_fail_next_save();
+
+    zassert_equal(-EIO,
+                  k380_dynamic_macro_store_load(0U, 0U, &loaded));
+    zassert_false(k380_dynamic_macro_test_settings_has(
+        "k380/dynamic_config/p/0/vm/0"));
+    zassert_true(k380_dynamic_macro_test_settings_has(
+        "k380/dynamic_config/v2/p/0/m/0"));
+    zassert_equal(1U, k380_dynamic_macro_test_settings_operation_count());
+}
+
+ZTEST(dynamic_macro_store, test_legacy_migration_saves_final_before_deleting_v1)
 {
     struct k380_dynamic_macro legacy;
     struct k380_dynamic_macro_record loaded;
@@ -176,9 +262,9 @@ ZTEST(dynamic_macro_store, test_legacy_migration_saves_v2_before_deleting_v1)
     zassert_false(k380_dynamic_macro_test_settings_has(
         "k380/dynamic_config/p/0/m/0"));
     zassert_true(k380_dynamic_macro_test_settings_has(
-        "k380/dynamic_config/v2/p/0/m/0"));
+        "k380/dynamic_config/p/0/vm/0"));
     zassert_equal(2U, k380_dynamic_macro_test_settings_operation_count());
-    zassert_equal(0, strcmp("save:k380/dynamic_config/v2/p/0/m/0",
+    zassert_equal(0, strcmp("save:k380/dynamic_config/p/0/vm/0",
                              k380_dynamic_macro_test_settings_operation(0U)));
     zassert_equal(0, strcmp("delete:k380/dynamic_config/p/0/m/0",
                              k380_dynamic_macro_test_settings_operation(1U)));
@@ -199,11 +285,11 @@ ZTEST(dynamic_macro_store, test_failed_migration_write_preserves_v1)
     zassert_true(k380_dynamic_macro_test_settings_has(
         "k380/dynamic_config/p/0/m/0"));
     zassert_false(k380_dynamic_macro_test_settings_has(
-        "k380/dynamic_config/v2/p/0/m/0"));
+        "k380/dynamic_config/p/0/vm/0"));
     zassert_equal(1U, k380_dynamic_macro_test_settings_operation_count());
 }
 
-ZTEST(dynamic_macro_store, test_restore_slot_deletes_both_versions)
+ZTEST(dynamic_macro_store, test_restore_slot_deletes_all_three_paths)
 {
     struct k380_dynamic_macro_record record;
     struct k380_dynamic_macro legacy;
@@ -211,21 +297,23 @@ ZTEST(dynamic_macro_store, test_restore_slot_deletes_both_versions)
     k380_dynamic_macro_test_settings_reset();
     make_record(&record);
     make_legacy(&legacy);
-    k380_dynamic_macro_test_settings_put(
-        "k380/dynamic_config/v2/p/0/m/0", &record,
-        k380_dynamic_macro_record_wire_size(&record));
+    put_record("k380/dynamic_config/p/0/vm/0", &record);
+    put_record("k380/dynamic_config/v2/p/0/m/0", &record);
     k380_dynamic_macro_test_settings_put(
         "k380/dynamic_config/p/0/m/0", &legacy, sizeof(legacy));
 
     zassert_ok(k380_dynamic_macro_store_restore_slot(0U, 0U));
     zassert_false(k380_dynamic_macro_test_settings_has(
+        "k380/dynamic_config/p/0/vm/0"));
+    zassert_false(k380_dynamic_macro_test_settings_has(
         "k380/dynamic_config/v2/p/0/m/0"));
     zassert_false(k380_dynamic_macro_test_settings_has(
                   "k380/dynamic_config/p/0/m/0"));
+    zassert_equal(3U, k380_dynamic_macro_test_settings_operation_count());
 }
 
 ZTEST(dynamic_macro_store,
-      test_restore_slot_attempts_legacy_delete_after_v2_delete_failure)
+      test_restore_slot_attempts_remaining_deletes_after_final_failure)
 {
     struct k380_dynamic_macro_record record;
     struct k380_dynamic_macro legacy;
@@ -233,19 +321,20 @@ ZTEST(dynamic_macro_store,
     k380_dynamic_macro_test_settings_reset();
     make_record(&record);
     make_legacy(&legacy);
-    k380_dynamic_macro_test_settings_put(
-        "k380/dynamic_config/v2/p/0/m/0", &record,
-        k380_dynamic_macro_record_wire_size(&record));
+    put_record("k380/dynamic_config/p/0/vm/0", &record);
+    put_record("k380/dynamic_config/v2/p/0/m/0", &record);
     k380_dynamic_macro_test_settings_put(
         "k380/dynamic_config/p/0/m/0", &legacy, sizeof(legacy));
     k380_dynamic_macro_test_settings_fail_next_delete();
 
     zassert_equal(-EIO, k380_dynamic_macro_store_restore_slot(0U, 0U));
     zassert_true(k380_dynamic_macro_test_settings_has(
+        "k380/dynamic_config/p/0/vm/0"));
+    zassert_false(k380_dynamic_macro_test_settings_has(
         "k380/dynamic_config/v2/p/0/m/0"));
     zassert_false(k380_dynamic_macro_test_settings_has(
         "k380/dynamic_config/p/0/m/0"));
-    zassert_equal(2U, k380_dynamic_macro_test_settings_operation_count());
+    zassert_equal(3U, k380_dynamic_macro_test_settings_operation_count());
 }
 
 ZTEST(dynamic_macro_store, test_invalid_indexes_are_rejected)

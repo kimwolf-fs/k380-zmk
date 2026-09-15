@@ -24,7 +24,8 @@ static int set_active_preset(struct k380_dynamic_config *cfg, void *user_data)
     return 0;
 }
 
-static int get_active_preset(struct k380_dynamic_config *cfg, void *user_data)
+static int get_active_preset(const struct k380_dynamic_config *cfg,
+                             void *user_data)
 {
     uint8_t *preset = user_data;
 
