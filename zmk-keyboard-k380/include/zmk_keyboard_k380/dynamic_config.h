@@ -68,7 +68,6 @@ struct k380_dynamic_preset {
     uint8_t name[K380_DYNAMIC_MACRO_NAME_MAX_BYTES];
     struct k380_dynamic_binding
         bindings[K380_DYNAMIC_LAYER_COUNT][K380_DYNAMIC_KEY_COUNT];
-    struct k380_dynamic_macro macros[K380_DYNAMIC_MACRO_SLOT_COUNT];
 };
 
 struct k380_dynamic_config {
@@ -76,6 +75,9 @@ struct k380_dynamic_config {
     uint8_t reserved[3];
     struct k380_dynamic_preset presets[K380_DYNAMIC_PRESET_COUNT];
 };
+
+_Static_assert(sizeof(struct k380_dynamic_config) <= 3000U,
+               "dynamic base config exceeds RAM budget");
 
 void k380_dynamic_config_init_defaults(struct k380_dynamic_config *cfg);
 int k380_dynamic_config_validate(const struct k380_dynamic_config *cfg);

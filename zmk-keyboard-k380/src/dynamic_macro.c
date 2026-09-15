@@ -352,7 +352,7 @@ static int start_saved_record(uint8_t preset, uint8_t slot)
     return err;
 }
 
-static int load_active_preset(struct k380_dynamic_config *config,
+static int load_active_preset(const struct k380_dynamic_config *config,
                               void *user_data)
 {
     uint8_t *preset = user_data;

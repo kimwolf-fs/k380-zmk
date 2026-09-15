@@ -19,7 +19,6 @@ static uint16_t get_le16(const uint8_t *value) { return sys_get_le16(value); }
 
 static void put_le16(uint16_t value, uint8_t *out) { sys_put_le16(value, out); }
 
-static struct k380_dynamic_config protocol_config;
 static uint8_t protocol_payload[K380_DYNAMIC_MAX_PAYLOAD - 1U];
 
 enum k380_dynamic_macro_upload_operation {
@@ -159,6 +158,100 @@ static enum k380_dynamic_result decode_bindings(struct k380_dynamic_preset *pres
         }
     }
     return K380_DYNAMIC_RESULT_READY;
+}
+
+struct get_presets_context {
+    uint8_t *out;
+    size_t *out_len;
+};
+
+static int get_presets(const struct k380_dynamic_config *config,
+                       void *user_data)
+{
+    struct get_presets_context *ctx = user_data;
+    size_t offset = 1U;
+
+    ctx->out[0] = config->active_preset;
+    for (uint8_t preset = 0U; preset < K380_DYNAMIC_PRESET_COUNT; preset++) {
+        ctx->out[offset++] = preset;
+        memcpy(&ctx->out[offset], config->presets[preset].name,
+               K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
+        offset += K380_DYNAMIC_MACRO_NAME_MAX_BYTES;
+    }
+    *ctx->out_len = offset;
+    return 0;
+}
+
+struct get_preset_context {
+    uint8_t preset;
+    uint8_t section;
+    uint8_t *out;
+    size_t *out_len;
+};
+
+static int get_preset(const struct k380_dynamic_config *config,
+                      void *user_data)
+{
+    struct get_preset_context *ctx = user_data;
+    const struct k380_dynamic_preset *preset =
+        &config->presets[ctx->preset];
+
+    ctx->out[0] = config->active_preset;
+    ctx->out[1] = ctx->preset;
+    ctx->out[2] = ctx->section;
+    if (ctx->section == K380_DYNAMIC_PRESET_SECTION_BINDINGS) {
+        size_t section_len;
+
+        encode_bindings(preset, &ctx->out[3], &section_len);
+        *ctx->out_len = section_len + 3U;
+    } else {
+        memcpy(&ctx->out[3], preset->name,
+               K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
+        *ctx->out_len = K380_DYNAMIC_MACRO_NAME_MAX_BYTES + 3U;
+    }
+    return 0;
+}
+
+struct save_preset_context {
+    uint8_t preset;
+    uint8_t section;
+    const uint8_t *data;
+    size_t data_len;
+};
+
+static int save_preset(struct k380_dynamic_config *config, void *user_data)
+{
+    const struct save_preset_context *ctx = user_data;
+    struct k380_dynamic_preset *preset = &config->presets[ctx->preset];
+
+    if (ctx->section == K380_DYNAMIC_PRESET_SECTION_BINDINGS) {
+        return decode_bindings(preset, ctx->data, ctx->data_len) ==
+                       K380_DYNAMIC_RESULT_READY
+                   ? 0
+                   : -EINVAL;
+    }
+    memcpy(preset->name, ctx->data, K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
+    return 0;
+}
+
+struct restore_key_context {
+    uint8_t preset;
+    uint8_t layer;
+    uint8_t key;
+};
+
+static int restore_key(struct k380_dynamic_config *config, void *user_data)
+{
+    const struct restore_key_context *ctx = user_data;
+
+    k380_dynamic_config_restore_key(config, ctx->preset, ctx->layer,
+                                    ctx->key);
+    return 0;
+}
+
+static int first_error(int first, int second)
+{
+    return first != 0 ? first : second;
 }
 
 static uint32_t package_crc32_without_field(const uint8_t *package,
@@ -541,9 +634,6 @@ static enum k380_dynamic_result handle_stop_macro(
 static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *payload,
                                                 size_t payload_len, uint8_t *out, size_t *out_len)
 {
-    struct k380_dynamic_config *config = &protocol_config;
-    int err;
-
     *out_len = 0;
     if (!k380_dynamic_protocol_is_unlocked()) {
         return K380_DYNAMIC_RESULT_LOCKED;
@@ -603,67 +693,60 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
         return handle_stop_macro(payload, payload_len);
     }
 
-    err = k380_dynamic_settings_load(config);
-    if (err != 0) {
-        return result_from_error(err, false);
-    }
     if (command == K380_DYNAMIC_COMMAND_GET_PRESETS) {
         if (payload_len != 0U) {
             return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
         }
-        out[0] = config->active_preset;
-        size_t offset = 1U;
-        for (uint8_t preset = 0; preset < K380_DYNAMIC_PRESET_COUNT; preset++) {
-            out[offset++] = preset;
-            memcpy(&out[offset], config->presets[preset].name, K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
-            offset += K380_DYNAMIC_MACRO_NAME_MAX_BYTES;
-        }
-        *out_len = offset;
-        return K380_DYNAMIC_RESULT_READY;
+        struct get_presets_context ctx = {
+            .out = out,
+            .out_len = out_len,
+        };
+        return result_from_error(
+            k380_dynamic_settings_with_config(get_presets, &ctx), false);
     }
     if (command == K380_DYNAMIC_COMMAND_GET_PRESET) {
         if (payload_len < 2U || payload[0] >= K380_DYNAMIC_PRESET_COUNT) {
             return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
-        const uint8_t preset = payload[0];
-        const uint8_t section = payload[1];
-        out[0] = config->active_preset;
-        out[1] = preset;
-        out[2] = section;
-        if (section == K380_DYNAMIC_PRESET_SECTION_BINDINGS && payload_len == 2U) {
-            size_t section_len;
-            encode_bindings(&config->presets[preset], &out[3], &section_len);
-            *out_len = section_len + 3U;
-            return K380_DYNAMIC_RESULT_READY;
+        if (payload_len != 2U ||
+            (payload[1] != K380_DYNAMIC_PRESET_SECTION_BINDINGS &&
+             payload[1] != K380_DYNAMIC_PRESET_SECTION_NAME)) {
+            return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
         }
-        if (section == K380_DYNAMIC_PRESET_SECTION_NAME && payload_len == 2U) {
-            memcpy(&out[3], config->presets[preset].name, K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
-            *out_len = K380_DYNAMIC_MACRO_NAME_MAX_BYTES + 3U;
-            return K380_DYNAMIC_RESULT_READY;
-        }
-        return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+        struct get_preset_context ctx = {
+            .preset = payload[0],
+            .section = payload[1],
+            .out = out,
+            .out_len = out_len,
+        };
+        return result_from_error(
+            k380_dynamic_settings_with_config(get_preset, &ctx), false);
     }
     if (command == K380_DYNAMIC_COMMAND_SAVE_PRESET) {
         if (payload_len < 2U || payload[0] >= K380_DYNAMIC_PRESET_COUNT) {
             return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
-        struct k380_dynamic_preset *preset = &config->presets[payload[0]];
-        enum k380_dynamic_result result;
         if (payload[1] == K380_DYNAMIC_PRESET_SECTION_BINDINGS) {
-            result = decode_bindings(preset, &payload[2], payload_len - 2U);
+            if (payload_len != PRESET_BINDINGS_WIRE_SIZE + 2U) {
+                return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+            }
         } else if (payload[1] == K380_DYNAMIC_PRESET_SECTION_MACRO) {
             return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
-        } else if (payload[1] == K380_DYNAMIC_PRESET_SECTION_NAME &&
-                   payload_len == K380_DYNAMIC_MACRO_NAME_MAX_BYTES + 2U) {
-            memcpy(preset->name, &payload[2], K380_DYNAMIC_MACRO_NAME_MAX_BYTES);
-            result = K380_DYNAMIC_RESULT_READY;
+        } else if (payload[1] == K380_DYNAMIC_PRESET_SECTION_NAME) {
+            if (payload_len != K380_DYNAMIC_MACRO_NAME_MAX_BYTES + 2U) {
+                return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
+            }
         } else {
             return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
         }
-        if (result != K380_DYNAMIC_RESULT_READY || k380_dynamic_config_validate(config) != 0) {
-            return result == K380_DYNAMIC_RESULT_READY ? K380_DYNAMIC_RESULT_INVALID_ARGUMENT : result;
-        }
-        return result_from_error(k380_dynamic_settings_save(config), true);
+        struct save_preset_context ctx = {
+            .preset = payload[0],
+            .section = payload[1],
+            .data = &payload[2],
+            .data_len = payload_len - 2U,
+        };
+        return result_from_error(
+            k380_dynamic_settings_update(save_preset, &ctx), true);
     }
     if (command == K380_DYNAMIC_COMMAND_SET_ACTIVE_PRESET) {
         if (payload_len != 1U || payload[0] >= K380_DYNAMIC_PRESET_COUNT) {
@@ -679,21 +762,30 @@ static enum k380_dynamic_result handle_command(uint8_t command, const uint8_t *p
             payload[1] >= K380_DYNAMIC_LAYER_COUNT || payload[2] >= K380_DYNAMIC_KEY_COUNT) {
             return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
-        k380_dynamic_config_restore_key(config, payload[0], payload[1], payload[2]);
-        return result_from_error(k380_dynamic_settings_save(config), true);
+        struct restore_key_context ctx = {
+            .preset = payload[0],
+            .layer = payload[1],
+            .key = payload[2],
+        };
+        return result_from_error(
+            k380_dynamic_settings_update(restore_key, &ctx), true);
     }
     if (command == K380_DYNAMIC_COMMAND_RESTORE_PRESET) {
         if (payload_len != 1U || payload[0] >= K380_DYNAMIC_PRESET_COUNT) {
             return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
         }
-        k380_dynamic_config_restore_preset(config, payload[0]);
-        return result_from_error(k380_dynamic_settings_save(config), true);
+        const int base_err = k380_dynamic_settings_restore_preset(payload[0]);
+        const int macro_err =
+            k380_dynamic_macro_store_restore_preset(payload[0]);
+        return result_from_error(first_error(base_err, macro_err), true);
     }
     if (command == K380_DYNAMIC_COMMAND_RESTORE_ALL) {
         if (payload_len != 0U) {
             return K380_DYNAMIC_RESULT_INVALID_PAYLOAD_LENGTH;
         }
-        return result_from_error(k380_dynamic_settings_restore_all(), true);
+        const int base_err = k380_dynamic_settings_restore_all();
+        const int macro_err = k380_dynamic_macro_store_restore_all();
+        return result_from_error(first_error(base_err, macro_err), true);
     }
     if (command == K380_DYNAMIC_COMMAND_TEST_MACRO) {
         return K380_DYNAMIC_RESULT_INVALID_ARGUMENT;
