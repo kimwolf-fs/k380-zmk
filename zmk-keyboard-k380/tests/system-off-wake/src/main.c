@@ -16,7 +16,9 @@ static struct k380_kscan_gpio cols[15];
 static struct zmk_debounce_state states[120];
 static struct k380_kscan_data data;
 static struct k380_kscan_config config;
-static const struct device matrix = {.data = &data, .config = &config};
+/* k380_kscan_init() registers PM state even for this white-box device. */
+static struct pm_device_base matrix_pm;
+static const struct device matrix = {.data = &data, .config = &config, .pm_base = &matrix_pm};
 static int events;
 
 static void callback(const struct device *dev, uint32_t row, uint32_t col, bool pressed) {
