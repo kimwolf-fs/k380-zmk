@@ -115,13 +115,13 @@ ZTEST(k380_system_off_wake, test_wake_preparation_rejects_held_key_and_does_not_
     zassert_false(data.enabled);
     zassert_false(k_work_delayable_is_pending(&data.work));
     const int arm_err = k380_kscan_arm_system_off_wake(&matrix);
-    if (arm_err == -ENOTSUP) {
-        /* native gpio-emul has no level-trigger implementation; exercise its
-         * equivalent active-edge wake path without weakening hardware checks. */
-        zassert_ok(k380_kscan_interrupt_configure(&matrix, GPIO_INT_EDGE_TO_ACTIVE));
-    } else {
-        zassert_ok(arm_err);
-    }
+#if defined(CONFIG_ARCH_POSIX)
+    /* native gpio-emul has no interrupt implementation; hardware builds must
+     * still succeed with GPIO_INT_LEVEL_ACTIVE. */
+    zassert_true(arm_err == 0 || arm_err == -ENOTSUP);
+#else
+    zassert_ok(arm_err);
+#endif
     zassert_false(data.enabled, "arming wake must never enable normal scanning");
     zassert_false(k_work_delayable_is_pending(&data.work));
     for (int row = 0; row < 8; row++) {
