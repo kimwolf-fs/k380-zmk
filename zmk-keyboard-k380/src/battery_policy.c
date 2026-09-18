@@ -267,6 +267,7 @@ static void qualify_submitted_sample(uint16_t mv) {
     const int64_t now = k_uptime_get();
     if (safe && now - last_latch_clear_attempt >= K380_LATCH_CLEAR_RETRY_MS) {
         last_latch_clear_attempt = now;
+        k380_low_power_publish_voltage_recovery();
         if (k380_soft_off_clear_low_voltage_latch_if_safe(true) == 0) {
             qualification_pending = false;
             (void)k380_low_power_startup_voltage_result(true, false, true);

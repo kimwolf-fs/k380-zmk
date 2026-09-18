@@ -189,6 +189,18 @@ uint32_t k380_low_power_voltage_generation(void)
 	return generation;
 }
 
+void k380_low_power_publish_voltage_recovery(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
+	voltage_generation++;
+	if (last_reason == K380_SHUTDOWN_LOW_VOLTAGE &&
+	    (atomic_get(&state) == K380_LOW_POWER_WARNING ||
+	     atomic_get(&state) == K380_LOW_POWER_RELEASE_WAIT)) {
+		atomic_or(&cancellation, CANCEL_VOLTAGE_RECOVERY);
+	}
+	k_spin_unlock(&lifecycle_lock, key);
+}
+
 static bool reconcile_cancellation(void);
 
 static void revalidate_voltage_request(void)
@@ -256,7 +268,13 @@ static int prepare_request(void)
 #ifndef CONFIG_K380_LOW_POWER_TEST
 	k380_soft_off_set_pending_reason(last_reason);
 	/* This is an explicit bounded flush, never a deferred debounce wait. */
-	log_cleanup_error("settings flush", k380_soft_off_flush_required_settings());
+	err = k380_soft_off_flush_required_settings_at_generation(request_voltage_generation);
+	if (err == -ECANCELED) {
+		revalidate_voltage_request();
+		(void)reconcile_cancellation();
+		return err;
+	}
+	log_cleanup_error("settings flush", err);
 #else
 	if (last_reason == K380_SHUTDOWN_LOW_VOLTAGE) {
 		log_cleanup_error("latch save", k380_low_power_latch_low_voltage(K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS));

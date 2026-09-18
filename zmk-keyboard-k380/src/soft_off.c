@@ -27,6 +27,7 @@ __weak enum k380_power_state k380_battery_policy_state(void) {
 
 static char last_shutdown_reason[sizeof(K380_SOFT_OFF_REASON_LOW_VOLTAGE)];
 static enum k380_shutdown_reason pending_reason = K380_SHUTDOWN_LOW_VOLTAGE;
+K_MUTEX_DEFINE(latch_lock);
 
 #ifdef CONFIG_ZTEST
 extern void k380_soft_off_test_record(int call);
@@ -111,14 +112,19 @@ static int enter_system_off(void) {
 }
 
 void k380_soft_off_set_pending_reason(enum k380_shutdown_reason reason) {
+    k_mutex_lock(&latch_lock, K_FOREVER);
     pending_reason = reason;
+    k_mutex_unlock(&latch_lock);
 }
 
 const char *k380_soft_off_last_reason(void) {
-    return last_shutdown_reason[0] == '\0' ? NULL : last_shutdown_reason;
+    k_mutex_lock(&latch_lock, K_FOREVER);
+    const char *reason = last_shutdown_reason[0] == '\0' ? NULL : K380_SOFT_OFF_REASON_LOW_VOLTAGE;
+    k_mutex_unlock(&latch_lock);
+    return reason;
 }
 
-int k380_soft_off_clear_last_reason(void) {
+static int clear_last_reason_locked(void) {
     if (last_shutdown_reason[0] == '\0') {
         return 0;
     }
@@ -137,23 +143,32 @@ int k380_soft_off_clear_last_reason(void) {
     return 0;
 }
 
+int k380_soft_off_clear_last_reason(void) {
+    k_mutex_lock(&latch_lock, K_FOREVER);
+    const int err = clear_last_reason_locked();
+    k_mutex_unlock(&latch_lock);
+    return err;
+}
+
 void k380_soft_off_handle_successful_boot(void) {
     /* The low-voltage latch is cleared only after startup voltage qualification. */
 }
 
 bool k380_soft_off_has_low_voltage_latch(void) {
-    return strcmp(last_shutdown_reason, K380_SOFT_OFF_REASON_LOW_VOLTAGE) == 0;
+    k_mutex_lock(&latch_lock, K_FOREVER);
+    const bool latched = strcmp(last_shutdown_reason, K380_SOFT_OFF_REASON_LOW_VOLTAGE) == 0;
+    k_mutex_unlock(&latch_lock);
+    return latched;
 }
 
 int k380_soft_off_clear_low_voltage_latch_if_safe(bool safe_or_charging) {
-    if (!k380_soft_off_has_low_voltage_latch()) {
-        return 0;
+    k_mutex_lock(&latch_lock, K_FOREVER);
+    int err = 0;
+    if (strcmp(last_shutdown_reason, K380_SOFT_OFF_REASON_LOW_VOLTAGE) == 0) {
+        err = safe_or_charging ? clear_last_reason_locked() : -EACCES;
     }
-    if (!safe_or_charging) {
-        return -EACCES;
-    }
-
-    return k380_soft_off_clear_last_reason();
+    k_mutex_unlock(&latch_lock);
+    return err;
 }
 
 #ifdef CONFIG_ZTEST
@@ -178,6 +193,10 @@ int k380_soft_off_prepare_radio_and_led_quiet(void) {
 }
 
 int k380_soft_off_flush_required_settings(void) {
+    return k380_soft_off_flush_required_settings_at_generation(k380_low_power_voltage_generation());
+}
+
+int k380_soft_off_flush_required_settings_at_generation(uint32_t generation) {
     int err;
 #ifdef CONFIG_ZTEST
     const int64_t deadline = k380_soft_off_test_uptime() + K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS;
@@ -188,14 +207,26 @@ int k380_soft_off_flush_required_settings(void) {
 #endif
 #endif
 
+    /* Recovery publishes its generation before taking this lock. A save admitted
+     * first finishes before safe deletion; a stale save admitted later is rejected. */
+    if (k_mutex_lock(&latch_lock, K_MSEC(K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS)) != 0) {
+        return -ETIMEDOUT;
+    }
+    if (pending_reason == K380_SHUTDOWN_LOW_VOLTAGE &&
+        generation != k380_low_power_voltage_generation()) {
+        k_mutex_unlock(&latch_lock);
+        return -ECANCELED;
+    }
     /* BLE timeout causes are deliberately RAM-only. */
-    if (pending_reason == K380_SHUTDOWN_LOW_VOLTAGE && !k380_soft_off_has_low_voltage_latch()) {
+    if (pending_reason == K380_SHUTDOWN_LOW_VOLTAGE &&
+        strcmp(last_shutdown_reason, K380_SOFT_OFF_REASON_LOW_VOLTAGE) != 0) {
 #ifdef CONFIG_ZTEST
         if (k380_soft_off_test_uptime() >= deadline) {
 #else
         if (k_uptime_get() >= deadline) {
 #endif
             LOG_ERR("Settings deadline expired; skipping low-voltage latch save");
+            k_mutex_unlock(&latch_lock);
             return -ETIMEDOUT;
         }
         strcpy(last_shutdown_reason, K380_SOFT_OFF_REASON_LOW_VOLTAGE);
@@ -204,6 +235,7 @@ int k380_soft_off_flush_required_settings(void) {
             LOG_ERR("Failed to save shutdown reason (%d)", err);
         }
     }
+    k_mutex_unlock(&latch_lock);
 
 #ifdef CONFIG_ZTEST
     if (k380_soft_off_test_uptime() >= deadline) {
@@ -290,12 +322,16 @@ static int k380_soft_off_settings_set(const char *name, size_t len, settings_rea
         return -EINVAL;
     }
 
-    const int err = read_cb(cb_arg, last_shutdown_reason, sizeof(last_shutdown_reason));
+    char loaded_reason[sizeof(last_shutdown_reason)];
+    const int err = read_cb(cb_arg, loaded_reason, sizeof(loaded_reason));
     if (err <= 0) {
         return err;
     }
 
-    last_shutdown_reason[sizeof(last_shutdown_reason) - 1U] = '\0';
+    loaded_reason[sizeof(loaded_reason) - 1U] = '\0';
+    k_mutex_lock(&latch_lock, K_FOREVER);
+    memcpy(last_shutdown_reason, loaded_reason, sizeof(last_shutdown_reason));
+    k_mutex_unlock(&latch_lock);
     return 0;
 }
 

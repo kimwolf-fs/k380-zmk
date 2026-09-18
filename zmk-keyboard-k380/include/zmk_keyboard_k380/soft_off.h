@@ -11,6 +11,7 @@ int k380_soft_off_request_reason(enum k380_shutdown_reason reason);
 /* Non-preemptible settings backends must finish one write in the remaining budget.
  * No retries or debounce waits; an overrun skips further writes and is reported. */
 int k380_soft_off_flush_required_settings(void);
+int k380_soft_off_flush_required_settings_at_generation(uint32_t generation);
 int k380_soft_off_prepare_radio_and_led_quiet(void);
 int k380_soft_off_stop_animation(void);
 const char *k380_soft_off_last_reason(void);

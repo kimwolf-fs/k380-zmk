@@ -34,6 +34,8 @@ static size_t delete_call_count;
 static int delete_rc;
 static bool persisted_latch;
 static bool hold_save;
+static uint32_t voltage_generation;
+uint32_t k380_low_power_voltage_generation(void) { return voltage_generation; }
 K_SEM_DEFINE(save_entered, 0, 1);
 K_SEM_DEFINE(release_save, 0, 1);
 K_SEM_DEFINE(clear_done, 0, 1);
@@ -169,6 +171,7 @@ static void reset_fakes(void) {
     delete_call_count = 0;
     delete_rc = 0;
     hold_save = false;
+    voltage_generation = 0U;
     k_sem_reset(&save_entered);
     k_sem_reset(&release_save);
     k_sem_reset(&clear_done);
@@ -325,6 +328,18 @@ ZTEST(k380_soft_off, test_safe_clear_wins_over_an_inflight_latch_save) {
     zassert_ok(save_result);
     zassert_ok(clear_result);
     zassert_false(persisted_latch, "safe clear must not be undone by an older admitted write");
+    zassert_false(k380_soft_off_has_low_voltage_latch());
+}
+
+ZTEST(k380_soft_off, test_recovery_before_save_admission_rejects_stale_latch) {
+    reset_fakes();
+    k380_soft_off_set_pending_reason(K380_SHUTDOWN_LOW_VOLTAGE);
+    const uint32_t decision_generation = voltage_generation;
+    voltage_generation++;
+    zassert_ok(k380_soft_off_clear_low_voltage_latch_if_safe(true));
+    zassert_equal(k380_soft_off_flush_required_settings_at_generation(decision_generation), -ECANCELED);
+    zassert_equal(save_call_count, 0U);
+    zassert_false(persisted_latch);
     zassert_false(k380_soft_off_has_low_voltage_latch());
 }
 
