@@ -20,6 +20,10 @@ static uint32_t flush_budget;
 static int sequence;
 static int flush_sequence;
 static int system_off_sequence;
+static int calls[16];
+static int call_count;
+static int cleanup_rc;
+enum cleanup_call { RADIO, LED, LATCH, FLUSH, HID, DISCONNECT, OFF };
 
 int k380_low_power_start_warning(enum k380_shutdown_reason reason)
 {
@@ -27,25 +31,27 @@ int k380_low_power_start_warning(enum k380_shutdown_reason reason)
 	warning_calls++;
 	return 0;
 }
-int k380_low_power_stop_radio(void) { radio_stop_calls++; return 0; }
-int k380_low_power_stop_led(void) { led_stop_calls++; return 0; }
+int k380_low_power_stop_radio(void) { calls[call_count++] = RADIO; radio_stop_calls++; return cleanup_rc; }
+int k380_low_power_stop_led(void) { calls[call_count++] = LED; led_stop_calls++; return cleanup_rc; }
 int k380_low_power_restore_radio_and_led(void) { restore_calls++; return 0; }
 int k380_low_power_latch_low_voltage(uint32_t save_budget_ms)
 {
 	latch_calls++;
+	calls[call_count++] = LATCH;
 	latch_budget = save_budget_ms;
-	return 0;
+	return cleanup_rc;
 }
 int k380_low_power_flush_dirty_profile(uint32_t save_budget_ms)
 {
 	flush_calls++;
+	calls[call_count++] = FLUSH;
 	flush_budget = save_budget_ms;
 	flush_sequence = ++sequence;
-	return 0;
+	return cleanup_rc;
 }
-int k380_low_power_clear_hid(void) { return ++hid_clear_calls, 0; }
-int k380_low_power_disconnect_ble(void) { return ++disconnect_calls, 0; }
-int k380_low_power_system_off(void) { system_off_calls++; system_off_sequence = ++sequence; return 0; }
+int k380_low_power_clear_hid(void) { calls[call_count++] = HID; return ++hid_clear_calls, cleanup_rc; }
+int k380_low_power_disconnect_ble(void) { calls[call_count++] = DISCONNECT; return ++disconnect_calls, cleanup_rc; }
+int k380_low_power_system_off(void) { calls[call_count++] = OFF; system_off_calls++; system_off_sequence = ++sequence; return 0; }
 
 static void reset(void)
 {
@@ -63,6 +69,8 @@ static void reset(void)
 	sequence = 0;
 	flush_sequence = 0;
 	system_off_sequence = 0;
+	call_count = 0;
+	cleanup_rc = 0;
 	k380_low_power_test_reset();
 }
 
@@ -175,3 +183,43 @@ ZTEST(k380_low_power, test_held_key_enters_release_wait_without_system_off)
 }
 
 ZTEST_SUITE(k380_low_power, NULL, NULL, NULL, NULL, NULL);
+
+ZTEST(k380_low_power, test_all_causes_cleanup_before_release_wait_even_on_errors)
+{
+	for (int reason = K380_SHUTDOWN_LOW_VOLTAGE; reason <= K380_SHUTDOWN_PAIRING_TIMEOUT; reason++) {
+		reset();
+		cleanup_rc = -EIO;
+		k380_low_power_test_set_all_keys_released(false);
+		zassert_ok(k380_low_power_request(reason));
+		const int expected_low[] = { RADIO, LED, LATCH, FLUSH, HID, DISCONNECT, OFF };
+		const int expected_ble[] = { RADIO, LED, FLUSH, HID, DISCONNECT, OFF };
+		const int *expected = reason == K380_SHUTDOWN_LOW_VOLTAGE ? expected_low : expected_ble;
+		const int count = reason == K380_SHUTDOWN_LOW_VOLTAGE ? ARRAY_SIZE(expected_low) : ARRAY_SIZE(expected_ble);
+		zassert_true(k380_low_power_is_release_waiting());
+		zassert_false(k380_low_power_ble_start_allowed(), "disconnect callbacks must not restart advertising");
+		zassert_equal(call_count, count - 1);
+		zassert_mem_equal(calls, expected, (count - 1) * sizeof(int));
+		zassert_equal(latch_calls, reason == K380_SHUTDOWN_LOW_VOLTAGE ? 1 : 0);
+		k380_low_power_test_set_all_keys_released(true);
+		k380_low_power_notify_all_keys_released();
+		k380_low_power_notify_all_keys_released();
+		zassert_equal(call_count, count);
+		zassert_mem_equal(calls, expected, count * sizeof(int));
+		zassert_equal(flush_calls, 1);
+	}
+}
+
+ZTEST(k380_low_power, test_all_causes_cleanup_order_when_keys_are_released)
+{
+	for (int reason = K380_SHUTDOWN_LOW_VOLTAGE; reason <= K380_SHUTDOWN_PAIRING_TIMEOUT; reason++) {
+		reset();
+		zassert_ok(k380_low_power_request(reason));
+		const int low[] = { RADIO, LED, LATCH, FLUSH, HID, DISCONNECT, OFF };
+		const int ble[] = { RADIO, LED, FLUSH, HID, DISCONNECT, OFF };
+		const int *expected = reason == K380_SHUTDOWN_LOW_VOLTAGE ? low : ble;
+		const int count = reason == K380_SHUTDOWN_LOW_VOLTAGE ? ARRAY_SIZE(low) : ARRAY_SIZE(ble);
+		zassert_equal(call_count, count);
+		zassert_mem_equal(calls, expected, count * sizeof(int));
+		zassert_false(k380_low_power_is_release_waiting());
+	}
+}

@@ -30,6 +30,9 @@ static int hid_rc;
 static int disconnect_rc;
 static size_t save_call_count;
 static size_t delete_call_count;
+static int64_t fake_now;
+static int64_t save_duration;
+int64_t k380_soft_off_test_uptime(void) { return fake_now; }
 
 extern char *k380_soft_off_test_last_reason_storage(void);
 
@@ -57,6 +60,7 @@ int k380_soft_off_test_save_reason(const char *name, const char *value, size_t l
     zassert_equal(len, strlen("low_voltage_protection") + 1U);
     k380_soft_off_test_record(CALL_SAVE_REASON);
     save_call_count++;
+    fake_now += save_duration;
     return save_rc;
 }
 
@@ -102,7 +106,14 @@ static void reset_fakes(void) {
     disconnect_rc = 0;
     save_call_count = 0;
     delete_call_count = 0;
+    fake_now = 0;
+    save_duration = 0;
     k380_soft_off_clear_last_reason();
+    delete_call_count = 0;
+    for (int i = 0; i < 8; i++) {
+        zassert_ok(k380_battery_policy_submit_mv(4000));
+    }
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z1_NORMAL));
 }
 
 ZTEST(k380_soft_off, test_low_voltage_soft_off_orders_cleanup_after_warning) {
@@ -223,3 +234,22 @@ ZTEST(k380_soft_off, test_warning_start_failure_cancels_soft_off) {
 }
 
 ZTEST_SUITE(k380_soft_off, NULL, NULL, NULL, NULL, NULL);
+
+ZTEST(k380_soft_off, test_save_deadline_skips_second_write_without_retry) {
+    reset_fakes();
+    save_duration = K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS;
+    k380_soft_off_set_pending_reason(K380_SHUTDOWN_LOW_VOLTAGE);
+    zassert_equal(k380_soft_off_flush_required_settings(), -ETIMEDOUT);
+    zassert_equal(save_call_count, 1U);
+    zassert_equal(call_count, 1U);
+}
+
+ZTEST(k380_soft_off, test_quiet_clears_ble_animation_for_both_timeout_states) {
+    reset_fakes();
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING));
+    zassert_ok(k380_soft_off_prepare_radio_and_led_quiet());
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z1_NORMAL);
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z7_BLE_PAIRING));
+    zassert_ok(k380_soft_off_prepare_radio_and_led_quiet());
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z1_NORMAL);
+}
