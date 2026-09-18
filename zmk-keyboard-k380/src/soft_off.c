@@ -16,6 +16,12 @@
 
 LOG_MODULE_REGISTER(k380_soft_off, LOG_LEVEL_INF);
 
+#if !IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
+__weak enum k380_power_state k380_battery_policy_state(void) {
+    return K380_POWER_NORMAL;
+}
+#endif
+
 #define K380_SOFT_OFF_REASON_SETTING "k380/last_shutdown_reason"
 #define K380_SOFT_OFF_REASON_LOW_VOLTAGE "low_voltage_protection"
 #define K380_SOFT_OFF_WARNING_DURATION K_SECONDS(3)
