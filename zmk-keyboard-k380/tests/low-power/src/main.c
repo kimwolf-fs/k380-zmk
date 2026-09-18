@@ -229,6 +229,18 @@ ZTEST(k380_low_power, test_safe_qualification_cancels_existing_low_voltage_warni
 	zassert_equal(latch_calls, 0);
 }
 
+ZTEST(k380_low_power, test_stale_low_voltage_request_cannot_shutdown_confirmed_usb)
+{
+	reset();
+	k380_low_power_test_set_battery_charging(true);
+	zassert_equal(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE), -ECANCELED);
+	zassert_true(k380_low_power_input_events_allowed());
+	k_sleep(K_MSEC(3050));
+	zassert_equal(warning_calls, 0);
+	zassert_equal(system_off_calls, 0);
+	zassert_equal(latch_calls, 0);
+}
+
 ZTEST(k380_low_power, test_all_causes_cleanup_before_release_wait_even_on_errors)
 {
 	for (int reason = K380_SHUTDOWN_LOW_VOLTAGE; reason <= K380_SHUTDOWN_PAIRING_TIMEOUT; reason++) {
