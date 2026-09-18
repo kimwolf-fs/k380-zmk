@@ -23,6 +23,7 @@ static int system_off_sequence;
 static int calls[16];
 static int call_count;
 static int cleanup_rc;
+static bool warning_inserts_usb;
 enum cleanup_call { RADIO, LED, LATCH, FLUSH, HID, DISCONNECT, OFF };
 
 int k380_low_power_start_warning(enum k380_shutdown_reason reason)
@@ -31,6 +32,7 @@ int k380_low_power_start_warning(enum k380_shutdown_reason reason)
 	zassert_false(k380_low_power_input_events_allowed(),
 		      "input must close before shutdown warning and cleanup");
 	warning_calls++;
+	if (warning_inserts_usb) { k380_low_power_test_set_battery_charging(true); }
 	return 0;
 }
 int k380_low_power_stop_radio(void) { calls[call_count++] = RADIO; radio_stop_calls++; return cleanup_rc; }
@@ -73,6 +75,7 @@ static void reset(void)
 	system_off_sequence = 0;
 	call_count = 0;
 	cleanup_rc = 0;
+	warning_inserts_usb = false;
 	k380_low_power_test_reset();
 }
 
@@ -237,6 +240,17 @@ ZTEST(k380_low_power, test_stale_low_voltage_request_cannot_shutdown_confirmed_u
 	zassert_true(k380_low_power_input_events_allowed());
 	k_sleep(K_MSEC(3050));
 	zassert_equal(warning_calls, 0);
+	zassert_equal(system_off_calls, 0);
+	zassert_equal(latch_calls, 0);
+}
+
+ZTEST(k380_low_power, test_usb_power_publication_during_warning_cancels_request)
+{
+	reset();
+	warning_inserts_usb = true;
+	zassert_equal(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE), -ECANCELED);
+	zassert_true(k380_low_power_input_events_allowed());
+	k_sleep(K_MSEC(3050));
 	zassert_equal(system_off_calls, 0);
 	zassert_equal(latch_calls, 0);
 }
