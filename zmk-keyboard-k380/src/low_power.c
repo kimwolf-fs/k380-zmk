@@ -40,9 +40,23 @@ __weak int k380_low_power_start_warning(enum k380_shutdown_reason reason)
 	return k380_status_indicator_set(K380_STATUS_Z4_SOFT_OFF_WARNING);
 #endif
 }
-__weak int k380_low_power_stop_radio(void) { return 0; }
+__weak int k380_low_power_stop_radio(void)
+{
+#ifdef CONFIG_K380_LOW_POWER_TEST
+	return 0;
+#else
+	return zmk_ble_stop_advertising();
+#endif
+}
 __weak int k380_low_power_stop_led(void) { return 0; }
-__weak int k380_low_power_restore_radio_and_led(void) { return 0; }
+__weak int k380_low_power_restore_radio_and_led(void)
+{
+#ifdef CONFIG_K380_LOW_POWER_TEST
+	return 0;
+#else
+	return zmk_ble_resume_advertising();
+#endif
+}
 __weak int k380_low_power_latch_low_voltage(uint32_t save_budget_ms)
 {
 	ARG_UNUSED(save_budget_ms);
@@ -51,6 +65,9 @@ __weak int k380_low_power_latch_low_voltage(uint32_t save_budget_ms)
 __weak int k380_low_power_flush_dirty_profile(uint32_t save_budget_ms)
 {
 	ARG_UNUSED(save_budget_ms);
+#ifndef CONFIG_K380_LOW_POWER_TEST
+	return zmk_ble_flush_active_profile_if_dirty();
+#endif
 	return 0;
 }
 __weak int k380_low_power_clear_hid(void)
@@ -130,6 +147,9 @@ int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
 	}
 
 	ble_start_allowed = true;
+#ifndef CONFIG_K380_LOW_POWER_TEST
+	(void)zmk_ble_resume_advertising();
+#endif
 	return 0;
 }
 
@@ -171,6 +191,10 @@ void k380_low_power_notify_all_keys_released(void)
 void k380_low_power_cancel_pending(void)
 {
 	if (state == K380_LOW_POWER_WARNING || state == K380_LOW_POWER_RELEASE_WAIT) {
+		if (last_reason != K380_SHUTDOWN_BLE_WAIT_TIMEOUT &&
+			last_reason != K380_SHUTDOWN_PAIRING_TIMEOUT) {
+			return;
+		}
 		const bool may_restore = radio_and_led_quiet && ble_start_allowed &&
 			last_reason != K380_SHUTDOWN_LOW_VOLTAGE;
 
