@@ -7,6 +7,9 @@
 #include <zmk_keyboard_k380/battery_policy.h>
 #include <zmk_keyboard_k380/status_indicator.h>
 
+extern bool k380_battery_policy_test_startup_recovery_sample(uint16_t mv,
+                                                              uint8_t *recovery_hits);
+
 static void submit_samples(uint16_t mv, int count) {
     for (int i = 0; i < count; i++) {
         zassert_ok(k380_battery_policy_submit_mv(mv));
@@ -88,6 +91,17 @@ ZTEST(k380_battery_policy, test_charging_sample_is_startup_safe_and_not_battery_
     zassert_ok(k380_battery_policy_submit_mv(4600));
     zassert_false(k380_battery_policy_is_battery_powered());
     zassert_true(k380_battery_policy_voltage_safe_for_startup());
+}
+
+ZTEST(k380_battery_policy, test_startup_recovery_requires_three_raw_safe_samples) {
+    uint8_t hits = 0U;
+
+    zassert_false(k380_battery_policy_test_startup_recovery_sample(3500, &hits));
+    zassert_false(k380_battery_policy_test_startup_recovery_sample(3200, &hits));
+    zassert_false(k380_battery_policy_test_startup_recovery_sample(3300, &hits));
+    zassert_false(k380_battery_policy_test_startup_recovery_sample(3300, &hits));
+    zassert_false(k380_battery_policy_test_startup_recovery_sample(3300, &hits));
+    zassert_true(k380_battery_policy_test_startup_recovery_sample(3300, &hits));
 }
 
 ZTEST_SUITE(k380_battery_policy, NULL, NULL, NULL, NULL, NULL);
