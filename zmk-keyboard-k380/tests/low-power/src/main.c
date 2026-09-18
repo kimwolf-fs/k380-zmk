@@ -28,6 +28,8 @@ enum cleanup_call { RADIO, LED, LATCH, FLUSH, HID, DISCONNECT, OFF };
 int k380_low_power_start_warning(enum k380_shutdown_reason reason)
 {
 	ARG_UNUSED(reason);
+	zassert_false(k380_low_power_input_events_allowed(),
+		      "input must close before shutdown warning and cleanup");
 	warning_calls++;
 	return 0;
 }
@@ -125,6 +127,7 @@ ZTEST(k380_low_power, test_timeout_is_cancelled_when_usb_or_connection_changes)
 	zassert_true(k380_low_power_is_release_waiting());
 	k380_low_power_cancel_pending();
 	zassert_false(k380_low_power_is_release_waiting());
+	zassert_true(k380_low_power_input_events_allowed());
 	zassert_equal(restore_calls, 1, "cancellation must restore quieted radio/LED once");
 	k380_low_power_cancel_pending();
 	zassert_equal(restore_calls, 1, "repeated cancellation must not restore twice");
@@ -196,6 +199,7 @@ ZTEST(k380_low_power, test_all_causes_cleanup_before_release_wait_even_on_errors
 		const int *expected = reason == K380_SHUTDOWN_LOW_VOLTAGE ? expected_low : expected_ble;
 		const int count = reason == K380_SHUTDOWN_LOW_VOLTAGE ? ARRAY_SIZE(expected_low) : ARRAY_SIZE(expected_ble);
 		zassert_true(k380_low_power_is_release_waiting());
+		zassert_false(k380_low_power_input_events_allowed(), "quiet wait must suppress key events");
 		zassert_false(k380_low_power_ble_start_allowed(), "disconnect callbacks must not restart advertising");
 		zassert_equal(call_count, count - 1);
 		zassert_mem_equal(calls, expected, (count - 1) * sizeof(int));
@@ -206,6 +210,7 @@ ZTEST(k380_low_power, test_all_causes_cleanup_before_release_wait_even_on_errors
 		zassert_equal(call_count, count);
 		zassert_mem_equal(calls, expected, count * sizeof(int));
 		zassert_equal(flush_calls, 1);
+		zassert_false(k380_low_power_input_events_allowed(), "system-off must keep input closed");
 	}
 }
 

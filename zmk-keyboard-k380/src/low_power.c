@@ -10,6 +10,7 @@ LOG_MODULE_REGISTER(k380_low_power, LOG_LEVEL_INF);
 #ifndef CONFIG_K380_LOW_POWER_TEST
 #include <zmk/ble.h>
 #include <zmk/endpoints.h>
+#include <zmk/hid.h>
 #include <zmk/pm.h>
 #endif
 
@@ -17,6 +18,7 @@ LOG_MODULE_REGISTER(k380_low_power, LOG_LEVEL_INF);
 #include <zmk_keyboard_k380/soft_off.h>
 #ifndef CONFIG_K380_LOW_POWER_TEST
 #include <zmk_keyboard_k380/battery_policy.h>
+#include <zmk_keyboard_k380/kscan.h>
 #include <zmk_keyboard_k380/status_indicator.h>
 #endif
 
@@ -83,6 +85,7 @@ __weak int k380_low_power_flush_dirty_profile(uint32_t save_budget_ms)
 __weak int k380_low_power_clear_hid(void)
 {
 #ifndef CONFIG_K380_LOW_POWER_TEST
+	zmk_hid_keyboard_clear_for_shutdown();
 	zmk_endpoint_clear_reports();
 #endif
 	return 0;
@@ -97,7 +100,7 @@ __weak int k380_low_power_disconnect_ble(void)
 #endif
 }
 #ifndef CONFIG_K380_LOW_POWER_TEST
-__weak bool k380_low_power_all_keys_released(void) { return true; }
+bool k380_low_power_all_keys_released(void) { return k380_kscan_all_keys_released(); }
 #endif
 __weak int k380_low_power_system_off(void)
 {
@@ -158,6 +161,13 @@ static void prepare_request(void)
 
 static int complete_request(void)
 {
+#ifndef CONFIG_K380_LOW_POWER_TEST
+	const int err = k380_kscan_prepare_system_off_wake();
+	if (err) {
+		state = K380_LOW_POWER_RELEASE_WAIT;
+		return err;
+	}
+#endif
 	state = K380_LOW_POWER_SYSTEM_OFF_REQUESTED;
 	return k380_low_power_system_off();
 }
@@ -270,6 +280,11 @@ enum k380_shutdown_reason k380_low_power_last_reason(void)
 bool k380_low_power_is_release_waiting(void)
 {
 	return state == K380_LOW_POWER_RELEASE_WAIT;
+}
+
+bool k380_low_power_input_events_allowed(void)
+{
+	return state == K380_LOW_POWER_READY;
 }
 
 #ifdef CONFIG_K380_LOW_POWER_TEST

@@ -14,6 +14,7 @@ int k380_low_power_request(enum k380_shutdown_reason reason);
 void k380_low_power_notify_all_keys_released(void);
 enum k380_shutdown_reason k380_low_power_last_reason(void);
 bool k380_low_power_is_release_waiting(void);
+bool k380_low_power_input_events_allowed(void);
 
 /* Event sources use this to cancel a pending BLE timeout request. */
 void k380_low_power_cancel_pending(void);

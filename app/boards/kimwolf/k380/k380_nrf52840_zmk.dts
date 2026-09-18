@@ -33,6 +33,7 @@
 
     k380_kscan: k380_kscan {
         compatible = "k380,kscan-no-diode-matrix";
+        wakeup-source;
         row-gpios =
             <&gpio1 9 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
             <&gpio0 26 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
@@ -62,6 +63,11 @@
         debounce-release-ms = <5>;
         debounce-scan-period-ms = <1>;
         poll-period-ms = <10>;
+    };
+
+    soft_off_wakeup_sources {
+        compatible = "zmk,soft-off-wakeup-sources";
+        wakeup-sources = <&k380_kscan>;
     };
 
     /* ZMK physical layouts require an explicit transform. */

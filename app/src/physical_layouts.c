@@ -23,6 +23,9 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/physical_layouts.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+#include <zmk_keyboard_k380/low_power.h>
+#endif
 
 ZMK_EVENT_IMPL(zmk_physical_layout_selection_changed);
 
@@ -282,6 +285,11 @@ static void zmk_physical_layouts_kscan_process_msgq(struct k_work *item) {
     struct zmk_kscan_event ev;
 
     while (k_msgq_get(&physical_layouts_kscan_msgq, &ev, K_NO_WAIT) == 0) {
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+        if (!k380_low_power_input_events_allowed()) {
+            continue;
+        }
+#endif
         bool pressed = (ev.state == ZMK_KSCAN_EVENT_STATE_PRESSED);
         int32_t position = zmk_matrix_transform_row_column_to_position(active->matrix_transform,
                                                                        ev.row, ev.column);
