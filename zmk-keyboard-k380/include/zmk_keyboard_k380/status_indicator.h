@@ -24,6 +24,7 @@ int k380_status_indicator_set(enum k380_status_id status);
 void k380_status_indicator_clear(enum k380_status_id status);
 enum k380_status_id k380_status_indicator_current(void);
 void k380_status_indicator_animation_step(void);
-/* Quiet persists until a model transition; repeated stop requests emit no frames. */
+/* Ordinary model updates retain quiet; only the coordinator may authorize resume. */
 void k380_status_indicator_stop_animation(void);
+void k380_status_indicator_resume_animation(void);
 bool k380_status_indicator_animation_active(void);
