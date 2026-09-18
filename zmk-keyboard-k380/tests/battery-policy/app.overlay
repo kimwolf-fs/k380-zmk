@@ -1,0 +1,4 @@
+/ {
+    chosen { zmk,battery = &test_battery; };
+    test_battery: battery { compatible = "test,k380-battery"; status = "okay"; };
+};

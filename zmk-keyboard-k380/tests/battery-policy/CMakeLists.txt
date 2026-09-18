@@ -12,3 +12,8 @@ target_include_directories(app PRIVATE
   ../../include
   ../../../app/module/drivers/sensor/battery
 )
+if(CONFIG_SENSOR)
+  target_sources(app PRIVATE src/runtime.c)
+  target_include_directories(app PRIVATE ../../../app/include)
+  target_compile_definitions(app PRIVATE CONFIG_K380_BATTERY_POLICY_RUNTIME=1)
+endif()

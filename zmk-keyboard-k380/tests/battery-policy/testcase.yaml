@@ -1,4 +1,12 @@
 tests:
+  k380.battery_policy.runtime:
+    platform_allow:
+      - native_sim
+    extra_configs:
+      - CONFIG_SENSOR=y
+    tags:
+      - k380
+      - integration
   k380.battery_policy:
     platform_allow:
       - native_sim
