@@ -9,6 +9,7 @@
 static int warning_calls;
 static int radio_stop_calls;
 static int led_stop_calls;
+static int restore_calls;
 static int latch_calls;
 static int flush_calls;
 static int hid_clear_calls;
@@ -28,6 +29,7 @@ int k380_low_power_start_warning(enum k380_shutdown_reason reason)
 }
 int k380_low_power_stop_radio(void) { radio_stop_calls++; return 0; }
 int k380_low_power_stop_led(void) { led_stop_calls++; return 0; }
+int k380_low_power_restore_radio_and_led(void) { restore_calls++; return 0; }
 int k380_low_power_latch_low_voltage(uint32_t save_budget_ms)
 {
 	latch_calls++;
@@ -50,6 +52,7 @@ static void reset(void)
 	warning_calls = 0;
 	radio_stop_calls = 0;
 	led_stop_calls = 0;
+	restore_calls = 0;
 	latch_calls = 0;
 	flush_calls = 0;
 	hid_clear_calls = 0;
@@ -108,15 +111,29 @@ ZTEST(k380_low_power, test_low_voltage_reason_sets_latch_path)
 ZTEST(k380_low_power, test_timeout_is_cancelled_when_usb_or_connection_changes)
 {
 	reset();
+	zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
 	k380_low_power_test_set_all_keys_released(false);
 	zassert_ok(k380_low_power_request(K380_SHUTDOWN_BLE_WAIT_TIMEOUT));
 	zassert_true(k380_low_power_is_release_waiting());
-	zassert_equal(k380_low_power_startup_voltage_result(true, true, true), -EACCES);
-	zassert_false(k380_low_power_is_release_waiting());
 	k380_low_power_cancel_pending();
+	zassert_false(k380_low_power_is_release_waiting());
+	zassert_equal(restore_calls, 1, "cancellation must restore quieted radio/LED once");
+	k380_low_power_cancel_pending();
+	zassert_equal(restore_calls, 1, "repeated cancellation must not restore twice");
 	k380_low_power_test_set_all_keys_released(true);
 	k380_low_power_notify_all_keys_released();
 	zassert_equal(system_off_calls, 0);
+}
+
+ZTEST(k380_low_power, test_unsafe_voltage_cancellation_never_restores_radio)
+{
+	reset();
+	zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
+	k380_low_power_test_set_all_keys_released(false);
+	zassert_ok(k380_low_power_request(K380_SHUTDOWN_BLE_WAIT_TIMEOUT));
+	zassert_equal(k380_low_power_startup_voltage_result(true, false, false), -EACCES);
+	k380_low_power_cancel_pending();
+	zassert_equal(restore_calls, 0, "unsafe voltage must keep radio/LED stopped");
 }
 
 ZTEST(k380_low_power, test_dirty_profile_flushes_once_before_system_off)

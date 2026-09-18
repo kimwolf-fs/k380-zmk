@@ -42,6 +42,7 @@ __weak int k380_low_power_start_warning(enum k380_shutdown_reason reason)
 }
 __weak int k380_low_power_stop_radio(void) { return 0; }
 __weak int k380_low_power_stop_led(void) { return 0; }
+__weak int k380_low_power_restore_radio_and_led(void) { return 0; }
 __weak int k380_low_power_latch_low_voltage(uint32_t save_budget_ms)
 {
 	ARG_UNUSED(save_budget_ms);
@@ -170,8 +171,14 @@ void k380_low_power_notify_all_keys_released(void)
 void k380_low_power_cancel_pending(void)
 {
 	if (state == K380_LOW_POWER_WARNING || state == K380_LOW_POWER_RELEASE_WAIT) {
+		const bool may_restore = radio_and_led_quiet && ble_start_allowed &&
+			last_reason != K380_SHUTDOWN_LOW_VOLTAGE;
+
 		state = K380_LOW_POWER_READY;
 		reason_valid = false;
+		if (may_restore) {
+			(void)k380_low_power_restore_radio_and_led();
+		}
 		radio_and_led_quiet = false;
 	}
 }
