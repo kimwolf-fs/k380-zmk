@@ -22,6 +22,7 @@ static int quiet_presses;
 static int b_presses;
 static int abort_error;
 static bool cancel_during_abort;
+void shutdown_test_wait_timer_running(uint32_t position);
 
 /* Only hardware/transport boundaries are replaced; keymap, dispatch, hold-tap,
  * macro, queue, event subscriptions and HID accounting are production sources. */
@@ -262,6 +263,26 @@ ZTEST(shutdown_behavior, test_inflight_timer_acknowledges_abort_before_slot_reus
     zassert_equal(b_presses, 1, "release must find the new slot, never a retired timer slot");
     zassert_false(zmk_keymap_layer_active(1));
     assert_base_key();
+}
+
+ZTEST(shutdown_behavior, test_normal_release_retires_running_timer_before_next_bt_press) {
+    position(2, true);
+    zmk_shutdown_input_lock();
+    shutdown_test_wait_timer_running(2);
+    position(2, false);
+    position(3, true);
+    zmk_shutdown_input_unlock();
+
+    /* Drain the stale running callback, not the new key's future delayed timer. */
+    zassert_true(k_work_queue_drain(&k_sys_work_q, false) >= 0);
+    zassert_equal(selects, 0, "old timer must not decide the fresh BT hold-tap");
+    zassert_equal(bond_writes, 0);
+    zassert_false(zmk_keymap_layer_active(1));
+
+    position(3, false);
+    k_msleep(10);
+    zassert_equal(selects, 1, "fresh short BT release must select exactly once");
+    zassert_equal(bond_writes, 0, "fresh short BT release must never pair/clear bonds");
 }
 
 ZTEST(shutdown_behavior, test_failed_barrier_stays_closed_and_concurrent_cancel_is_deferred) {

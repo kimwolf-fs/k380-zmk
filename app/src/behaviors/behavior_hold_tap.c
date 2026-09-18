@@ -697,11 +697,20 @@ static int on_hold_tap_binding_released(struct zmk_behavior_binding *binding,
         release_hold_binding(hold_tap);
     }
 
-    if (work_cancel_result == -EINPROGRESS) {
+    bool timer_running = work_cancel_result == -EINPROGRESS;
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    timer_running = timer_running ||
+                    (k_work_busy_get(&hold_tap->work.work) & K_WORK_RUNNING);
+#endif
+    if (timer_running) {
         // let the timer handler clean up
         // if we'd clear now, the timer may call back for an uninitialized active_hold_tap.
         LOG_DBG("%d hold-tap timer work in event queue", event.position);
         hold_tap->work_is_cancelled = true;
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+        /* Do not let a fresh press find or reuse a slot still owned by its old timer. */
+        hold_tap->position = ZMK_BHV_HOLD_TAP_POSITION_NOT_USED;
+#endif
     } else {
         LOG_DBG("%d cleaning up hold-tap", event.position);
         clear_hold_tap(hold_tap);
