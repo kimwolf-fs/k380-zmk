@@ -113,6 +113,9 @@ static void quiet_radio_and_led(void)
 	if (!radio_and_led_quiet) {
 		(void)k380_low_power_stop_radio();
 		(void)k380_low_power_stop_led();
+#ifndef CONFIG_K380_LOW_POWER_TEST
+		(void)k380_soft_off_prepare_radio_and_led_quiet();
+#endif
 		radio_and_led_quiet = true;
 	}
 }
@@ -120,11 +123,16 @@ static void quiet_radio_and_led(void)
 static int complete_request(void)
 {
 	quiet_radio_and_led();
+#ifndef CONFIG_K380_LOW_POWER_TEST
+	k380_soft_off_set_pending_reason(last_reason);
+	/* This is an explicit bounded flush, never a deferred debounce wait. */
+	(void)k380_soft_off_flush_required_settings();
+#else
 	if (last_reason == K380_SHUTDOWN_LOW_VOLTAGE) {
 		(void)k380_low_power_latch_low_voltage(K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS);
 	}
-	/* This is an explicit bounded flush, never a deferred debounce wait. */
 	(void)k380_low_power_flush_dirty_profile(K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS);
+#endif
 	(void)k380_low_power_clear_hid();
 	(void)k380_low_power_disconnect_ble();
 	state = K380_LOW_POWER_SYSTEM_OFF_REQUESTED;

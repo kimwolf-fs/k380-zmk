@@ -29,6 +29,7 @@ static int confirm_ble_settings_rc;
 static int hid_rc;
 static int disconnect_rc;
 static size_t save_call_count;
+static size_t delete_call_count;
 
 extern char *k380_soft_off_test_last_reason_storage(void);
 
@@ -86,6 +87,11 @@ int k380_soft_off_test_system_off(void) {
     return 0;
 }
 
+int k380_soft_off_test_delete_reason(void) {
+    delete_call_count++;
+    return 0;
+}
+
 static void reset_fakes(void) {
     call_count = 0;
     charge_during_warning = false;
@@ -95,6 +101,7 @@ static void reset_fakes(void) {
     hid_rc = 0;
     disconnect_rc = 0;
     save_call_count = 0;
+    delete_call_count = 0;
     k380_soft_off_clear_last_reason();
 }
 
@@ -183,6 +190,26 @@ ZTEST(k380_soft_off, test_low_voltage_latch_clears_only_after_safe_qualification
     zassert_true(k380_soft_off_has_low_voltage_latch());
     zassert_ok(k380_soft_off_clear_low_voltage_latch_if_safe(true));
     zassert_false(k380_soft_off_has_low_voltage_latch());
+    zassert_ok(k380_soft_off_clear_low_voltage_latch_if_safe(true));
+    zassert_equal(delete_call_count, 1U, "safe qualification deletes the latch once");
+}
+
+ZTEST(k380_soft_off, test_existing_latch_skips_repeat_reason_write) {
+    reset_fakes();
+    k380_soft_off_test_restore_reason("low_voltage_protection");
+
+    zassert_ok(k380_soft_off_request_low_voltage());
+    zassert_equal(save_call_count, 0U);
+}
+
+ZTEST(k380_soft_off, test_ble_timeout_reasons_are_ram_only) {
+    reset_fakes();
+
+    zassert_ok(k380_soft_off_request_reason(K380_SHUTDOWN_BLE_WAIT_TIMEOUT));
+    zassert_equal(save_call_count, 0U);
+    reset_fakes();
+    zassert_ok(k380_soft_off_request_reason(K380_SHUTDOWN_PAIRING_TIMEOUT));
+    zassert_equal(save_call_count, 0U);
 }
 
 ZTEST(k380_soft_off, test_warning_start_failure_cancels_soft_off) {
