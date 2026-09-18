@@ -381,6 +381,18 @@ ZTEST(k380_status_indicator, test_unconfirmed_usb_cancellation_keeps_led_quiet) 
     zassert_equal(capture_snapshot().frame_count, quiet_frames);
 }
 
+ZTEST(k380_status_indicator, test_invalid_charging_qualification_cannot_resume_quiet_leds) {
+    zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
+    k380_low_power_test_set_all_keys_released(false);
+    zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+    zassert_ok(k380_status_indicator_set(K380_STATUS_Z2_CHARGING));
+    const size_t quiet_frames = capture_snapshot().frame_count;
+    zassert_equal(k380_low_power_startup_voltage_result(false, true, true), -EACCES);
+    zassert_true(k380_low_power_is_release_waiting());
+    zassert_false(k380_status_indicator_animation_active());
+    zassert_equal(capture_snapshot().frame_count, quiet_frames);
+}
+
 ZTEST(k380_status_indicator, test_static_status_cancels_animation) {
     start_real_animation(K380_STATUS_Z5_BLE_WAITING);
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z9_MATRIX_FAULT));
