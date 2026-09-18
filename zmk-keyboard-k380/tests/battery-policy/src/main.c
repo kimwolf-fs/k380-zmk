@@ -84,4 +84,10 @@ ZTEST(k380_battery_policy, test_vddh_average_debounce_and_charging_override) {
     zassert_equal(k380_status_indicator_current(), K380_STATUS_Z2_CHARGING);
 }
 
+ZTEST(k380_battery_policy, test_charging_sample_is_startup_safe_and_not_battery_powered) {
+    zassert_ok(k380_battery_policy_submit_mv(4600));
+    zassert_false(k380_battery_policy_is_battery_powered());
+    zassert_true(k380_battery_policy_voltage_safe_for_startup());
+}
+
 ZTEST_SUITE(k380_battery_policy, NULL, NULL, NULL, NULL, NULL);

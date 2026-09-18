@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 enum k380_power_state {
@@ -10,6 +11,10 @@ enum k380_power_state {
 };
 
 void k380_battery_policy_sample_now(void);
+int k380_battery_policy_sample_now_sync(uint16_t *vddh_mv);
+int k380_battery_policy_startup_qualify(void);
+bool k380_battery_policy_is_battery_powered(void);
+bool k380_battery_policy_voltage_safe_for_startup(void);
 int k380_battery_policy_submit_mv(uint16_t vddh_mv);
 enum k380_power_state k380_battery_policy_state(void);
 

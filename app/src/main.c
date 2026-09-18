@@ -14,6 +14,8 @@ LOG_MODULE_REGISTER(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #if IS_ENABLED(CONFIG_K380_SOFT_OFF)
 #include <zmk_keyboard_k380/soft_off.h>
+#include <zmk_keyboard_k380/battery_policy.h>
+#include <zmk_keyboard_k380/low_power.h>
 #endif
 
 #if IS_ENABLED(CONFIG_ZMK_DISPLAY)
@@ -26,16 +28,27 @@ LOG_MODULE_REGISTER(zmk, CONFIG_ZMK_LOG_LEVEL);
 int main(void) {
     LOG_INF("Welcome to ZMK!\n");
 
+#if IS_ENABLED(CONFIG_K380_SOFT_OFF)
+    /* Keep BLE gated until settings and a valid startup voltage decision exist. */
+    (void)k380_low_power_startup_voltage_result(false, false, false);
+#endif
+
 #if IS_ENABLED(CONFIG_SETTINGS)
     settings_subsys_init();
     const int err = settings_load();
-#if IS_ENABLED(CONFIG_K380_SOFT_OFF)
-    if (err == 0) {
-        k380_soft_off_handle_successful_boot();
-    }
-#else
     ARG_UNUSED(err);
 #endif
+
+#if IS_ENABLED(CONFIG_K380_SOFT_OFF)
+    const int qualify_rc = k380_battery_policy_startup_qualify();
+    if (qualify_rc == 0) {
+        (void)k380_soft_off_clear_low_voltage_latch_if_safe(true);
+        /* The coordinator's charging argument denotes an unsafe transition;
+         * a qualified USB sample is already a safe startup result. */
+        (void)k380_low_power_startup_voltage_result(true, false, true);
+    } else {
+        (void)k380_low_power_startup_voltage_result(false, false, false);
+    }
 #endif
 
 #ifdef CONFIG_ZMK_DISPLAY

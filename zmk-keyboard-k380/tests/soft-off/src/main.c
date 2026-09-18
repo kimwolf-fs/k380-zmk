@@ -164,14 +164,25 @@ ZTEST(k380_soft_off, test_ble_settings_failure_still_disconnects_active_slot) {
     zassert_mem_equal(calls, expected, sizeof(expected));
 }
 
-ZTEST(k380_soft_off, test_successful_boot_consumes_loaded_last_reason) {
+ZTEST(k380_soft_off, test_successful_boot_keeps_loaded_low_voltage_latch) {
     reset_fakes();
     k380_soft_off_test_restore_reason("low_voltage_protection");
 
     zassert_equal(strcmp(k380_soft_off_last_reason(), "low_voltage_protection"), 0);
-    zassert_equal(strcmp(k380_soft_off_last_reason(), "low_voltage_protection"), 0);
     k380_soft_off_handle_successful_boot();
-    zassert_is_null(k380_soft_off_last_reason());
+    zassert_true(k380_soft_off_has_low_voltage_latch());
+    zassert_equal(strcmp(k380_soft_off_last_reason(), "low_voltage_protection"), 0);
+}
+
+ZTEST(k380_soft_off, test_low_voltage_latch_clears_only_after_safe_qualification) {
+    reset_fakes();
+    k380_soft_off_test_restore_reason("low_voltage_protection");
+
+    zassert_true(k380_soft_off_has_low_voltage_latch());
+    zassert_equal(k380_soft_off_clear_low_voltage_latch_if_safe(false), -EACCES);
+    zassert_true(k380_soft_off_has_low_voltage_latch());
+    zassert_ok(k380_soft_off_clear_low_voltage_latch_if_safe(true));
+    zassert_false(k380_soft_off_has_low_voltage_latch());
 }
 
 ZTEST(k380_soft_off, test_warning_start_failure_cancels_soft_off) {
