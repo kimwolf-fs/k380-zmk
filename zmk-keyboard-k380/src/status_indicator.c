@@ -70,8 +70,11 @@ __weak void k380_status_indicator_test_render(enum k380_status_id status,
     ARG_UNUSED(pixel_count);
 }
 
-__weak uint8_t k380_ble_slot_current(void) { return 1U; }
 __weak bool k380_status_indicator_test_use_timer(void) { return true; }
+#endif
+
+#if !IS_ENABLED(CONFIG_K380_BLE_SLOT_POLICY)
+__weak uint8_t k380_ble_slot_current(void) { return 1U; }
 #endif
 
 static struct led_rgb rgb(uint8_t r, uint8_t g, uint8_t b) {

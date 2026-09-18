@@ -38,7 +38,6 @@ static void reset(void) {
         cols[i] = (struct k380_kscan_gpio){
             .spec = {.port = DEVICE_DT_GET(DT_NODELABEL(test_gpio)), .pin = i + 8,
                      .dt_flags = GPIO_PULL_DOWN}, .index = i};
-        zassert_ok(gpio_emul_input_set(cols[i].spec.port, cols[i].spec.pin, 0));
     }
     data.inputs = K380_KSCAN_GPIO_LIST(cols);
     data.matrix_state = states;
@@ -52,6 +51,9 @@ static void reset(void) {
     zassert_ok(k380_kscan_init(&matrix));
     zassert_ok(k380_kscan_configure(&matrix, callback));
     zassert_ok(k380_kscan_setup_pins(&matrix));
+    for (int i = 0; i < 15; i++) {
+        zassert_ok(gpio_emul_input_set(cols[i].spec.port, cols[i].spec.pin, 0));
+    }
     data.enabled = true;
 }
 
