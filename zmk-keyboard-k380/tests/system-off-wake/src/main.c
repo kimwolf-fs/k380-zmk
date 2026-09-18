@@ -114,7 +114,9 @@ ZTEST(k380_system_off_wake, test_wake_preparation_rejects_held_key_and_does_not_
     zassert_true(data.system_off_requested);
     zassert_false(data.enabled);
     zassert_false(k_work_delayable_is_pending(&data.work));
-    zassert_ok(k380_kscan_arm_system_off_wake(&matrix));
+    const int arm_err = k380_kscan_arm_system_off_wake(&matrix);
+    printk("system-off wake arm returned %d\\n", arm_err);
+    zassert_ok(arm_err);
     zassert_false(data.enabled, "arming wake must never enable normal scanning");
     zassert_false(k_work_delayable_is_pending(&data.work));
     for (int row = 0; row < 8; row++) {
