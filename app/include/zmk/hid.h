@@ -356,6 +356,8 @@ int zmk_hid_masked_modifiers_clear(void);
 int zmk_hid_keyboard_press(zmk_key_t key);
 int zmk_hid_keyboard_release(zmk_key_t key);
 void zmk_hid_keyboard_clear(void);
+/* Shutdown consumes physical releases, so its reset must also discard held modifiers. */
+void zmk_hid_keyboard_clear_for_shutdown(void);
 bool zmk_hid_keyboard_is_pressed(zmk_key_t key);
 
 int zmk_hid_consumer_press(zmk_key_t key);

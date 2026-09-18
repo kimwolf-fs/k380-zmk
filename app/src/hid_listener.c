@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <drivers/behavior.h>
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
@@ -15,6 +14,9 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/hid.h>
 #include <dt-bindings/zmk/hid_usage_pages.h>
 #include <zmk/endpoints.h>
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+#include <zmk_keyboard_k380/low_power.h>
+#endif
 
 static int hid_listener_keycode_pressed(const struct zmk_keycode_state_changed *ev) {
     int err, explicit_mods_changed, implicit_mods_changed;
@@ -97,6 +99,11 @@ static int hid_listener_keycode_released(const struct zmk_keycode_state_changed 
 }
 
 int hid_listener(const zmk_event_t *eh) {
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    if (!k380_low_power_input_events_allowed()) {
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+#endif
     const struct zmk_keycode_state_changed *ev = as_zmk_keycode_state_changed(eh);
     if (ev) {
         if (ev->state) {
