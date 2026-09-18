@@ -14,6 +14,9 @@ void k380_low_power_notify_all_keys_released(void) { release_notifications++; }
 static struct k380_kscan_gpio rows[8];
 static struct k380_kscan_gpio cols[15];
 static struct zmk_debounce_state states[120];
+#if USE_INTERRUPTS
+static struct k380_kscan_irq_callback irqs[15];
+#endif
 static struct k380_kscan_data data;
 static struct k380_kscan_config config;
 /* k380_kscan_init() registers PM state even for this white-box device. */
@@ -43,6 +46,9 @@ static void reset(void) {
     }
     data.inputs = K380_KSCAN_GPIO_LIST(cols);
     data.matrix_state = states;
+#if USE_INTERRUPTS
+    data.irqs = irqs;
+#endif
     config.outputs = K380_KSCAN_GPIO_LIST(rows);
     config.debounce_scan_period_ms = 1;
     config.poll_period_ms = 10;
