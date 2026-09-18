@@ -136,6 +136,17 @@ ZTEST(k380_low_power, test_unsafe_voltage_cancellation_never_restores_radio)
 	zassert_equal(restore_calls, 0, "unsafe voltage must keep radio/LED stopped");
 }
 
+ZTEST(k380_low_power, test_usb_insertion_cancels_low_voltage_shutdown)
+{
+	reset();
+	k380_low_power_test_set_all_keys_released(false);
+	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+	zassert_true(k380_low_power_is_release_waiting());
+	zassert_equal(k380_low_power_startup_voltage_result(true, true, true), -EACCES);
+	zassert_false(k380_low_power_is_release_waiting());
+	zassert_equal(restore_calls, 1);
+}
+
 ZTEST(k380_low_power, test_dirty_profile_flushes_once_before_system_off)
 {
 	reset();

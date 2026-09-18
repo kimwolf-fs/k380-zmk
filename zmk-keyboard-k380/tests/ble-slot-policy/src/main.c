@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <errno.h>
 
 #include <zephyr/sys/util.h>
 #include <zephyr/ztest.h>
@@ -18,8 +19,17 @@ static enum k380_power_state power_state;
 static int low_power_requests;
 static int stop_advertising_calls;
 static int cancel_pending_calls;
+static int cancel_usb_pending_calls;
+static int save_calls;
+static int save_failures;
+static bool active_profile_dirty;
+static bool advertising_gate_open;
+static int advertising_update_calls;
 
 int zmk_ble_prof_select(uint8_t index) {
+    if (selected_profile != index) {
+        active_profile_dirty = true;
+    }
     selected_profile = index;
     return 0;
 }
@@ -40,6 +50,24 @@ int k380_low_power_request(enum k380_shutdown_reason reason) {
 }
 int zmk_ble_stop_advertising(void) { stop_advertising_calls++; return 0; }
 void k380_low_power_cancel_pending(void) { cancel_pending_calls++; }
+void k380_low_power_cancel_usb_pending(void) { cancel_usb_pending_calls++; }
+int zmk_ble_flush_active_profile_if_dirty(void) {
+    if (!active_profile_dirty) {
+        return 0;
+    }
+    save_calls++;
+    if (save_failures > 0) {
+        --save_failures;
+        return -EIO;
+    }
+    active_profile_dirty = false;
+    return 0;
+}
+bool zmk_ble_active_profile_is_dirty(void) { return active_profile_dirty; }
+int update_advertising(void) {
+    advertising_update_calls++;
+    return advertising_gate_open ? 1 : 0;
+}
 
 static void reset_fakes(void *fixture) {
     ARG_UNUSED(fixture);
@@ -52,6 +80,12 @@ static void reset_fakes(void *fixture) {
     low_power_requests = 0;
     stop_advertising_calls = 0;
     cancel_pending_calls = 0;
+    cancel_usb_pending_calls = 0;
+    save_calls = 0;
+    save_failures = 0;
+    active_profile_dirty = false;
+    advertising_gate_open = false;
+    advertising_update_calls = 0;
     k380_ble_slot_policy_reset_for_test();
     zassert_ok(k380_status_indicator_set(K380_STATUS_B1_BOOTLOADER_WAITING));
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z1_NORMAL));
@@ -129,6 +163,33 @@ ZTEST(k380_ble_slot_policy, test_current_slot_follows_persisted_zmk_profile) {
 ZTEST(k380_ble_slot_policy, test_select_same_slot_does_not_change_profile) {
     zassert_ok(k380_ble_slot_select(1));
     zassert_equal(selected_profile, 0);
+    zassert_false(zmk_ble_active_profile_is_dirty());
+}
+
+ZTEST(k380_ble_slot_policy, test_new_slot_flushes_once) {
+    zassert_ok(k380_ble_slot_select(2));
+    zassert_true(zmk_ble_active_profile_is_dirty());
+    zassert_ok(zmk_ble_flush_active_profile_if_dirty());
+    zassert_false(zmk_ble_active_profile_is_dirty());
+    zassert_ok(zmk_ble_flush_active_profile_if_dirty());
+    zassert_equal(save_calls, 1);
+}
+
+ZTEST(k380_ble_slot_policy, test_failed_flush_retries_dirty_profile) {
+    save_failures = 1;
+    zassert_ok(k380_ble_slot_select(2));
+    zassert_equal(zmk_ble_flush_active_profile_if_dirty(), -EIO);
+    zassert_true(zmk_ble_active_profile_is_dirty());
+    zassert_ok(zmk_ble_flush_active_profile_if_dirty());
+    zassert_false(zmk_ble_active_profile_is_dirty());
+    zassert_equal(save_calls, 2);
+}
+
+ZTEST(k380_ble_slot_policy, test_advertising_update_stays_gated) {
+    zassert_equal(update_advertising(), 0);
+    zassert_equal(advertising_update_calls, 1);
+    advertising_gate_open = true;
+    zassert_equal(update_advertising(), 1);
 }
 
 ZTEST(k380_ble_slot_policy, test_wait_timeout_requests_low_power_on_battery) {
@@ -147,6 +208,41 @@ ZTEST(k380_ble_slot_policy, test_pairing_timeout_on_usb_stops_advertising) {
     zassert_equal(stop_advertising_calls, 1);
     zassert_equal(low_power_requests, 0);
     zassert_equal(k380_status_indicator_current(), K380_STATUS_Z1_NORMAL);
+}
+
+ZTEST(k380_ble_slot_policy, test_stale_wait_timeout_is_ignored_after_slot_switch) {
+    power_state = K380_POWER_NORMAL;
+    zassert_ok(k380_ble_slot_select(1));
+    zassert_ok(k380_ble_slot_select(2));
+    k380_ble_slot_wait_timeout_expire_stale_for_test();
+    zassert_equal(low_power_requests, 0);
+}
+
+ZTEST(k380_ble_slot_policy, test_stale_pairing_timeout_is_ignored_after_slot_switch) {
+    open_profiles[0] = true;
+    open_profiles[1] = true;
+    power_state = K380_POWER_NORMAL;
+    zassert_ok(k380_ble_slot_select(1));
+    zassert_ok(k380_ble_slot_select(2));
+    k380_ble_slot_pairing_timeout_expire_stale_for_test();
+    zassert_equal(low_power_requests, 0);
+}
+
+ZTEST(k380_ble_slot_policy, test_usb_transition_restarts_wait_timer_on_battery) {
+    power_state = K380_POWER_CHARGING;
+    zassert_ok(k380_ble_slot_select(1));
+    power_state = K380_POWER_NORMAL;
+    k380_ble_slot_power_state_changed();
+    k380_ble_slot_wait_timeout_expire_for_test();
+    zassert_equal(low_power_requests, 1);
+}
+
+ZTEST(k380_ble_slot_policy, test_timeout_paths_do_not_save_settings) {
+    open_profiles[0] = true;
+    power_state = K380_POWER_NORMAL;
+    zassert_ok(k380_ble_slot_select(1));
+    k380_ble_slot_pairing_timeout_expire_for_test();
+    zassert_equal(save_calls, 0);
 }
 
 ZTEST_SUITE(k380_ble_slot_policy, NULL, NULL, reset_fakes, NULL, NULL);
