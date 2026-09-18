@@ -307,6 +307,7 @@ ZTEST(k380_status_indicator, test_low_voltage_release_wait_stays_quiet_after_dis
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z6_BLE_CONNECTED));
     k380_low_power_test_set_all_keys_released(false);
     zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+    k_sleep(K_MSEC(3050));
     zassert_true(k380_low_power_is_release_waiting());
     const size_t quiet_frames = capture_snapshot().frame_count;
     k_work_submit(&status_mutation);
@@ -347,6 +348,7 @@ ZTEST(k380_status_indicator, test_usb_cancellation_resumes_led_without_battery_b
     use_real_timer = true;
     k380_low_power_test_set_all_keys_released(false);
     zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+    k_sleep(K_MSEC(3050));
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z2_CHARGING));
     const size_t quiet_frames = capture_snapshot().frame_count;
     zassert_false(k380_status_indicator_animation_active());
@@ -374,6 +376,7 @@ ZTEST(k380_status_indicator, test_unconfirmed_usb_cancellation_keeps_led_quiet) 
     k380_low_power_test_set_all_keys_released(false);
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING));
     zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+    k_sleep(K_MSEC(3050));
     const size_t quiet_frames = capture_snapshot().frame_count;
     zassert_equal(k380_low_power_startup_voltage_result(false, false, false), -EACCES);
     k380_low_power_cancel_usb_pending();
@@ -385,6 +388,7 @@ ZTEST(k380_status_indicator, test_invalid_charging_qualification_cannot_resume_q
     zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
     k380_low_power_test_set_all_keys_released(false);
     zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+    k_sleep(K_MSEC(3050));
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z2_CHARGING));
     const size_t quiet_frames = capture_snapshot().frame_count;
     zassert_equal(k380_low_power_startup_voltage_result(false, true, true), -EACCES);

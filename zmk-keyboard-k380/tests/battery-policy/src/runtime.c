@@ -115,6 +115,7 @@ ZTEST(k380_battery_runtime, test_delete_failure_keeps_startup_gate_closed_withou
 ZTEST(k380_battery_runtime, test_qualified_recovery_cancels_real_coordinator_warning) {
     reset();
     sensor_mv = 3100;
+    for (int i = 0; i < 8; i++) { zassert_ok(k380_battery_policy_submit_mv(3100)); }
     zassert_equal(k380_battery_policy_startup_qualify(), -EACCES);
     zassert_false(k380_low_power_input_events_allowed());
     for (int i = 0; i < 3; i++) { zassert_ok(k380_battery_policy_submit_mv(3300)); }
