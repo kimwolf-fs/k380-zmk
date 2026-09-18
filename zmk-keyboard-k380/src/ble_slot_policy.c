@@ -32,10 +32,31 @@ static void connected_prompt_expired(struct k_work *work) {
 
 static K_WORK_DELAYABLE_DEFINE(connected_prompt_work, connected_prompt_expired);
 
+struct timeout_work {
+    struct k_work_delayable work;
+    uint32_t generation;
+    int profile;
+};
+
 static void ble_wait_timeout_expired(struct k_work *work);
 static void pairing_timeout_expired(struct k_work *work);
-static K_WORK_DELAYABLE_DEFINE(ble_wait_timeout_work, ble_wait_timeout_expired);
-static K_WORK_DELAYABLE_DEFINE(pairing_timeout_work, pairing_timeout_expired);
+static struct timeout_work ble_wait_timeout_work[2];
+static struct timeout_work pairing_timeout_work[2];
+static uint8_t ble_wait_timeout_index;
+static uint8_t pairing_timeout_index;
+static uint32_t ble_wait_timeout_generation;
+static uint32_t pairing_timeout_generation;
+static bool timeout_work_initialized;
+
+static void init_timeout_work(void) {
+    if (!timeout_work_initialized) {
+        for (int i = 0; i < 2; ++i) {
+            k_work_init_delayable(&ble_wait_timeout_work[i].work, ble_wait_timeout_expired);
+            k_work_init_delayable(&pairing_timeout_work[i].work, pairing_timeout_expired);
+        }
+        timeout_work_initialized = true;
+    }
+}
 
 #if !defined(CONFIG_ZTEST) && !IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
 static enum k380_power_state k380_battery_policy_state(void) { return K380_POWER_NORMAL; }
@@ -51,8 +72,15 @@ static int k380_low_power_request(enum k380_shutdown_reason reason) {
 static bool on_usb_power(void) { return k380_battery_policy_state() == K380_POWER_CHARGING; }
 
 static void cancel_timeout_work(void) {
-    k_work_cancel_delayable(&ble_wait_timeout_work);
-    k_work_cancel_delayable(&pairing_timeout_work);
+    if (!timeout_work_initialized) {
+        return;
+    }
+    ++ble_wait_timeout_generation;
+    ++pairing_timeout_generation;
+    for (int i = 0; i < 2; ++i) {
+        (void)k_work_cancel_delayable(&ble_wait_timeout_work[i].work);
+        (void)k_work_cancel_delayable(&pairing_timeout_work[i].work);
+    }
 }
 
 static bool timeout_profile_is_current(void) {
@@ -78,16 +106,28 @@ static void schedule_timeout_for_active_profile(int profile) {
     }
 
     if (zmk_ble_profile_is_open(profile)) {
-        (void)k_work_reschedule(&pairing_timeout_work, K_MSEC(CONFIG_K380_BLE_PAIRING_TIMEOUT_MS));
+        pairing_timeout_index ^= 1U;
+        struct timeout_work *timeout = &pairing_timeout_work[pairing_timeout_index];
+        timeout->generation = pairing_timeout_generation;
+        timeout->profile = profile;
+        (void)k_work_reschedule(&timeout->work,
+                                K_MSEC(CONFIG_K380_BLE_PAIRING_TIMEOUT_MS));
     } else if (!on_usb_power()) {
-        (void)k_work_reschedule(&ble_wait_timeout_work, K_MSEC(CONFIG_K380_BLE_WAIT_TIMEOUT_MS));
+        ble_wait_timeout_index ^= 1U;
+        struct timeout_work *timeout = &ble_wait_timeout_work[ble_wait_timeout_index];
+        timeout->generation = ble_wait_timeout_generation;
+        timeout->profile = profile;
+        (void)k_work_reschedule(&timeout->work,
+                                K_MSEC(CONFIG_K380_BLE_WAIT_TIMEOUT_MS));
     }
 }
 
 static void ble_wait_timeout_expired(struct k_work *work) {
-    ARG_UNUSED(work);
+    struct timeout_work *timeout = CONTAINER_OF(work, struct timeout_work, work.work);
 
-    if (!timeout_profile_is_current() || on_usb_power()) {
+    if (!timeout_work_initialized || timeout->generation != ble_wait_timeout_generation ||
+        timeout->profile != zmk_ble_active_profile_index() ||
+        !timeout_profile_is_current() || on_usb_power()) {
         return;
     }
 
@@ -100,9 +140,11 @@ static void ble_wait_timeout_expired(struct k_work *work) {
 }
 
 static void pairing_timeout_expired(struct k_work *work) {
-    ARG_UNUSED(work);
+    struct timeout_work *timeout = CONTAINER_OF(work, struct timeout_work, work.work);
 
-    if (!timeout_profile_is_current() || !zmk_ble_profile_is_open(zmk_ble_active_profile_index())) {
+    if (!timeout_work_initialized || timeout->generation != pairing_timeout_generation ||
+        timeout->profile != zmk_ble_active_profile_index() ||
+        !timeout_profile_is_current() || !zmk_ble_profile_is_open(zmk_ble_active_profile_index())) {
         return;
     }
 
@@ -122,6 +164,7 @@ static int update_active_slot_status(void) {
         return 0;
     }
 
+    init_timeout_work();
     k380_low_power_cancel_pending();
     k_work_cancel_delayable(&connected_prompt_work);
     cancel_timeout_work();
@@ -147,6 +190,17 @@ static int update_active_slot_status(void) {
     int err = k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING);
     schedule_timeout_for_active_profile(profile);
     return err;
+}
+
+void k380_ble_slot_power_state_changed(void) {
+    const enum k380_power_state power = k380_battery_policy_state();
+
+    if (power == K380_POWER_CHARGING) {
+        k380_low_power_cancel_usb_pending();
+    }
+    if (timeout_work_initialized) {
+        update_active_slot_status();
+    }
 }
 
 int k380_ble_slot_select(uint8_t slot) {
@@ -184,13 +238,24 @@ uint8_t k380_ble_slot_current(void) {
 
 #ifdef CONFIG_ZTEST
 void k380_ble_slot_policy_reset_for_test(void) {
+    init_timeout_work();
     cancel_timeout_work();
     k_work_cancel_delayable(&connected_prompt_work);
 }
 void k380_ble_slot_active_profile_changed_for_test(void) { update_active_slot_status(); }
 void k380_ble_slot_connected_prompt_expire_for_test(void) { connected_prompt_expired(NULL); }
-void k380_ble_slot_wait_timeout_expire_for_test(void) { ble_wait_timeout_expired(NULL); }
-void k380_ble_slot_pairing_timeout_expire_for_test(void) { pairing_timeout_expired(NULL); }
+void k380_ble_slot_wait_timeout_expire_for_test(void) {
+    ble_wait_timeout_expired(&ble_wait_timeout_work[ble_wait_timeout_index].work.work);
+}
+void k380_ble_slot_pairing_timeout_expire_for_test(void) {
+    pairing_timeout_expired(&pairing_timeout_work[pairing_timeout_index].work.work);
+}
+void k380_ble_slot_wait_timeout_expire_stale_for_test(void) {
+    ble_wait_timeout_expired(&ble_wait_timeout_work[ble_wait_timeout_index ^ 1U].work.work);
+}
+void k380_ble_slot_pairing_timeout_expire_stale_for_test(void) {
+    pairing_timeout_expired(&pairing_timeout_work[pairing_timeout_index ^ 1U].work.work);
+}
 #endif
 
 #ifndef CONFIG_ZTEST

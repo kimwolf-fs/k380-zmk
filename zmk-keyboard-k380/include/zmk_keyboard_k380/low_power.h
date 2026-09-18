@@ -17,6 +17,7 @@ bool k380_low_power_is_release_waiting(void);
 
 /* Event sources use this to cancel a pending BLE timeout request. */
 void k380_low_power_cancel_pending(void);
+void k380_low_power_cancel_usb_pending(void);
 
 #ifdef CONFIG_K380_LOW_POWER_TEST
 void k380_low_power_test_reset(void);

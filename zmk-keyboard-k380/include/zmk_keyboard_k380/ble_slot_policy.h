@@ -16,6 +16,7 @@
 int k380_ble_slot_select(uint8_t slot);
 int k380_ble_slot_pair(uint8_t slot);
 uint8_t k380_ble_slot_current(void);
+void k380_ble_slot_power_state_changed(void);
 
 #ifdef CONFIG_ZTEST
 void k380_ble_slot_policy_reset_for_test(void);
@@ -23,4 +24,6 @@ void k380_ble_slot_active_profile_changed_for_test(void);
 void k380_ble_slot_connected_prompt_expire_for_test(void);
 void k380_ble_slot_wait_timeout_expire_for_test(void);
 void k380_ble_slot_pairing_timeout_expire_for_test(void);
+void k380_ble_slot_wait_timeout_expire_stale_for_test(void);
+void k380_ble_slot_pairing_timeout_expire_stale_for_test(void);
 #endif

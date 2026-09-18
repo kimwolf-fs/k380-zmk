@@ -40,6 +40,8 @@ static uint8_t soft_off_recovery_hits;
 static enum k380_power_state power_state = K380_POWER_NORMAL;
 K_MUTEX_DEFINE(battery_policy_lock);
 
+__weak void k380_ble_slot_power_state_changed(void) {}
+
 static uint16_t average_mv(void) {
     uint32_t sum = 0;
 
@@ -101,9 +103,7 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
     bool request_soft_off;
 #endif
     k_mutex_lock(&battery_policy_lock, K_FOREVER);
-#if IS_ENABLED(CONFIG_K380_SOFT_OFF)
     const enum k380_power_state previous_state = power_state;
-#endif
 
     samples[next_sample] = vddh_mv;
     next_sample = (next_sample + 1U) % K380_BATTERY_WINDOW_SIZE;
@@ -118,6 +118,9 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
         soft_off_recovery_hits = 0;
         set_power_state(K380_POWER_CHARGING);
         k_mutex_unlock(&battery_policy_lock);
+        if (previous_state != K380_POWER_CHARGING) {
+            k380_ble_slot_power_state_changed();
+        }
         return 0;
     }
 
@@ -180,6 +183,10 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
                        power_state == K380_POWER_SOFT_OFF_WARNING_REQUESTED;
 #endif
     k_mutex_unlock(&battery_policy_lock);
+
+    if (previous_state != power_state) {
+        k380_ble_slot_power_state_changed();
+    }
 
 #if IS_ENABLED(CONFIG_K380_SOFT_OFF)
     if (request_soft_off) {

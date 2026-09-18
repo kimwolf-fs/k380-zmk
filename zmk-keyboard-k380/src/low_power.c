@@ -139,7 +139,7 @@ bool k380_low_power_ble_start_allowed(void)
 int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
 {
 	if (charging) {
-		k380_low_power_cancel_pending();
+		k380_low_power_cancel_usb_pending();
 	}
 	if (!valid || charging || !safe) {
 		ble_start_allowed = false;
@@ -197,6 +197,20 @@ void k380_low_power_cancel_pending(void)
 		}
 		const bool may_restore = radio_and_led_quiet && ble_start_allowed &&
 			last_reason != K380_SHUTDOWN_LOW_VOLTAGE;
+
+		state = K380_LOW_POWER_READY;
+		reason_valid = false;
+		if (may_restore) {
+			(void)k380_low_power_restore_radio_and_led();
+		}
+		radio_and_led_quiet = false;
+	}
+}
+
+void k380_low_power_cancel_usb_pending(void)
+{
+	if (state == K380_LOW_POWER_WARNING || state == K380_LOW_POWER_RELEASE_WAIT) {
+		const bool may_restore = radio_and_led_quiet && ble_start_allowed;
 
 		state = K380_LOW_POWER_READY;
 		reason_valid = false;
