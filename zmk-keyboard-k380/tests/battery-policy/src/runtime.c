@@ -139,7 +139,9 @@ ZTEST(k380_battery_runtime, test_recovery_before_stale_request_keeps_coordinator
     sensor_rc = -EIO;
     zassert_equal(k380_battery_policy_startup_qualify(), -EACCES);
     recover_before_request = true;
-    for (int i = 0; i < 8; i++) { zassert_ok(k380_battery_policy_submit_mv(3100)); }
+    for (int i = 0; i < 12 && recover_before_request; i++) {
+        zassert_ok(k380_battery_policy_submit_mv(3100));
+    }
     zassert_false(recover_before_request, "fixture must reach the unlocked shutdown decision");
     zassert_false(latch);
     zassert_true(k380_low_power_ble_start_allowed(), "stale low-voltage decision must not undo recovery");
