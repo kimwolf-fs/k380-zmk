@@ -97,6 +97,7 @@ ZTEST(k380_ble_slot_policy, test_select_slot_2_waits_on_ws2) {
     zassert_equal(k380_ble_slot_current(), 2);
     zassert_equal(selected_profile, 1);
     zassert_equal(k380_status_indicator_current(), K380_STATUS_Z5_BLE_WAITING);
+    zassert_true(cancel_pending_calls > 0);
 }
 
 ZTEST(k380_ble_slot_policy, test_select_open_slot_2_enters_pairing_on_ws2) {
@@ -242,6 +243,11 @@ ZTEST(k380_ble_slot_policy, test_timeout_paths_do_not_save_settings) {
     power_state = K380_POWER_NORMAL;
     zassert_ok(k380_ble_slot_select(1));
     k380_ble_slot_pairing_timeout_expire_for_test();
+    zassert_equal(save_calls, 0);
+}
+
+ZTEST(k380_ble_slot_policy, test_pairing_path_does_not_save_settings) {
+    zassert_ok(k380_ble_slot_pair(2));
     zassert_equal(save_calls, 0);
 }
 
