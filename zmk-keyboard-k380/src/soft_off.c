@@ -118,22 +118,23 @@ const char *k380_soft_off_last_reason(void) {
     return last_shutdown_reason[0] == '\0' ? NULL : last_shutdown_reason;
 }
 
-void k380_soft_off_clear_last_reason(void) {
+int k380_soft_off_clear_last_reason(void) {
     if (last_shutdown_reason[0] == '\0') {
-        return;
+        return 0;
     }
-    last_shutdown_reason[0] = '\0';
 #if !defined(CONFIG_ZTEST) && IS_ENABLED(CONFIG_SETTINGS)
     const int err = settings_delete(K380_SOFT_OFF_REASON_SETTING);
-    if (err < 0) {
-        LOG_ERR("Failed to clear shutdown reason (%d)", err);
-    }
 #elif defined(CONFIG_ZTEST)
     const int err = k380_soft_off_test_delete_reason();
+#else
+    const int err = 0;
+#endif
     if (err < 0) {
         LOG_ERR("Failed to clear shutdown reason (%d)", err);
+        return err;
     }
-#endif
+    last_shutdown_reason[0] = '\0';
+    return 0;
 }
 
 void k380_soft_off_handle_successful_boot(void) {
@@ -152,8 +153,7 @@ int k380_soft_off_clear_low_voltage_latch_if_safe(bool safe_or_charging) {
         return -EACCES;
     }
 
-    k380_soft_off_clear_last_reason();
-    return 0;
+    return k380_soft_off_clear_last_reason();
 }
 
 #ifdef CONFIG_ZTEST

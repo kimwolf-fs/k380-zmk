@@ -53,6 +53,16 @@ static enum k380_shutdown_reason last_reason;
 static bool reason_valid;
 static bool ble_start_allowed;
 static bool radio_and_led_quiet;
+static int64_t warning_deadline;
+static void warning_work_handler(struct k_work *work);
+K_WORK_DELAYABLE_DEFINE(warning_work, warning_work_handler);
+
+__weak void k380_low_power_cancel_warning(void)
+{
+#ifndef CONFIG_K380_LOW_POWER_TEST
+	k380_status_indicator_clear(K380_STATUS_Z4_SOFT_OFF_WARNING);
+#endif
+}
 
 /* These weak seams keep the coordinator independent of later BLE/LED/PM work. */
 __weak int k380_low_power_start_warning(enum k380_shutdown_reason reason)
@@ -237,6 +247,8 @@ static bool reconcile_cancellation(void)
 		log_cleanup_error("HID clear", k380_low_power_clear_hid());
 	}
 	atomic_set(&state, K380_LOW_POWER_READY);
+	(void)k_work_cancel_delayable(&warning_work);
+	k380_low_power_cancel_warning();
 	reason_valid = false;
 	if (may_restore) {
 		(void)k380_low_power_restore_radio_and_led();
@@ -310,6 +322,38 @@ int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
 	return 0;
 }
 
+static int advance_request(void)
+{
+	int err = prepare_request();
+	if (reconcile_cancellation()) {
+		return -ECANCELED;
+	}
+	if (err || !k380_low_power_all_keys_released()) {
+		atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
+		return err;
+	}
+	return complete_request();
+}
+
+static void warning_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	if (!atomic_cas(&cleanup_busy, 0, 1)) {
+		(void)k_work_reschedule(&warning_work, K_MSEC(10));
+		return;
+	}
+	if (atomic_get(&state) == K380_LOW_POWER_WARNING) {
+		/* A stale callback must not shorten a newer request's warning. */
+		const int64_t remaining = warning_deadline - k_uptime_get();
+		if (remaining > 0) {
+			(void)k_work_reschedule(&warning_work, K_MSEC(remaining));
+		} else if (!reconcile_cancellation()) {
+			(void)advance_request();
+		}
+	}
+	release_cleanup_owner();
+}
+
 int k380_low_power_request(enum k380_shutdown_reason reason)
 {
 	/* Until wake is hardware-qualified, BLE timeouts must leave input/radio usable. */
@@ -335,7 +379,7 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 	last_reason = reason;
 	reason_valid = true;
 	atomic_set(&state, K380_LOW_POWER_WARNING);
-	if (k380_low_power_start_warning(reason) != 0) {
+	if (reason == K380_SHUTDOWN_LOW_VOLTAGE && k380_low_power_start_warning(reason) != 0) {
 		atomic_or(&cancellation, CANCEL_USB);
 		if (!reconcile_cancellation()) {
 			atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
@@ -344,23 +388,15 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 		return -EIO;
 	}
 
-	int err = prepare_request();
-	if (reconcile_cancellation()) {
+	if (reason == K380_SHUTDOWN_LOW_VOLTAGE) {
+		warning_deadline = k_uptime_get() + 3000;
+		(void)k_work_reschedule(&warning_work, K_MSEC(3000));
+		const bool cancelled = reconcile_cancellation();
 		release_cleanup_owner();
-		return -ECANCELED;
-	}
-	if (err) {
-		atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
-		release_cleanup_owner();
-		return err;
-	}
-	if (!k380_low_power_all_keys_released()) {
-		atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
-		release_cleanup_owner();
-		return 0;
+		return cancelled ? -ECANCELED : 0;
 	}
 
-	err = complete_request();
+	const int err = advance_request();
 	release_cleanup_owner();
 	return err;
 }
@@ -423,6 +459,8 @@ bool k380_low_power_test_battery_charging;
 static bool test_keys_released = true;
 void k380_low_power_test_reset(void)
 {
+	struct k_work_sync sync;
+	(void)k_work_cancel_delayable_sync(&warning_work, &sync);
 	atomic_set(&state, K380_LOW_POWER_READY);
 	atomic_clear(&cleanup_busy);
 	atomic_clear(&cancellation);

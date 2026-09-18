@@ -31,6 +31,8 @@ ZTEST(k380_low_power_gate, test_low_voltage_protection_remains_enabled)
     k380_low_power_test_reset();
     off_calls = warning_calls = 0;
     zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+    zassert_equal(off_calls, 0);
+    k_sleep(K_MSEC(3050));
     zassert_equal(off_calls, 1);
     zassert_equal(warning_calls, 1);
     zassert_false(k380_low_power_input_events_allowed());

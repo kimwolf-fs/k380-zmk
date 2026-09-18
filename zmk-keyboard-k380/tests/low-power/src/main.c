@@ -111,6 +111,7 @@ ZTEST(k380_low_power, test_low_voltage_reason_sets_latch_path)
 {
 	reset();
 	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+	k_sleep(K_MSEC(3050));
 	zassert_equal(k380_low_power_last_reason(), K380_SHUTDOWN_LOW_VOLTAGE);
 	zassert_equal(warning_calls, 1);
 	zassert_equal(latch_calls, 1);
@@ -153,6 +154,7 @@ ZTEST(k380_low_power, test_usb_insertion_cancels_low_voltage_shutdown)
 	zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
 	k380_low_power_test_set_all_keys_released(false);
 	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+	k_sleep(K_MSEC(3050));
 	zassert_true(k380_low_power_is_release_waiting());
 	zassert_equal(k380_low_power_startup_voltage_result(true, true, true), -EACCES);
 	zassert_false(k380_low_power_is_release_waiting());
@@ -222,6 +224,7 @@ ZTEST(k380_low_power, test_all_causes_cleanup_before_release_wait_even_on_errors
 		cleanup_rc = -EIO;
 		k380_low_power_test_set_all_keys_released(false);
 		zassert_ok(k380_low_power_request(reason));
+		if (reason == K380_SHUTDOWN_LOW_VOLTAGE) { k_sleep(K_MSEC(3050)); }
 		const int expected_low[] = { RADIO, LED, LATCH, FLUSH, HID, DISCONNECT, OFF };
 		const int expected_ble[] = { RADIO, LED, FLUSH, HID, DISCONNECT, OFF };
 		const int *expected = reason == K380_SHUTDOWN_LOW_VOLTAGE ? expected_low : expected_ble;
@@ -247,6 +250,7 @@ ZTEST(k380_low_power, test_all_causes_cleanup_order_when_keys_are_released)
 	for (int reason = K380_SHUTDOWN_LOW_VOLTAGE; reason <= K380_SHUTDOWN_PAIRING_TIMEOUT; reason++) {
 		reset();
 		zassert_ok(k380_low_power_request(reason));
+		if (reason == K380_SHUTDOWN_LOW_VOLTAGE) { k_sleep(K_MSEC(3050)); }
 		const int low[] = { RADIO, LED, LATCH, FLUSH, HID, DISCONNECT, OFF };
 		const int ble[] = { RADIO, LED, FLUSH, HID, DISCONNECT, OFF };
 		const int *expected = reason == K380_SHUTDOWN_LOW_VOLTAGE ? low : ble;
