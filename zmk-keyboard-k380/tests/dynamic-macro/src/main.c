@@ -172,6 +172,23 @@ ZTEST(dynamic_macro, test_new_macro_ignored_while_running) {
     wait_until_stopped();
 }
 
+ZTEST(dynamic_macro, test_shutdown_abort_drains_waiting_runner_before_return) {
+    reset_fakes();
+    macro(0)->step_count = 2;
+    macro(0)->steps[0].type = K380_DYNAMIC_MACRO_WAIT_MS;
+    macro(0)->steps[0].value.wait_ms = K380_DYNAMIC_WAIT_MAX_MS;
+    macro(0)->steps[1].type = K380_DYNAMIC_MACRO_PRESS_KEY;
+    macro(0)->steps[1].value.key_usage = HID_USAGE_KEY_KEYBOARD_B;
+    sync_macro(0);
+    zassert_ok(k380_dynamic_macro_trigger(0, 0, true));
+    wait_until_running();
+    zassert_ok(k380_dynamic_macro_abort_for_shutdown());
+    zassert_false(k380_dynamic_macro_is_running(), "stop must be drained, not merely requested");
+    size_t before = emitted_count;
+    k_sleep(K_MSEC(30));
+    zassert_equal(emitted_count, before, "old runner may not emit after the shutdown barrier");
+}
+
 ZTEST(dynamic_macro, test_trace_cursor_advances_only_past_returned_events) {
     struct k380_dynamic_macro_trace_event events[10];
     struct k380_dynamic_macro_run_state state;

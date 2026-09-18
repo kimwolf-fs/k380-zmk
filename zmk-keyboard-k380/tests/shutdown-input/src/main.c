@@ -9,6 +9,10 @@ LOG_MODULE_REGISTER(zmk, 0);
 extern int hid_listener(const zmk_event_t *eh);
 static int reports;
 static int clears;
+/* This HID-only fixture has no position, hold-tap or queued-binding owners. */
+void zmk_physical_layouts_abort_input(void) {}
+void zmk_keymap_abort_held_bindings(void) {}
+void zmk_behavior_queue_abort(void) {}
 K_MSGQ_DEFINE(queued_keys, sizeof(struct zmk_keycode_state_changed_event), 4, 4);
 
 /* Only transport/event dispatch are replaced; coordinator, listener and HID are real. */

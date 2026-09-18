@@ -9,6 +9,7 @@
 #include <zephyr/sys/util.h>
 
 #include <zmk/ble.h>
+#include <zmk/shutdown_input.h>
 #include <zmk_keyboard_k380/battery_policy.h>
 #include <zmk_keyboard_k380/low_power.h>
 #ifndef CONFIG_ZTEST
@@ -63,10 +64,12 @@ static enum k380_power_state k380_battery_policy_state(void) { return K380_POWER
 #endif
 
 #if !defined(CONFIG_ZTEST) && !IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
-static int k380_low_power_request(enum k380_shutdown_reason reason) {
+static int request_low_power(enum k380_shutdown_reason reason) {
     ARG_UNUSED(reason);
     return 0;
 }
+#else
+#define request_low_power k380_low_power_request
 #endif
 
 static bool on_usb_power(void) { return k380_battery_policy_state() == K380_POWER_CHARGING; }
@@ -136,7 +139,7 @@ static void ble_wait_timeout_expired(struct k_work *work) {
         return;
     }
 
-    (void)k380_low_power_request(K380_SHUTDOWN_BLE_WAIT_TIMEOUT);
+    (void)request_low_power(K380_SHUTDOWN_BLE_WAIT_TIMEOUT);
 }
 
 static void pairing_timeout_expired(struct k_work *work) {
@@ -154,7 +157,7 @@ static void pairing_timeout_expired(struct k_work *work) {
         return;
     }
 
-    (void)k380_low_power_request(K380_SHUTDOWN_PAIRING_TIMEOUT);
+    (void)request_low_power(K380_SHUTDOWN_PAIRING_TIMEOUT);
 }
 
 static int update_active_slot_status(void) {
@@ -165,6 +168,17 @@ static int update_active_slot_status(void) {
     }
 
     init_timeout_work();
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    if (!k380_low_power_input_events_allowed()) {
+        cancel_timeout_work();
+        if (zmk_ble_profile_is_connected(profile)) {
+            k380_low_power_cancel_pending();
+        }
+        if (!k380_low_power_input_events_allowed()) {
+            return 0;
+        }
+    }
+#endif
     k380_low_power_cancel_pending();
     k_work_cancel_delayable(&connected_prompt_work);
     cancel_timeout_work();
@@ -203,7 +217,12 @@ void k380_ble_slot_power_state_changed(void) {
     }
 }
 
-int k380_ble_slot_select(uint8_t slot) {
+static int select_slot(uint8_t slot) {
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    if (!k380_low_power_input_events_allowed()) {
+        return -ECANCELED;
+    }
+#endif
     if (!is_valid_slot(slot)) {
         return -ERANGE;
     }
@@ -216,14 +235,25 @@ int k380_ble_slot_select(uint8_t slot) {
     return update_active_slot_status();
 }
 
+int k380_ble_slot_select(uint8_t slot) {
+    zmk_shutdown_input_lock();
+    int err = select_slot(slot);
+    zmk_shutdown_input_unlock();
+    return err;
+}
+
 int k380_ble_slot_pair(uint8_t slot) {
-    int err = k380_ble_slot_select(slot);
+    zmk_shutdown_input_lock();
+    int err = select_slot(slot);
     if (err < 0) {
+        zmk_shutdown_input_unlock();
         return err;
     }
 
     zmk_ble_clear_bonds();
-    return update_active_slot_status();
+    err = update_active_slot_status();
+    zmk_shutdown_input_unlock();
+    return err;
 }
 
 uint8_t k380_ble_slot_current(void) {

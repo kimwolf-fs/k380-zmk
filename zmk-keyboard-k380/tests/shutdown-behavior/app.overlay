@@ -1,0 +1,82 @@
+#include <dt-bindings/zmk/keys.h>
+#include <dt-bindings/zmk/bt.h>
+#include <dt-bindings/zmk/matrix_transform.h>
+#include <behaviors/key_press.dtsi>
+#include <behaviors/momentary_layer.dtsi>
+#include <behaviors/toggle_layer.dtsi>
+#include <behaviors/transparent.dtsi>
+#include <behaviors/bluetooth.dtsi>
+#include <behaviors/macros.dtsi>
+
+/ {
+    chosen { zmk,matrix-transform = &test_transform; };
+    test_transform: test_transform {
+        compatible = "zmk,matrix-transform";
+        rows = <1>;
+        columns = <9>;
+        map = <RC(0,0) RC(0,1) RC(0,2) RC(0,3) RC(0,4)
+               RC(0,5) RC(0,6) RC(0,7) RC(0,8)>;
+    };
+    behaviors {
+        test_ht: test_ht {
+            compatible = "zmk,behavior-hold-tap";
+            #binding-cells = <2>;
+            tapping-term-ms = <100>;
+            flavor = "tap-preferred";
+            bindings = <&mo>, <&kp>;
+        };
+        test_hwu: test_hwu {
+            compatible = "zmk,behavior-hold-tap";
+            #binding-cells = <2>;
+            tapping-term-ms = <100>;
+            flavor = "tap-preferred";
+            hold-while-undecided;
+            hold-while-undecided-linger;
+            bindings = <&mo>, <&kp>;
+        };
+        test_retro: test_retro {
+            compatible = "zmk,behavior-hold-tap";
+            #binding-cells = <2>;
+            tapping-term-ms = <100>;
+            flavor = "tap-preferred";
+            retro-tap;
+            bindings = <&mo>, <&kp>;
+        };
+        bt_ht: bt_ht {
+            compatible = "zmk,behavior-hold-tap";
+            #binding-cells = <2>;
+            tapping-term-ms = <100>;
+            flavor = "tap-preferred";
+            bindings = <&pair_macro>, <&select_macro>;
+        };
+        pair_macro: pair_macro {
+            compatible = "zmk,behavior-macro-one-param";
+            #binding-cells = <1>;
+            bindings = <&bt BT_SEL 1>, <&bt BT_CLR>;
+        };
+        select_macro: select_macro {
+            compatible = "zmk,behavior-macro-one-param";
+            #binding-cells = <1>;
+            bindings = <&bt BT_SEL 1>;
+        };
+        delayed_macro: delayed_macro {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&macro_press>, <&macro_wait_time 200>, <&mo 1>,
+                       <&macro_tap>, <&bt BT_SEL 1>, <&bt BT_CLR>;
+        };
+    };
+    keymap {
+        compatible = "zmk,keymap";
+        base {
+            bindings = <&mo 1 &kp A &test_ht 1 B &bt_ht 0 0 &delayed_macro
+                        &test_hwu 1 C &test_retro 1 D &tog 2 &kp LSHIFT>;
+        };
+        fn {
+            bindings = <&trans &kp Z &trans &trans &trans &trans &trans &trans &trans>;
+        };
+        persistent {
+            bindings = <&trans &trans &trans &trans &trans &trans &trans &trans &trans>;
+        };
+    };
+};
