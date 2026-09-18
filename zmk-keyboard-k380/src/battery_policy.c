@@ -217,13 +217,6 @@ bool k380_battery_policy_voltage_safe_for_startup(void) {
     return safe;
 }
 
-static bool voltage_average_at_least(uint16_t threshold_mv) {
-    k_mutex_lock(&battery_policy_lock, K_FOREVER);
-    const bool safe = sample_count > 0U && average_mv() >= threshold_mv;
-    k_mutex_unlock(&battery_policy_lock);
-    return safe;
-}
-
 static bool startup_recovery_sample(uint16_t mv, uint8_t *recovery_hits) {
     if (mv >= K380_SOFT_OFF_EXIT_MV) {
         if (*recovery_hits < K380_STARTUP_SAMPLE_LIMIT) {
@@ -306,8 +299,7 @@ int k380_battery_policy_startup_qualify(void) {
 
         const bool recovered = startup_recovery_sample(mv, &recovery_hits);
 
-        if ((!latch && voltage_average_at_least(K380_SOFT_OFF_ENTER_MV)) ||
-            recovered) {
+        if ((!latch && mv >= K380_SOFT_OFF_ENTER_MV) || recovered) {
             return 0;
         }
     }
