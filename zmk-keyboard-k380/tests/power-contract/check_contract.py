@@ -44,6 +44,12 @@ def check_wake(edt):
     assert len(matrix.props["col-gpios"].val) == 15, "wake matrix must retain 15 columns"
 
 
+def check_controllers(edt):
+    for label in ("gpio0", "gpio1", "gpiote"):
+        node = edt.label2node.get(label)
+        assert node and node.status == "okay", f"formal wake controller {label} must be enabled"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("driver", "formal"), required=True)
@@ -55,7 +61,10 @@ def main():
     sys.path.insert(0, str(Path("zephyr/scripts/dts/python-devicetree/src").resolve()))
     # This pickle is a trusted output of this job's Zephyr devicetree compiler.
     with (zephyr / "edt.pickle").open("rb") as stream:
-        check_wake(pickle.load(stream))
+        edt = pickle.load(stream)
+    check_wake(edt)
+    if args.mode == "formal":
+        check_controllers(edt)
     print(f"K380 {args.mode} power/wake contract passed")
 
 

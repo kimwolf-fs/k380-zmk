@@ -1,11 +1,10 @@
 cmake_minimum_required(VERSION 3.20.0)
-set(CONFIG_APPLICATION_DEFINED_SYSCALL true)
 list(APPEND DTS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../app")
 list(APPEND DTS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(k380_shutdown_behavior)
 
-set(ZMK_APP "${CMAKE_CURRENT_SOURCE_DIR}/../../../app")
+get_filename_component(ZMK_APP "${CMAKE_CURRENT_SOURCE_DIR}/../../../app" ABSOLUTE)
 zephyr_syscall_header(${ZMK_APP}/include/drivers/behavior.h)
 zephyr_linker_sources(SECTIONS ${ZMK_APP}/include/linker/zmk-behaviors.ld)
 zephyr_linker_sources(RODATA ${ZMK_APP}/include/linker/zmk-events.ld)

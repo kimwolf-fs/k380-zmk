@@ -3,8 +3,6 @@
 #include <zephyr/logging/log.h>
 #include <zmk_keyboard_k380/low_power.h>
 
-LOG_MODULE_REGISTER(zmk, 0);
-
 static bool input_allowed;
 static int release_notifications;
 bool k380_low_power_input_events_allowed(void) { return input_allowed; }

@@ -36,7 +36,11 @@ int zmk_ble_prof_select(uint8_t index) {
 
 int zmk_ble_active_profile_index(void) { return selected_profile; }
 
-void zmk_ble_clear_bonds(void) { cleared_profile = selected_profile; }
+void zmk_ble_clear_bonds(void) {
+    cleared_profile = selected_profile;
+    open_profiles[selected_profile] = true;
+    connected_profiles[selected_profile] = false;
+}
 
 bool zmk_ble_profile_is_open(uint8_t index) { return open_profiles[index]; }
 

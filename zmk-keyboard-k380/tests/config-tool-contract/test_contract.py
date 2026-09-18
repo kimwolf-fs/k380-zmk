@@ -132,6 +132,28 @@ def workflow_job(source, name):
     return match.group("body")
 
 
+def workflow_native_commands(source):
+    job = workflow_job(source, "native-tests")
+    assert re.search(r"(?m)^      fail-fast: false$", job), "native matrix must not fail fast"
+    suites = re.search(
+        r"(?m)^        suite:\n(?P<body>(?:          - [A-Za-z0-9-]+\n)+)", job
+    )
+    assert suites, "native suite matrix missing"
+    names = re.findall(r"(?m)^          - ([A-Za-z0-9-]+)$", suites.group("body"))
+    steps = workflow_named_steps(job)
+    run = steps.get("Run native suite", "")
+    command = re.search(r"(?m)^        run: >-\n(?P<body>(?:          [^\n]+\n)+)", run)
+    assert command, "native Twister command missing"
+    template = " ".join(command.group("body").split())
+    expected = (
+        "ZEPHYR_TOOLCHAIN_VARIANT=host west twister "
+        "-T zmk-keyboard-k380/tests/${{ matrix.suite }} -p native_sim "
+        "--outdir twister-out/${{ matrix.suite }}"
+    )
+    assert template == expected, "native matrix must target each suite independently"
+    return {name: template.replace("${{ matrix.suite }}", name) for name in names}
+
+
 def workflow_named_steps(job_source):
     steps = {}
     for match in re.finditer(
@@ -536,6 +558,7 @@ class K380ConfigToolContract(unittest.TestCase):
 
     def test_formal_k380_ci_runs_every_macro_vm_suite(self):
         source = read(".github/workflows/k380-ci.yml")
+        commands = workflow_native_commands(source)
 
         for suite in (
             "dynamic-macro-vm-validate",
@@ -547,8 +570,20 @@ class K380ConfigToolContract(unittest.TestCase):
         ):
             self.assertIn(
                 f"west twister -T zmk-keyboard-k380/tests/{suite} -p native_sim",
-                source,
+                commands.get(suite, ""),
             )
+
+    def test_native_matrix_rejects_lost_suite_or_broken_dispatch(self):
+        source = read(".github/workflows/k380-ci.yml")
+        missing = source.replace("          - dynamic-macro-vm\n", "", 1)
+        self.assertNotIn("dynamic-macro-vm", workflow_native_commands(missing))
+        for mutation in (
+            source.replace("      fail-fast: false", "      fail-fast: true", 1),
+            source.replace("-T zmk-keyboard-k380/tests/${{ matrix.suite }}", "-T app/tests/${{ matrix.suite }}", 1),
+            source.replace("--outdir twister-out/${{ matrix.suite }}", "--outdir twister-out/shared", 1),
+        ):
+            with self.assertRaises(AssertionError):
+                workflow_native_commands(mutation)
 
     def test_resource_map_gate_accepts_real_layout_and_rejects_regressions(self):
         valid = """Memory Configuration
@@ -745,7 +780,7 @@ Linker script and memory map
 
         self.assertIn(
             "west twister -T zmk-keyboard-k380/tests/dynamic-macro-store",
-            source,
+            workflow_native_commands(source)["dynamic-macro-store"],
         )
         self.assertIn('"write_snapshot = shared_config;" not in update.group(0)', source)
         self.assertNotIn(
