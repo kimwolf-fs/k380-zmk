@@ -169,10 +169,14 @@ bool k380_low_power_ble_start_allowed(void)
 
 int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
 {
+	if (!valid) {
+		ble_start_allowed = false;
+		return -EACCES;
+	}
 	if (charging) {
 		k380_low_power_cancel_usb_pending();
 	}
-	if (!valid || charging || !safe) {
+	if (charging || !safe) {
 		ble_start_allowed = false;
 		return -EACCES;
 	}
