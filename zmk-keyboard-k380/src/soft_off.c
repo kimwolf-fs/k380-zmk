@@ -5,6 +5,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/settings/settings.h>
+#include <zephyr/sys/atomic.h>
 
 #include <zmk/ble.h>
 #include <zmk/endpoints.h>
@@ -26,7 +27,7 @@ __weak enum k380_power_state k380_battery_policy_state(void) {
 #define K380_SOFT_OFF_REASON_LOW_VOLTAGE "low_voltage_protection"
 
 static char last_shutdown_reason[sizeof(K380_SOFT_OFF_REASON_LOW_VOLTAGE)];
-static enum k380_shutdown_reason pending_reason = K380_SHUTDOWN_LOW_VOLTAGE;
+static atomic_t pending_reason = K380_SHUTDOWN_LOW_VOLTAGE;
 K_MUTEX_DEFINE(latch_lock);
 
 #ifdef CONFIG_ZTEST
@@ -112,9 +113,7 @@ static int enter_system_off(void) {
 }
 
 void k380_soft_off_set_pending_reason(enum k380_shutdown_reason reason) {
-    k_mutex_lock(&latch_lock, K_FOREVER);
-    pending_reason = reason;
-    k_mutex_unlock(&latch_lock);
+    atomic_set(&pending_reason, reason);
 }
 
 const char *k380_soft_off_last_reason(void) {
@@ -198,6 +197,7 @@ int k380_soft_off_flush_required_settings(void) {
 
 int k380_soft_off_flush_required_settings_at_generation(uint32_t generation) {
     int err;
+    const enum k380_shutdown_reason reason = atomic_get(&pending_reason);
 #ifdef CONFIG_ZTEST
     const int64_t deadline = k380_soft_off_test_uptime() + K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS;
 #else
@@ -212,13 +212,13 @@ int k380_soft_off_flush_required_settings_at_generation(uint32_t generation) {
     if (k_mutex_lock(&latch_lock, K_MSEC(K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS)) != 0) {
         return -ETIMEDOUT;
     }
-    if (pending_reason == K380_SHUTDOWN_LOW_VOLTAGE &&
+    if (reason == K380_SHUTDOWN_LOW_VOLTAGE &&
         generation != k380_low_power_voltage_generation()) {
         k_mutex_unlock(&latch_lock);
         return -ECANCELED;
     }
     /* BLE timeout causes are deliberately RAM-only. */
-    if (pending_reason == K380_SHUTDOWN_LOW_VOLTAGE &&
+    if (reason == K380_SHUTDOWN_LOW_VOLTAGE &&
         strcmp(last_shutdown_reason, K380_SOFT_OFF_REASON_LOW_VOLTAGE) != 0) {
 #ifdef CONFIG_ZTEST
         if (k380_soft_off_test_uptime() >= deadline) {
@@ -266,7 +266,7 @@ static int complete_low_voltage_soft_off(void) {
 
     (void)k380_soft_off_prepare_radio_and_led_quiet();
 
-    if (pending_reason == K380_SHUTDOWN_LOW_VOLTAGE &&
+    if (atomic_get(&pending_reason) == K380_SHUTDOWN_LOW_VOLTAGE &&
         k380_battery_policy_state() == K380_POWER_CHARGING) {
         return -ECANCELED;
     }
@@ -322,7 +322,7 @@ static int k380_soft_off_settings_set(const char *name, size_t len, settings_rea
         return -EINVAL;
     }
 
-    char loaded_reason[sizeof(last_shutdown_reason)];
+    char loaded_reason[sizeof(last_shutdown_reason)] = {0};
     const int err = read_cb(cb_arg, loaded_reason, sizeof(loaded_reason));
     if (err <= 0) {
         return err;
