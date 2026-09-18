@@ -36,6 +36,14 @@ config K380_SOFT_OFF
     help
       Saves a one-time low-voltage shutdown reason and enters ZMK soft-off.
 
+config K380_LOW_POWER_COORDINATOR
+    bool "K380 battery low-power coordinator"
+    default n
+    depends on ZMK_PM_SOFT_OFF && K380_BATTERY_POLICY
+    select K380_SOFT_OFF
+    help
+      Enables the shared K380 low-power state machine and cleanup contract.
+
 config K380_CONFIG_TOOL
     bool "K380 web configuration tool"
     default n

@@ -1,0 +1,7 @@
+tests:
+  k380.low_power:
+    platform_allow:
+      - native_sim
+    tags:
+      - k380
+      - unit
