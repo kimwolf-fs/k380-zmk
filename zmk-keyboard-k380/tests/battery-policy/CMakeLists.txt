@@ -15,5 +15,10 @@ target_include_directories(app PRIVATE
 if(CONFIG_SENSOR)
   target_sources(app PRIVATE src/runtime.c)
   target_include_directories(app PRIVATE ../../../app/include)
-  target_compile_definitions(app PRIVATE CONFIG_K380_BATTERY_POLICY_RUNTIME=1)
+  target_compile_definitions(app PRIVATE
+    CONFIG_K380_BATTERY_POLICY_RUNTIME=1
+    CONFIG_K380_STARTUP_QUALIFICATION_BUDGET_MS=1000
+    CONFIG_ZMK_HID_REPORT_TYPE_HKRO=1
+    CONFIG_ZMK_HID_KEYBOARD_REPORT_SIZE=6 CONFIG_ZMK_HID_CONSUMER_REPORT_SIZE=6
+    CONFIG_ZMK_HID_CONSUMER_REPORT_USAGES_FULL=1)
 endif()

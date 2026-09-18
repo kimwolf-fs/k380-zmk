@@ -80,6 +80,7 @@ ZTEST(k380_shutdown_input, test_usb_cancellation_does_not_leave_modifier_referen
     zassert_true(zmk_hid_keyboard_is_pressed(HID_USAGE_KEY_KEYBOARD_LEFTSHIFT));
     k380_low_power_test_set_all_keys_released(false);
     zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+    k_sleep(K_MSEC(3050));
     zassert_true(k380_low_power_is_release_waiting());
     zassert_false(zmk_hid_keyboard_is_pressed(HID_USAGE_KEY_KEYBOARD_LEFTSHIFT));
 
