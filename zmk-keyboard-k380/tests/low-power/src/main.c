@@ -139,6 +139,7 @@ ZTEST(k380_low_power, test_unsafe_voltage_cancellation_never_restores_radio)
 ZTEST(k380_low_power, test_usb_insertion_cancels_low_voltage_shutdown)
 {
 	reset();
+	zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
 	k380_low_power_test_set_all_keys_released(false);
 	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
 	zassert_true(k380_low_power_is_release_waiting());
