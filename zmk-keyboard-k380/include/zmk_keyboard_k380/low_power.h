@@ -1,0 +1,25 @@
+#pragma once
+
+#include <stdbool.h>
+
+enum k380_shutdown_reason {
+	K380_SHUTDOWN_LOW_VOLTAGE,
+	K380_SHUTDOWN_BLE_WAIT_TIMEOUT,
+	K380_SHUTDOWN_PAIRING_TIMEOUT,
+};
+
+bool k380_low_power_ble_start_allowed(void);
+int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe);
+int k380_low_power_request(enum k380_shutdown_reason reason);
+void k380_low_power_notify_all_keys_released(void);
+enum k380_shutdown_reason k380_low_power_last_reason(void);
+bool k380_low_power_is_release_waiting(void);
+
+/* Event sources use this to cancel a pending BLE timeout request. */
+void k380_low_power_cancel_pending(void);
+
+#ifdef CONFIG_K380_LOW_POWER_TEST
+void k380_low_power_test_reset(void);
+void k380_low_power_test_set_all_keys_released(bool released);
+void k380_low_power_test_set_battery_charging(bool charging);
+#endif
