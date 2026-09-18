@@ -49,6 +49,8 @@ static struct k_spinlock lifecycle_lock;
 #define CANCEL_CONNECTION BIT(1)
 #define CANCEL_VOLTAGE_RECOVERY BIT(2)
 static atomic_t charging_confirmed;
+static uint32_t voltage_generation;
+static uint32_t request_voltage_generation;
 static bool input_aborted;
 static bool request_prepared;
 static enum k380_shutdown_reason last_reason;
@@ -166,10 +168,35 @@ void k380_low_power_power_state_changed(bool charging)
 {
 	/* Called under the battery policy mutex: publish only, never drain input. */
 	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
+	voltage_generation++;
 	atomic_set(&charging_confirmed, charging);
 	if (charging && (atomic_get(&state) == K380_LOW_POWER_WARNING ||
 			 atomic_get(&state) == K380_LOW_POWER_RELEASE_WAIT)) {
 		atomic_or(&cancellation, CANCEL_USB);
+	} else if (last_reason == K380_SHUTDOWN_LOW_VOLTAGE &&
+		   (atomic_get(&state) == K380_LOW_POWER_WARNING ||
+		    atomic_get(&state) == K380_LOW_POWER_RELEASE_WAIT)) {
+		atomic_or(&cancellation, CANCEL_VOLTAGE_RECOVERY);
+	}
+	k_spin_unlock(&lifecycle_lock, key);
+}
+
+uint32_t k380_low_power_voltage_generation(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
+	const uint32_t generation = voltage_generation;
+	k_spin_unlock(&lifecycle_lock, key);
+	return generation;
+}
+
+static bool reconcile_cancellation(void);
+
+static void revalidate_voltage_request(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
+	if (last_reason == K380_SHUTDOWN_LOW_VOLTAGE &&
+	    request_voltage_generation != voltage_generation) {
+		atomic_or(&cancellation, CANCEL_VOLTAGE_RECOVERY);
 	}
 	k_spin_unlock(&lifecycle_lock, key);
 }
@@ -212,11 +239,19 @@ static int prepare_request(void)
 	if (request_prepared) {
 		return 0;
 	}
+	revalidate_voltage_request();
+	if (reconcile_cancellation()) {
+		return -ECANCELED;
+	}
 	quiet_radio_and_led();
 	int err = abort_input();
 	if (err) {
 		LOG_ERR("Shutdown input abort failed (%d); keeping input closed", err);
 		return err;
+	}
+	revalidate_voltage_request();
+	if (reconcile_cancellation()) {
+		return -ECANCELED;
 	}
 #ifndef CONFIG_K380_LOW_POWER_TEST
 	k380_soft_off_set_pending_reason(last_reason);
@@ -276,6 +311,10 @@ static int complete_request(void)
 	if (battery_is_charging()) {
 		atomic_or(&cancellation, CANCEL_USB);
 	}
+	if (last_reason == K380_SHUTDOWN_LOW_VOLTAGE &&
+	    request_voltage_generation != voltage_generation) {
+		atomic_or(&cancellation, CANCEL_VOLTAGE_RECOVERY);
+	}
 	if (atomic_get(&cancellation)) {
 		k_spin_unlock(&lifecycle_lock, key);
 		if (reconcile_cancellation()) {
@@ -329,6 +368,9 @@ int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
 	}
 
 	ble_start_allowed = true;
+	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
+	voltage_generation++;
+	k_spin_unlock(&lifecycle_lock, key);
 	/* Qualification can finish after a low-voltage warning was requested. */
 	cancel_pending(CANCEL_VOLTAGE_RECOVERY);
 #if !defined(CONFIG_K380_LOW_POWER_TEST) && IS_ENABLED(CONFIG_ZMK_BLE)
@@ -340,6 +382,9 @@ int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
 static int advance_request(void)
 {
 	int err = prepare_request();
+	if (err == -ECANCELED) {
+		return err;
+	}
 	if (reconcile_cancellation()) {
 		return -ECANCELED;
 	}
@@ -369,7 +414,7 @@ static void warning_work_handler(struct k_work *work)
 	release_cleanup_owner();
 }
 
-int k380_low_power_request(enum k380_shutdown_reason reason)
+static int request_at_generation(enum k380_shutdown_reason reason, uint32_t generation)
 {
 	/* Until wake is hardware-qualified, BLE timeouts must leave input/radio usable. */
 	if (!IS_ENABLED(CONFIG_K380_AUTO_SYSTEM_OFF) &&
@@ -389,7 +434,13 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 	}
 
 	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
+	if (reason == K380_SHUTDOWN_LOW_VOLTAGE && generation != voltage_generation) {
+		k_spin_unlock(&lifecycle_lock, key);
+		release_cleanup_owner();
+		return -ECANCELED;
+	}
 	atomic_clear(&cancellation);
+	request_voltage_generation = generation;
 	input_aborted = false;
 	request_prepared = false;
 	last_reason = reason;
@@ -425,13 +476,23 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 	return err;
 }
 
+int k380_low_power_request(enum k380_shutdown_reason reason)
+{
+	return request_at_generation(reason, k380_low_power_voltage_generation());
+}
+
+int k380_low_power_request_low_voltage_at_generation(uint32_t generation)
+{
+	return request_at_generation(K380_SHUTDOWN_LOW_VOLTAGE, generation);
+}
+
 void k380_low_power_notify_all_keys_released(void)
 {
 	if (!atomic_cas(&cleanup_busy, 0, 1)) {
 		return;
 	}
 	if (atomic_get(&state) == K380_LOW_POWER_RELEASE_WAIT) {
-		if (!prepare_request() && !reconcile_cancellation() &&
+		if (!reconcile_cancellation() && !prepare_request() && !reconcile_cancellation() &&
 			k380_low_power_all_keys_released()) {
 			(void)complete_request();
 		}
@@ -493,6 +554,8 @@ void k380_low_power_test_reset(void)
 	ble_start_allowed = false;
 	radio_and_led_quiet = false;
 	atomic_clear(&charging_confirmed);
+	voltage_generation = 0;
+	request_voltage_generation = 0;
 	test_keys_released = true;
 }
 void k380_low_power_test_set_all_keys_released(bool released) { test_keys_released = released; }

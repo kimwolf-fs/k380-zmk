@@ -41,12 +41,8 @@ int k380_soft_off_clear_low_voltage_latch_if_safe(bool safe) {
     return 0;
 }
 int k380_low_power_system_off(void) { off_calls++; return 0; }
-int k380_soft_off_request_low_voltage(void) {
-    return k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE);
-}
 void k380_ble_slot_power_state_changed(void) {
     const bool charging = k380_battery_policy_state() == K380_POWER_CHARGING;
-    k380_low_power_test_set_battery_charging(charging);
     if (charging) { k380_low_power_cancel_usb_pending(); }
     if (recover_before_request && k380_battery_policy_state() == K380_POWER_SOFT_OFF_WARNING_REQUESTED) {
         recover_before_request = false;

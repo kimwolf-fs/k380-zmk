@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 enum k380_shutdown_reason {
 	K380_SHUTDOWN_LOW_VOLTAGE,
@@ -20,6 +21,9 @@ bool k380_low_power_all_keys_released(void);
 /* Atomic-only power publication, safe while the battery policy mutex is held.
  * USB confirmation and the final system-off handoff share one lifecycle lock. */
 void k380_low_power_power_state_changed(bool charging);
+/* Capture with the policy decision; stale low-voltage decisions are rejected. */
+uint32_t k380_low_power_voltage_generation(void);
+int k380_low_power_request_low_voltage_at_generation(uint32_t generation);
 
 /* Event sources use this to cancel a pending BLE timeout request. */
 void k380_low_power_cancel_pending(void);

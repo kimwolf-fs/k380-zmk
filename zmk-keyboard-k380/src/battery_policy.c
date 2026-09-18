@@ -114,6 +114,7 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
 
 #if IS_ENABLED(CONFIG_K380_SOFT_OFF)
     bool request_soft_off;
+    uint32_t request_generation;
 #endif
     k_mutex_lock(&battery_policy_lock, K_FOREVER);
     const enum k380_power_state previous_state = power_state;
@@ -195,16 +196,18 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
 #if IS_ENABLED(CONFIG_K380_SOFT_OFF)
     request_soft_off = previous_state != K380_POWER_SOFT_OFF_WARNING_REQUESTED &&
                        power_state == K380_POWER_SOFT_OFF_WARNING_REQUESTED;
+    request_generation = request_soft_off ? k380_low_power_voltage_generation() : 0U;
 #endif
+    const enum k380_power_state submitted_state = power_state;
     k_mutex_unlock(&battery_policy_lock);
 
-    if (previous_state != power_state) {
+    if (previous_state != submitted_state) {
         k380_ble_slot_power_state_changed();
     }
 
 #if IS_ENABLED(CONFIG_K380_SOFT_OFF)
     if (request_soft_off) {
-        (void)k380_soft_off_request_low_voltage();
+        (void)k380_low_power_request_low_voltage_at_generation(request_generation);
     }
 #endif
     qualify_submitted_sample(vddh_mv);
