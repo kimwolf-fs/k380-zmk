@@ -12,6 +12,7 @@ static bool latch;
 static int delete_rc;
 static int deletes;
 static int off_calls;
+static bool recover_before_request;
 
 static int fetch(const struct device *dev, enum sensor_channel chan) {
     ARG_UNUSED(dev);
@@ -47,11 +48,18 @@ void k380_ble_slot_power_state_changed(void) {
     const bool charging = k380_battery_policy_state() == K380_POWER_CHARGING;
     k380_low_power_test_set_battery_charging(charging);
     if (charging) { k380_low_power_cancel_usb_pending(); }
+    if (recover_before_request && k380_battery_policy_state() == K380_POWER_SOFT_OFF_WARNING_REQUESTED) {
+        recover_before_request = false;
+        /* Reproduce another thread's recovery after the policy unlock but
+         * before the older low-voltage decision reaches the coordinator. */
+        for (int i = 0; i < 3; i++) { zassert_ok(k380_battery_policy_submit_mv(3300)); }
+    }
 }
 
 static void reset(void) {
     sensor_rc = 0;
     sensor_mv = 4000;
+    recover_before_request = false;
     delete_rc = 0;
     deletes = 0;
     latch = false;
@@ -121,6 +129,20 @@ ZTEST(k380_battery_runtime, test_qualified_recovery_cancels_real_coordinator_war
     for (int i = 0; i < 3; i++) { zassert_ok(k380_battery_policy_submit_mv(3300)); }
     zassert_false(latch);
     zassert_true(k380_low_power_ble_start_allowed());
+    zassert_true(k380_low_power_input_events_allowed());
+    k_sleep(K_MSEC(3050));
+    zassert_equal(off_calls, 0);
+}
+
+ZTEST(k380_battery_runtime, test_recovery_before_stale_request_keeps_coordinator_ready) {
+    reset();
+    sensor_rc = -EIO;
+    zassert_equal(k380_battery_policy_startup_qualify(), -EACCES);
+    recover_before_request = true;
+    for (int i = 0; i < 8; i++) { zassert_ok(k380_battery_policy_submit_mv(3100)); }
+    zassert_false(recover_before_request, "fixture must reach the unlocked shutdown decision");
+    zassert_false(latch);
+    zassert_true(k380_low_power_ble_start_allowed(), "stale low-voltage decision must not undo recovery");
     zassert_true(k380_low_power_input_events_allowed());
     k_sleep(K_MSEC(3050));
     zassert_equal(off_calls, 0);
