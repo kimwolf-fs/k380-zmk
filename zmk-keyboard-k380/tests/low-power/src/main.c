@@ -217,6 +217,18 @@ ZTEST(k380_low_power, test_usb_cancels_warning_before_any_latch_write)
 	zassert_equal(latch_calls, 0);
 }
 
+ZTEST(k380_low_power, test_safe_qualification_cancels_existing_low_voltage_warning)
+{
+	reset();
+	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+	zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
+	zassert_true(k380_low_power_input_events_allowed(), "recovered startup must cancel its warning");
+	zassert_true(k380_low_power_ble_start_allowed());
+	k_sleep(K_MSEC(3050));
+	zassert_equal(system_off_calls, 0);
+	zassert_equal(latch_calls, 0);
+}
+
 ZTEST(k380_low_power, test_all_causes_cleanup_before_release_wait_even_on_errors)
 {
 	for (int reason = K380_SHUTDOWN_LOW_VOLTAGE; reason <= K380_SHUTDOWN_PAIRING_TIMEOUT; reason++) {
