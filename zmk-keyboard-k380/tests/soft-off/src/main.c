@@ -32,7 +32,12 @@ static size_t save_call_count;
 static size_t delete_call_count;
 static int64_t fake_now;
 static int64_t save_duration;
-int64_t k380_soft_off_test_uptime(void) { return fake_now; }
+static int64_t clock_step;
+int64_t k380_soft_off_test_uptime(void) {
+    const int64_t now = fake_now;
+    fake_now += clock_step;
+    return now;
+}
 
 extern char *k380_soft_off_test_last_reason_storage(void);
 
@@ -108,6 +113,7 @@ static void reset_fakes(void) {
     delete_call_count = 0;
     fake_now = 0;
     save_duration = 0;
+    clock_step = 0;
     k380_soft_off_clear_last_reason();
     delete_call_count = 0;
     for (int i = 0; i < 8; i++) {
@@ -252,4 +258,24 @@ ZTEST(k380_soft_off, test_quiet_clears_ble_animation_for_both_timeout_states) {
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z7_BLE_PAIRING));
     zassert_ok(k380_soft_off_prepare_radio_and_led_quiet());
     zassert_equal(k380_status_indicator_current(), K380_STATUS_Z1_NORMAL);
+}
+
+ZTEST(k380_soft_off, test_expired_admission_skips_first_latch_write_and_keeps_latch_absent) {
+    reset_fakes();
+    clock_step = K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS;
+    k380_soft_off_set_pending_reason(K380_SHUTDOWN_LOW_VOLTAGE);
+    zassert_equal(k380_soft_off_flush_required_settings(), -ETIMEDOUT);
+    zassert_equal(save_call_count, 0U);
+    zassert_equal(call_count, 0U, "neither settings write is admitted");
+    zassert_false(k380_soft_off_has_low_voltage_latch());
+
+    reset_fakes();
+    clock_step = K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS;
+    zassert_ok(k380_soft_off_request_low_voltage());
+    const enum call expected[] = { CALL_WARNING, CALL_WAIT_3S, CALL_STOP_INDICATOR,
+                                  CALL_CLEAR_HID, CALL_DISCONNECT_BLE, CALL_SYSTEM_OFF };
+    zassert_equal(call_count, ARRAY_SIZE(expected));
+    zassert_mem_equal(calls, expected, sizeof(expected));
+    zassert_equal(save_call_count, 0U);
+    zassert_false(k380_soft_off_has_low_voltage_latch());
 }
