@@ -14,9 +14,7 @@
 #include <zmk_keyboard_k380/status_indicator.h>
 
 #if IS_ENABLED(CONFIG_K380_BATTERY_POLICY_RUNTIME)
-#include <zmk/activity.h>
 #include <zmk/event_manager.h>
-#include <zmk/events/activity_state_changed.h>
 #include <zmk/events/usb_conn_state_changed.h>
 #endif
 
@@ -226,6 +224,24 @@ static bool voltage_average_at_least(uint16_t threshold_mv) {
     return safe;
 }
 
+static bool startup_recovery_sample(uint16_t mv, uint8_t *recovery_hits) {
+    if (mv >= K380_SOFT_OFF_EXIT_MV) {
+        if (*recovery_hits < K380_STARTUP_SAMPLE_LIMIT) {
+            (*recovery_hits)++;
+        }
+    } else {
+        *recovery_hits = 0U;
+    }
+
+    return *recovery_hits >= K380_STARTUP_SAMPLE_LIMIT;
+}
+
+#ifdef CONFIG_ZTEST
+bool k380_battery_policy_test_startup_recovery_sample(uint16_t mv, uint8_t *recovery_hits) {
+    return startup_recovery_sample(mv, recovery_hits);
+}
+#endif
+
 #if IS_ENABLED(CONFIG_K380_BATTERY_POLICY_RUNTIME)
 static const struct device *const battery = DEVICE_DT_GET(DT_CHOSEN(zmk_battery));
 
@@ -288,14 +304,10 @@ int k380_battery_policy_startup_qualify(void) {
             return 0;
         }
 
-        if (k380_battery_policy_voltage_safe_for_startup()) {
-            recovery_hits++;
-        } else {
-            recovery_hits = 0U;
-        }
+        const bool recovered = startup_recovery_sample(mv, &recovery_hits);
 
         if ((!latch && voltage_average_at_least(K380_SOFT_OFF_ENTER_MV)) ||
-            recovery_hits >= K380_STARTUP_SAMPLE_LIMIT) {
+            recovered) {
             return 0;
         }
     }
@@ -311,16 +323,6 @@ static int k380_battery_policy_usb_listener(const zmk_event_t *eh) {
 
 ZMK_LISTENER(k380_battery_policy_usb_listener, k380_battery_policy_usb_listener);
 ZMK_SUBSCRIPTION(k380_battery_policy_usb_listener, zmk_usb_conn_state_changed);
-
-static int k380_battery_policy_activity_listener(const zmk_event_t *eh) {
-    if (as_zmk_activity_state_changed(eh)->state == ZMK_ACTIVITY_ACTIVE) {
-        k380_battery_policy_sample_now();
-    }
-    return ZMK_EV_EVENT_BUBBLE;
-}
-
-ZMK_LISTENER(k380_battery_policy_activity_listener, k380_battery_policy_activity_listener);
-ZMK_SUBSCRIPTION(k380_battery_policy_activity_listener, zmk_activity_state_changed);
 
 static int k380_battery_policy_init(void) {
     return 0;

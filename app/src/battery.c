@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <stdbool.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/init.h>
@@ -153,9 +154,11 @@ static void zmk_battery_timer(struct k_timer *timer) {
 
 K_TIMER_DEFINE(battery_timer, zmk_battery_timer, NULL);
 
-static void zmk_battery_start_reporting() {
+static void zmk_battery_start_reporting(bool immediate) {
     if (device_is_ready(battery)) {
-        k_timer_start(&battery_timer, K_NO_WAIT, K_SECONDS(CONFIG_ZMK_BATTERY_REPORT_INTERVAL));
+        k_timer_start(&battery_timer,
+                      immediate ? K_NO_WAIT : K_SECONDS(CONFIG_ZMK_BATTERY_REPORT_INTERVAL),
+                      K_SECONDS(CONFIG_ZMK_BATTERY_REPORT_INTERVAL));
     }
 }
 
@@ -175,7 +178,7 @@ static int zmk_battery_init(void) {
         return -ENODEV;
     }
 
-    zmk_battery_start_reporting();
+    zmk_battery_start_reporting(IS_ENABLED(CONFIG_K380_BATTERY_POLICY) ? false : true);
     return 0;
 }
 
@@ -184,7 +187,7 @@ static int battery_event_listener(const zmk_event_t *eh) {
     if (as_zmk_activity_state_changed(eh)) {
         switch (zmk_activity_get_state()) {
         case ZMK_ACTIVITY_ACTIVE:
-            zmk_battery_start_reporting();
+            zmk_battery_start_reporting(true);
             return 0;
         case ZMK_ACTIVITY_IDLE:
         case ZMK_ACTIVITY_SLEEP:
