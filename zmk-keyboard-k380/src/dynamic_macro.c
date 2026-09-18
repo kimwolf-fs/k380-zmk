@@ -10,6 +10,7 @@
 #include <zephyr/sys/util.h>
 #include <zmk/events/keycode_state_changed.h>
 #include <zmk/keys.h>
+#include <zmk/shutdown_input.h>
 
 #include <zmk_keyboard_k380/dynamic_config.h>
 #include <zmk_keyboard_k380/dynamic_macro.h>
@@ -51,6 +52,17 @@ static struct k_spinlock trace_lock;
 K_MUTEX_DEFINE(runner_lock);
 K_SEM_DEFINE(macro_start_signal, 0, 1);
 K_SEM_DEFINE(macro_stop_signal, 0, 1);
+K_SEM_DEFINE(macro_finished_signal, 0, 1);
+
+/* All emission paths take dispatch before runner_lock, including recursive listeners. */
+static void lock_runner(void) {
+    zmk_shutdown_input_lock();
+    k_mutex_lock(&runner_lock, K_FOREVER);
+}
+static void unlock_runner(void) {
+    k_mutex_unlock(&runner_lock);
+    zmk_shutdown_input_unlock();
+}
 
 BUILD_ASSERT(CONFIG_K380_DYNAMIC_MACRO_THREAD_PRIORITY == 8,
              "macro runner priority is part of the runtime contract");
@@ -98,13 +110,13 @@ static int press_usage(uint16_t usage)
         return -EINVAL;
     }
 
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     if (stop_requested()) {
-        k_mutex_unlock(&runner_lock);
+        unlock_runner();
         return -ECANCELED;
     }
     if (is_macro_held(usage) || is_physically_held(usage)) {
-        k_mutex_unlock(&runner_lock);
+        unlock_runner();
         return 0;
     }
 
@@ -112,7 +124,7 @@ static int press_usage(uint16_t usage)
     if (err == 0) {
         set_macro_held(usage, true);
     }
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
     return err;
 }
 
@@ -142,9 +154,9 @@ static int release_usage(uint16_t usage)
         return -EINVAL;
     }
 
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     err = release_usage_locked(usage);
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
     return err;
 }
 
@@ -166,9 +178,9 @@ static int release_all_macro_held_locked(void)
 
 static int release_all_macro_held(void)
 {
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     const int err = release_all_macro_held_locked();
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
     return err;
 }
 
@@ -289,6 +301,9 @@ static int start_record_locked(uint8_t preset, uint8_t slot,
                                uint8_t trigger, bool load_saved_record,
                                uint32_t *run_id)
 {
+    if (!zmk_shutdown_input_dispatch_allowed(true)) {
+        return -ECANCELED;
+    }
     if (runner.running) {
         return -EBUSY;
     }
@@ -299,6 +314,7 @@ static int start_record_locked(uint8_t preset, uint8_t slot,
     }
 
     runner.running = true;
+    k_sem_reset(&macro_finished_signal);
     runner.load_saved_record = load_saved_record;
     runner.pressed_while_loading = false;
     runner.cleanup_failed = false;
@@ -340,15 +356,15 @@ static int start_saved_record(uint8_t preset, uint8_t slot)
 {
     int err;
 
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     if (runner.running) {
-        k_mutex_unlock(&runner_lock);
+        unlock_runner();
         return 0;
     }
 
     err = start_record_locked(preset, slot, NULL,
                               K380_DYNAMIC_MACRO_TRIGGER_ONCE, true, NULL);
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
     return err;
 }
 
@@ -385,7 +401,7 @@ static enum k380_macro_vm_error run_record(void)
             return K380_MACRO_VM_INVALID_PACKAGE;
         }
 
-        k_mutex_lock(&runner_lock, K_FOREVER);
+        lock_runner();
         runner.trigger = runner.record.trigger;
         runner.load_saved_record = false;
         runner.repeat_count = runner.record.repeat_count == 0U
@@ -401,7 +417,7 @@ static enum k380_macro_vm_error run_record(void)
             !hold_key_pressed) {
             atomic_set(&runner.stop_requested, 1);
         }
-        k_mutex_unlock(&runner_lock);
+        unlock_runner();
         if (wake_after_load) {
             k_sem_give(&macro_stop_signal);
         }
@@ -436,9 +452,9 @@ static enum k380_macro_vm_error run_record(void)
         }
 
         if (trigger == K380_DYNAMIC_MACRO_TRIGGER_HOLD) {
-            k_mutex_lock(&runner_lock, K_FOREVER);
+            lock_runner();
             const bool still_held = hold_key_pressed;
-            k_mutex_unlock(&runner_lock);
+            unlock_runner();
             if (!still_held) {
                 break;
             }
@@ -464,12 +480,13 @@ static void dynamic_macro_thread(void *arg1, void *arg2, void *arg3)
         k_sem_take(&macro_start_signal, K_FOREVER);
         enum k380_macro_vm_error result = run_record();
 
-        k_mutex_lock(&runner_lock, K_FOREVER);
+        lock_runner();
         const int cleanup_error = release_all_macro_held_locked();
         if (cleanup_error != 0 || runner.cleanup_failed) {
             result = K380_MACRO_VM_HOST_FAILURE;
         }
         runner.running = false;
+        k_sem_give(&macro_finished_signal);
         if (result == K380_MACRO_VM_OK) {
             runner.state = stop_requested()
                                ? K380_DYNAMIC_MACRO_RUN_STOPPED
@@ -481,7 +498,7 @@ static void dynamic_macro_thread(void *arg1, void *arg2, void *arg3)
                                ? K380_DYNAMIC_MACRO_RUN_STOPPED
                                : K380_DYNAMIC_MACRO_RUN_ERROR;
         }
-        k_mutex_unlock(&runner_lock);
+        unlock_runner();
     }
 }
 
@@ -497,7 +514,7 @@ int k380_dynamic_macro_trigger(uint8_t preset, uint8_t slot, bool pressed)
         return -EINVAL;
     }
 
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     const bool same_macro = runner.running && runner.preset == preset &&
                             runner.slot == slot;
     if (runner.running) {
@@ -521,13 +538,13 @@ int k380_dynamic_macro_trigger(uint8_t preset, uint8_t slot, bool pressed)
             atomic_set(&runner.stop_requested, 1);
             should_wake = true;
         }
-        k_mutex_unlock(&runner_lock);
+        unlock_runner();
         if (should_wake) {
             k_sem_give(&macro_stop_signal);
         }
         return 0;
     }
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
 
     if (!pressed) {
         return 0;
@@ -563,7 +580,7 @@ int k380_dynamic_macro_test_temporary(
         return -EINVAL;
     }
 
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     if (runner.running) {
         err = -EBUSY;
     } else {
@@ -577,7 +594,7 @@ int k380_dynamic_macro_test_temporary(
                                       NULL);
         }
     }
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
     return err;
 }
 
@@ -599,10 +616,10 @@ int k380_dynamic_macro_test_record_start(
         return -EINVAL;
     }
 
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     const int err = start_record_locked(
         preset, slot, record, K380_DYNAMIC_MACRO_TRIGGER_ONCE, false, run_id);
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
     return err;
 }
 
@@ -638,9 +655,9 @@ int k380_dynamic_macro_stop_if_run_id(uint32_t run_id)
 {
     bool wake = false;
 
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     const int err = stop_locked(run_id, &wake);
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
 
     if (wake) {
         k_sem_give(&macro_stop_signal);
@@ -653,11 +670,30 @@ int k380_dynamic_macro_stop(void)
     return k380_dynamic_macro_stop_if_run_id(0U);
 }
 
+int k380_dynamic_macro_abort_for_shutdown(void)
+{
+    if (k_current_get() == k380_dynamic_macro_thread) {
+        return -EDEADLK;
+    }
+    int err = k380_dynamic_macro_stop();
+    if (err) {
+        return err;
+    }
+    if (k380_dynamic_macro_is_running() &&
+        k_sem_take(&macro_finished_signal, K_MSEC(250)) != 0) {
+        return -ETIMEDOUT;
+    }
+    lock_runner();
+    memset(physical_usage_counts, 0, sizeof(physical_usage_counts));
+    unlock_runner();
+    return 0;
+}
+
 bool k380_dynamic_macro_is_running(void)
 {
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     const bool running = runner.running;
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
     return running;
 }
 
@@ -668,14 +704,14 @@ void k380_dynamic_macro_get_run_state(
         return;
     }
 
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     *state = (struct k380_dynamic_macro_run_state){
         .run_id = runner.run_id,
         .state = runner.run_id == 0U ? K380_DYNAMIC_MACRO_RUN_IDLE : runner.state,
         .vm_error = runner.vm_error,
         .next_cursor = 0U,
     };
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
 
     k_spinlock_key_t key = k_spin_lock(&trace_lock);
     state->next_cursor = trace_next_sequence == 0U ? 0U : trace_next_sequence - 1U;
@@ -692,7 +728,7 @@ int k380_dynamic_macro_trace_read(
         return -EINVAL;
     }
 
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     *state = (struct k380_dynamic_macro_run_state){
         .run_id = runner.run_id,
         .state = runner.run_id == 0U ? K380_DYNAMIC_MACRO_RUN_IDLE : runner.state,
@@ -708,7 +744,7 @@ int k380_dynamic_macro_trace_read(
     if (cursor > latest) {
         state->next_cursor = latest;
         k_spin_unlock(&trace_lock, key);
-        k_mutex_unlock(&runner_lock);
+        unlock_runner();
         return -EOVERFLOW;
     }
     const uint32_t oldest = trace_count == 0U ? latest + 1U
@@ -717,7 +753,7 @@ int k380_dynamic_macro_trace_read(
         state->next_cursor = oldest - 1U;
         state->dropped = state->next_cursor - cursor;
         k_spin_unlock(&trace_lock, key);
-        k_mutex_unlock(&runner_lock);
+        unlock_runner();
         return -EOVERFLOW;
     }
 
@@ -735,7 +771,7 @@ int k380_dynamic_macro_trace_read(
         state->next_cursor = events[copied - 1U].sequence;
     }
     k_spin_unlock(&trace_lock, key);
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
     return (int)copied;
 }
 
@@ -746,11 +782,14 @@ void k380_dynamic_macro_stop_before_preset_switch(void)
 
 void k380_dynamic_macro_physical_key_state(uint16_t usage, bool pressed)
 {
+    if (!zmk_shutdown_input_dispatch_allowed(true)) {
+        return;
+    }
     if (!is_keyboard_keypad_usage(usage)) {
         return;
     }
 
-    k_mutex_lock(&runner_lock, K_FOREVER);
+    lock_runner();
     if (pressed) {
         if (physical_usage_counts[usage] < UINT8_MAX) {
             physical_usage_counts[usage]++;
@@ -758,5 +797,5 @@ void k380_dynamic_macro_physical_key_state(uint16_t usage, bool pressed)
     } else if (physical_usage_counts[usage] > 0U) {
         physical_usage_counts[usage]--;
     }
-    k_mutex_unlock(&runner_lock);
+    unlock_runner();
 }

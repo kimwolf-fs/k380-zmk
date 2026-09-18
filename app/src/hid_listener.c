@@ -14,6 +14,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/hid.h>
 #include <dt-bindings/zmk/hid_usage_pages.h>
 #include <zmk/endpoints.h>
+#include <zmk/shutdown_input.h>
 #if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
 #include <zmk_keyboard_k380/low_power.h>
 #endif
@@ -98,7 +99,7 @@ static int hid_listener_keycode_released(const struct zmk_keycode_state_changed 
     return zmk_endpoint_send_report(ev->usage_page);
 }
 
-int hid_listener(const zmk_event_t *eh) {
+static int handle_hid_event(const zmk_event_t *eh) {
 #if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
     if (!k380_low_power_input_events_allowed()) {
         return ZMK_EV_EVENT_BUBBLE;
@@ -113,6 +114,13 @@ int hid_listener(const zmk_event_t *eh) {
         }
     }
     return 0;
+}
+
+int hid_listener(const zmk_event_t *eh) {
+    zmk_shutdown_input_lock();
+    int ret = handle_hid_event(eh);
+    zmk_shutdown_input_unlock();
+    return ret;
 }
 
 ZMK_LISTENER(hid_listener, hid_listener);

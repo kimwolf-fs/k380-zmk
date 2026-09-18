@@ -23,6 +23,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/physical_layouts.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
+#include <zmk/shutdown_input.h>
 #if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
 #include <zmk_keyboard_k380/low_power.h>
 #endif
@@ -266,6 +267,10 @@ static void zmk_physical_layout_input_event_cb(struct input_event *evt, void *us
 
 #endif
 
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+void zmk_physical_layouts_abort_input(void) { k_msgq_purge(&physical_layouts_kscan_msgq); }
+#endif
+
 static void zmk_physical_layout_kscan_callback(const struct device *dev, uint32_t row,
                                                uint32_t column, bool pressed) {
     if (dev != active->kscan) {
@@ -277,12 +282,17 @@ static void zmk_physical_layout_kscan_callback(const struct device *dev, uint32_
         .column = column,
         .state = (pressed ? ZMK_KSCAN_EVENT_STATE_PRESSED : ZMK_KSCAN_EVENT_STATE_RELEASED)};
 
-    k_msgq_put(&physical_layouts_kscan_msgq, &ev, K_NO_WAIT);
-    k_work_submit(&msg_processor.work);
+    zmk_shutdown_input_lock();
+    if (zmk_shutdown_input_dispatch_allowed(true)) {
+        k_msgq_put(&physical_layouts_kscan_msgq, &ev, K_NO_WAIT);
+        k_work_submit(&msg_processor.work);
+    }
+    zmk_shutdown_input_unlock();
 }
 
 static void zmk_physical_layouts_kscan_process_msgq(struct k_work *item) {
     struct zmk_kscan_event ev;
+    zmk_shutdown_input_lock();
 
     while (k_msgq_get(&physical_layouts_kscan_msgq, &ev, K_NO_WAIT) == 0) {
 #if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
@@ -308,6 +318,7 @@ static void zmk_physical_layouts_kscan_process_msgq(struct k_work *item) {
                                                 .position = position,
                                                 .timestamp = k_uptime_get()});
     }
+    zmk_shutdown_input_unlock();
 }
 
 static const struct zmk_physical_layout *get_default_layout(void) {

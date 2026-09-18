@@ -4,6 +4,7 @@ project(k380_shutdown_input)
 
 target_sources(app PRIVATE src/main.c ../../src/low_power.c
   ../../../app/src/hid.c ../../../app/src/hid_listener.c
+  ../../../app/src/shutdown_input.c
   ../../../app/src/events/keycode_state_changed.c)
 target_include_directories(app PRIVATE ../../include ../../../app/include)
 target_compile_definitions(app PRIVATE

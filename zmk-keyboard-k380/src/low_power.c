@@ -1,8 +1,10 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <zephyr/kernel.h>
 
 #include <zephyr/sys/util.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(k380_low_power, LOG_LEVEL_INF);
@@ -12,6 +14,7 @@ LOG_MODULE_REGISTER(k380_low_power, LOG_LEVEL_INF);
 #include <zmk/endpoints.h>
 #include <zmk/hid.h>
 #include <zmk/pm.h>
+#include <zmk/shutdown_input.h>
 #endif
 
 #include <zmk_keyboard_k380/low_power.h>
@@ -29,7 +32,14 @@ enum k380_low_power_state {
 	K380_LOW_POWER_SYSTEM_OFF_REQUESTED,
 };
 
-static enum k380_low_power_state state;
+static atomic_t state;
+static atomic_t cleanup_busy;
+static atomic_t cancellation;
+static struct k_spinlock lifecycle_lock;
+#define CANCEL_USB BIT(0)
+#define CANCEL_CONNECTION BIT(1)
+static bool input_aborted;
+static bool request_prepared;
 static enum k380_shutdown_reason last_reason;
 static bool reason_valid;
 static bool ble_start_allowed;
@@ -90,6 +100,14 @@ __weak int k380_low_power_clear_hid(void)
 #endif
 	return 0;
 }
+__weak int k380_low_power_abort_input(void)
+{
+#ifdef CONFIG_K380_LOW_POWER_TEST
+	return 0;
+#else
+	return zmk_shutdown_input_abort();
+#endif
+}
 __weak int k380_low_power_disconnect_ble(void)
 {
 #ifdef CONFIG_K380_LOW_POWER_TEST
@@ -142,9 +160,29 @@ static void log_cleanup_error(const char *operation, int err)
 	}
 }
 
-static void prepare_request(void)
+static int abort_input(void)
 {
+	if (input_aborted) {
+		return 0;
+	}
+	int err = k380_low_power_abort_input();
+	if (!err) {
+		input_aborted = true;
+	}
+	return err;
+}
+
+static int prepare_request(void)
+{
+	if (request_prepared) {
+		return 0;
+	}
 	quiet_radio_and_led();
+	int err = abort_input();
+	if (err) {
+		LOG_ERR("Shutdown input abort failed (%d); keeping input closed", err);
+		return err;
+	}
 #ifndef CONFIG_K380_LOW_POWER_TEST
 	k380_soft_off_set_pending_reason(last_reason);
 	/* This is an explicit bounded flush, never a deferred debounce wait. */
@@ -157,24 +195,82 @@ static void prepare_request(void)
 #endif
 	log_cleanup_error("HID clear", k380_low_power_clear_hid());
 	log_cleanup_error("BLE disconnect", k380_low_power_disconnect_ble());
+	request_prepared = true;
+	return 0;
+}
+
+/* Only the cleanup owner changes lifecycle state. Event sources can request cancellation
+ * while that owner drains behavior work, without reopening the gate underneath it. */
+static bool reconcile_cancellation(void)
+{
+	atomic_val_t requested = atomic_set(&cancellation, 0);
+	bool usb = requested & CANCEL_USB;
+	bool connection = requested & CANCEL_CONNECTION;
+	if (!usb && !(connection && (last_reason == K380_SHUTDOWN_BLE_WAIT_TIMEOUT ||
+		last_reason == K380_SHUTDOWN_PAIRING_TIMEOUT))) {
+		return false;
+	}
+	if (abort_input()) {
+		atomic_or(&cancellation, requested);
+		return false;
+	}
+	bool may_restore = radio_and_led_quiet && ble_start_allowed;
+	bool may_resume_led = radio_and_led_quiet &&
+		(ble_start_allowed || (usb && battery_is_charging()));
+	if (!request_prepared) {
+		log_cleanup_error("HID clear", k380_low_power_clear_hid());
+	}
+	atomic_set(&state, K380_LOW_POWER_READY);
+	reason_valid = false;
+	if (may_restore) {
+		(void)k380_low_power_restore_radio_and_led();
+	}
+	if (may_resume_led) {
+		(void)k380_low_power_resume_led();
+	}
+	radio_and_led_quiet = false;
+	return true;
 }
 
 static int complete_request(void)
 {
+	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
+	if (atomic_get(&cancellation)) {
+		k_spin_unlock(&lifecycle_lock, key);
+		if (reconcile_cancellation()) {
+			return -ECANCELED;
+		}
+		return -EAGAIN;
+	}
+	atomic_set(&state, K380_LOW_POWER_SYSTEM_OFF_REQUESTED);
+	k_spin_unlock(&lifecycle_lock, key);
 #ifndef CONFIG_K380_LOW_POWER_TEST
 	const int err = k380_kscan_prepare_system_off_wake();
 	if (err) {
-		state = K380_LOW_POWER_RELEASE_WAIT;
+		atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
 		return err;
 	}
 #endif
-	state = K380_LOW_POWER_SYSTEM_OFF_REQUESTED;
 	return k380_low_power_system_off();
+}
+
+static void cancel_pending(atomic_val_t reason);
+static void release_cleanup_owner(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
+	atomic_clear(&cleanup_busy);
+	bool pending = input_aborted && atomic_get(&cancellation) &&
+		(atomic_get(&state) == K380_LOW_POWER_WARNING ||
+		 atomic_get(&state) == K380_LOW_POWER_RELEASE_WAIT);
+	k_spin_unlock(&lifecycle_lock, key);
+	if (pending) {
+		cancel_pending(0);
+	}
 }
 
 bool k380_low_power_ble_start_allowed(void)
 {
-	return ble_start_allowed && state == K380_LOW_POWER_READY;
+	return ble_start_allowed && atomic_get(&state) == K380_LOW_POWER_READY;
 }
 
 int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
@@ -204,73 +300,87 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 		return -ECANCELED;
 	}
 
-	if (state != K380_LOW_POWER_READY) {
+	if (!atomic_cas(&cleanup_busy, 0, 1)) {
+		return 0;
+	}
+	if (atomic_get(&state) != K380_LOW_POWER_READY) {
+		release_cleanup_owner();
 		return 0;
 	}
 
+	atomic_clear(&cancellation);
+	input_aborted = false;
+	request_prepared = false;
 	last_reason = reason;
 	reason_valid = true;
-	state = K380_LOW_POWER_WARNING;
+	atomic_set(&state, K380_LOW_POWER_WARNING);
 	if (k380_low_power_start_warning(reason) != 0) {
-		state = K380_LOW_POWER_READY;
-		reason_valid = false;
+		atomic_or(&cancellation, CANCEL_USB);
+		if (!reconcile_cancellation()) {
+			atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
+		}
+		release_cleanup_owner();
 		return -EIO;
 	}
 
-	prepare_request();
+	int err = prepare_request();
+	if (reconcile_cancellation()) {
+		release_cleanup_owner();
+		return -ECANCELED;
+	}
+	if (err) {
+		atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
+		release_cleanup_owner();
+		return err;
+	}
 	if (!k380_low_power_all_keys_released()) {
-		state = K380_LOW_POWER_RELEASE_WAIT;
+		atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
+		release_cleanup_owner();
 		return 0;
 	}
 
-	return complete_request();
+	err = complete_request();
+	release_cleanup_owner();
+	return err;
 }
 
 void k380_low_power_notify_all_keys_released(void)
 {
-	if (state == K380_LOW_POWER_RELEASE_WAIT && k380_low_power_all_keys_released()) {
-		(void)complete_request();
+	if (!atomic_cas(&cleanup_busy, 0, 1)) {
+		return;
 	}
+	if (atomic_get(&state) == K380_LOW_POWER_RELEASE_WAIT) {
+		if (!prepare_request() && !reconcile_cancellation() &&
+			k380_low_power_all_keys_released()) {
+			(void)complete_request();
+		}
+	}
+	release_cleanup_owner();
 }
 
-void k380_low_power_cancel_pending(void)
+static void cancel_pending(atomic_val_t reason)
 {
-	if (state == K380_LOW_POWER_WARNING || state == K380_LOW_POWER_RELEASE_WAIT) {
-		if (last_reason != K380_SHUTDOWN_BLE_WAIT_TIMEOUT &&
-			last_reason != K380_SHUTDOWN_PAIRING_TIMEOUT) {
-			return;
-		}
-		const bool may_restore = radio_and_led_quiet && ble_start_allowed &&
-			last_reason != K380_SHUTDOWN_LOW_VOLTAGE;
-
-		state = K380_LOW_POWER_READY;
-		reason_valid = false;
-		if (may_restore) {
-			(void)k380_low_power_restore_radio_and_led();
-			(void)k380_low_power_resume_led();
-		}
-		radio_and_led_quiet = false;
+	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
+	if (atomic_get(&state) == K380_LOW_POWER_SYSTEM_OFF_REQUESTED) {
+		k_spin_unlock(&lifecycle_lock, key);
+		return;
 	}
+	atomic_or(&cancellation, reason);
+	k_spin_unlock(&lifecycle_lock, key);
+	if (!atomic_cas(&cleanup_busy, 0, 1)) {
+		return;
+	}
+	if (atomic_get(&state) == K380_LOW_POWER_WARNING ||
+		atomic_get(&state) == K380_LOW_POWER_RELEASE_WAIT) {
+		(void)reconcile_cancellation();
+	} else {
+		atomic_clear(&cancellation);
+	}
+	release_cleanup_owner();
 }
 
-void k380_low_power_cancel_usb_pending(void)
-{
-	if (state == K380_LOW_POWER_WARNING || state == K380_LOW_POWER_RELEASE_WAIT) {
-		const bool may_restore = radio_and_led_quiet && ble_start_allowed;
-		const bool may_resume_led = radio_and_led_quiet &&
-			(ble_start_allowed || battery_is_charging());
-
-		state = K380_LOW_POWER_READY;
-		reason_valid = false;
-		if (may_restore) {
-			(void)k380_low_power_restore_radio_and_led();
-		}
-		if (may_resume_led) {
-			(void)k380_low_power_resume_led();
-		}
-		radio_and_led_quiet = false;
-	}
-}
+void k380_low_power_cancel_pending(void) { cancel_pending(CANCEL_CONNECTION); }
+void k380_low_power_cancel_usb_pending(void) { cancel_pending(CANCEL_USB); }
 
 enum k380_shutdown_reason k380_low_power_last_reason(void)
 {
@@ -279,12 +389,12 @@ enum k380_shutdown_reason k380_low_power_last_reason(void)
 
 bool k380_low_power_is_release_waiting(void)
 {
-	return state == K380_LOW_POWER_RELEASE_WAIT;
+	return atomic_get(&state) == K380_LOW_POWER_RELEASE_WAIT;
 }
 
 bool k380_low_power_input_events_allowed(void)
 {
-	return state == K380_LOW_POWER_READY;
+	return atomic_get(&state) == K380_LOW_POWER_READY;
 }
 
 #ifdef CONFIG_K380_LOW_POWER_TEST
@@ -292,7 +402,11 @@ bool k380_low_power_test_battery_charging;
 static bool test_keys_released = true;
 void k380_low_power_test_reset(void)
 {
-	state = K380_LOW_POWER_READY;
+	atomic_set(&state, K380_LOW_POWER_READY);
+	atomic_clear(&cleanup_busy);
+	atomic_clear(&cancellation);
+	input_aborted = false;
+	request_prepared = false;
 	reason_valid = false;
 	ble_start_allowed = false;
 	radio_and_led_quiet = false;
