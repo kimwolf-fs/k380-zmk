@@ -5,9 +5,18 @@
 
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/atomic.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(k380_low_power, LOG_LEVEL_INF);
+
+#if DT_NODE_HAS_COMPAT(DT_ROOT, kimwolf_k380)
+BUILD_ASSERT(IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR), "K380 requires its coordinator");
+BUILD_ASSERT(IS_ENABLED(CONFIG_ZMK_PM_SOFT_OFF), "K380 requires soft-off");
+BUILD_ASSERT(!IS_ENABLED(CONFIG_ZMK_SLEEP), "K380 must not use generic sleep");
+BUILD_ASSERT(CONFIG_ZMK_BATTERY_REPORT_INTERVAL == 60, "K380 battery interval must be 60 s");
+BUILD_ASSERT(!IS_ENABLED(CONFIG_ZMK_RGB_UNDERGLOW), "K380 owns its status pixels");
+#endif
 
 #ifndef CONFIG_K380_LOW_POWER_TEST
 #include <zmk/ble.h>
@@ -57,7 +66,7 @@ __weak int k380_low_power_start_warning(enum k380_shutdown_reason reason)
 }
 __weak int k380_low_power_stop_radio(void)
 {
-#ifdef CONFIG_K380_LOW_POWER_TEST
+#if defined(CONFIG_K380_LOW_POWER_TEST) || !IS_ENABLED(CONFIG_ZMK_BLE)
 	return 0;
 #else
 	return zmk_ble_stop_advertising();
@@ -73,7 +82,7 @@ __weak int k380_low_power_resume_led(void)
 }
 __weak int k380_low_power_restore_radio_and_led(void)
 {
-#ifdef CONFIG_K380_LOW_POWER_TEST
+#if defined(CONFIG_K380_LOW_POWER_TEST) || !IS_ENABLED(CONFIG_ZMK_BLE)
 	return 0;
 #else
 	return zmk_ble_resume_advertising();
@@ -87,7 +96,7 @@ __weak int k380_low_power_latch_low_voltage(uint32_t save_budget_ms)
 __weak int k380_low_power_flush_dirty_profile(uint32_t save_budget_ms)
 {
 	ARG_UNUSED(save_budget_ms);
-#ifndef CONFIG_K380_LOW_POWER_TEST
+#if !defined(CONFIG_K380_LOW_POWER_TEST) && IS_ENABLED(CONFIG_ZMK_BLE)
 	return zmk_ble_flush_active_profile_if_dirty();
 #endif
 	return 0;
@@ -110,7 +119,7 @@ __weak int k380_low_power_abort_input(void)
 }
 __weak int k380_low_power_disconnect_ble(void)
 {
-#ifdef CONFIG_K380_LOW_POWER_TEST
+#if defined(CONFIG_K380_LOW_POWER_TEST) || !IS_ENABLED(CONFIG_ZMK_BLE)
 	return 0;
 #else
 	const int profile = zmk_ble_active_profile_index();
@@ -118,7 +127,14 @@ __weak int k380_low_power_disconnect_ble(void)
 #endif
 }
 #ifndef CONFIG_K380_LOW_POWER_TEST
-bool k380_low_power_all_keys_released(void) { return k380_kscan_all_keys_released(); }
+bool k380_low_power_all_keys_released(void)
+{
+#if IS_ENABLED(CONFIG_K380_KSCAN_NO_DIODE_MATRIX)
+	return k380_kscan_all_keys_released();
+#else
+	return true;
+#endif
+}
 #endif
 __weak int k380_low_power_system_off(void)
 {
@@ -244,7 +260,7 @@ static int complete_request(void)
 	}
 	atomic_set(&state, K380_LOW_POWER_SYSTEM_OFF_REQUESTED);
 	k_spin_unlock(&lifecycle_lock, key);
-#ifndef CONFIG_K380_LOW_POWER_TEST
+#if !defined(CONFIG_K380_LOW_POWER_TEST) && IS_ENABLED(CONFIG_K380_KSCAN_NO_DIODE_MATRIX)
 	const int err = k380_kscan_prepare_system_off_wake();
 	if (err) {
 		atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
@@ -288,7 +304,7 @@ int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
 	}
 
 	ble_start_allowed = true;
-#ifndef CONFIG_K380_LOW_POWER_TEST
+#if !defined(CONFIG_K380_LOW_POWER_TEST) && IS_ENABLED(CONFIG_ZMK_BLE)
 	(void)zmk_ble_resume_advertising();
 #endif
 	return 0;
@@ -296,6 +312,11 @@ int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
 
 int k380_low_power_request(enum k380_shutdown_reason reason)
 {
+	/* Until wake is hardware-qualified, BLE timeouts must leave input/radio usable. */
+	if (!IS_ENABLED(CONFIG_K380_AUTO_SYSTEM_OFF) &&
+	    (reason == K380_SHUTDOWN_BLE_WAIT_TIMEOUT || reason == K380_SHUTDOWN_PAIRING_TIMEOUT)) {
+		return -ENOTSUP;
+	}
 	if (reason != K380_SHUTDOWN_LOW_VOLTAGE && battery_is_charging()) {
 		return -ECANCELED;
 	}

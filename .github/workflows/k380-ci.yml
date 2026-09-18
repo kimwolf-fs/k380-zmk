@@ -34,9 +34,30 @@ jobs:
           else
             echo "registered=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Test generated power contract checker
+        run: python3 zmk-keyboard-k380/tests/power-contract/test_contract.py
 
-  ghost-filter:
+  native-tests:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - ghost-filter
+          - status-indicator
+          - ble-slot-policy
+          - battery-policy
+          - soft-off
+          - low-power
+          - system-off-wake
+          - shutdown-input
+          - shutdown-behavior
+          - dynamic-config
+          - dynamic-macro-store
+          - dynamic-macro
+          - dynamic-macro-vm-validate
+          - dynamic-macro-vm
+          - dynamic-protocol
     container:
       image: docker.io/zmkfirmware/zmk-dev-arm:4.1
     steps:
@@ -55,26 +76,22 @@ jobs:
       - run: west init -l app
       - run: west update --fetch-opt=--filter=tree:0
       - run: west zephyr-export
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ghost-filter -p native_sim
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/status-indicator -p native_sim
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/ble-slot-policy -p native_sim
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/battery-policy -p native_sim
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/soft-off -p native_sim
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/low-power -p native_sim
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-config -p native_sim
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-macro-store -p native_sim
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-macro -p native_sim
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-macro-vm-validate -p native_sim
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-macro-vm -p native_sim
-      - run: ZEPHYR_TOOLCHAIN_VARIANT=host west twister -T zmk-keyboard-k380/tests/dynamic-protocol -p native_sim
+      - name: Run native suite
+        run: >-
+          ZEPHYR_TOOLCHAIN_VARIANT=host west twister
+          -T zmk-keyboard-k380/tests/${{ matrix.suite }} -p native_sim
+          --outdir twister-out/${{ matrix.suite }}
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: k380-ghost-filter-logs
+          name: k380-native-${{ matrix.suite }}-results
           include-hidden-files: true
           path: |
             twister-out*/**/*.log
             twister-out*/**/zephyr/.config
+            twister-out*/**/twister.json
+            twister-out*/**/twister.xml
+            twister-out*/**/twister_report.xml
           if-no-files-found: ignore
 
   driver-build:
@@ -112,6 +129,8 @@ jobs:
             build/k380-driver/zephyr/.config
           find build/k380-driver -name 'kscan_k380_no_diode_matrix.c.obj' \
             -print -quit | grep -q .
+      - name: Validate driver wake-source generation
+        run: python3 zmk-keyboard-k380/tests/power-contract/check_contract.py --mode driver build/k380-driver
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -121,6 +140,50 @@ jobs:
             build/k380-driver/**/*.log
             build/k380-driver/**/zephyr/.config
             build/k380-driver/**/zephyr/zephyr.dts
+          if-no-files-found: ignore
+
+  soft-off-only-build:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-build-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - name: Link coordinator without battery or BLE owners
+        run: |
+          west build -s app -d build/k380-soft-off-only -p always -b k380/nrf52840/zmk -- \
+            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
+            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/soft-off-only/k380-soft-off-only.conf" \
+            -DKEYMAP_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/soft-off-only/k380-soft-off-only.keymap"
+          grep -q '^CONFIG_K380_LOW_POWER_COORDINATOR=y$' build/k380-soft-off-only/zephyr/.config
+          grep -q '^CONFIG_K380_SOFT_OFF=y$' build/k380-soft-off-only/zephyr/.config
+          grep -q '^# CONFIG_K380_BATTERY_POLICY is not set$' build/k380-soft-off-only/zephyr/.config
+          grep -q '^# CONFIG_ZMK_BLE is not set$' build/k380-soft-off-only/zephyr/.config
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k380-soft-off-only-build-output
+          include-hidden-files: true
+          path: |
+            build/k380-soft-off-only/**/*.log
+            build/k380-soft-off-only/**/zephyr/.config
+            build/k380-soft-off-only/**/zephyr/zephyr.dts
+            build/k380-soft-off-only/**/*.map
           if-no-files-found: ignore
 
   board-build:
@@ -223,7 +286,10 @@ jobs:
             -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
             -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/board-build/k380-board.conf" \
             -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/board-build/k380-board.overlay"
+      - name: Validate generated K380 board power and wake contract
+        run: python3 zmk-keyboard-k380/tests/power-contract/check_contract.py --mode formal build/k380-board
       - name: Validate K380 board contract
+        # This build is a contract fixture, never the formal flash artifact.
         shell: bash
         run: |
           set +e
@@ -903,6 +969,8 @@ jobs:
             -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380"
       - name: Validate K380 firmware resource contract
         run: python3 zmk-keyboard-k380/tests/config-tool-contract/test_contract.py --resource-map build/k380-firmware/zephyr/zmk.map
+      - name: Validate formal firmware power and wake contract
+        run: python3 zmk-keyboard-k380/tests/power-contract/check_contract.py --mode formal build/k380-firmware
       - name: Validate K380 firmware keymap
         run: |
           python3 - <<'PY'

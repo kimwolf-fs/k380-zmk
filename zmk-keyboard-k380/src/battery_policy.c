@@ -28,7 +28,6 @@
 #define K380_VDDH_MIN_VALID_MV 1000U
 #define K380_VDDH_MAX_VALID_MV 6000U
 #define K380_STARTUP_SAMPLE_LIMIT 3U
-#define K380_STARTUP_WINDOW_MS 1000U
 
 static uint16_t samples[K380_BATTERY_WINDOW_SIZE];
 static uint8_t sample_count;
@@ -280,7 +279,7 @@ void k380_battery_policy_sample_now(void) {
 }
 
 int k380_battery_policy_startup_qualify(void) {
-    const int64_t deadline = k_uptime_get() + K380_STARTUP_WINDOW_MS;
+    const int64_t deadline = k_uptime_get() + CONFIG_K380_STARTUP_QUALIFICATION_BUDGET_MS;
     const bool latch = k380_soft_off_has_low_voltage_latch();
     uint8_t valid_samples = 0U;
     uint8_t recovery_hits = 0U;
@@ -328,6 +327,4 @@ int k380_battery_policy_sample_now_sync(uint16_t *vddh_mv) {
     return -ENOTSUP;
 }
 int k380_battery_policy_startup_qualify(void) { return -ENOTSUP; }
-bool k380_battery_policy_is_battery_powered(void) { return true; }
-bool k380_battery_policy_voltage_safe_for_startup(void) { return false; }
 #endif
