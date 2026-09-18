@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdbool.h>
+
 enum k380_status_id {
     K380_STATUS_B1_BOOTLOADER_WAITING,
     K380_STATUS_B2_BOOTLOADER_CDC_ONLY,
@@ -22,3 +24,6 @@ int k380_status_indicator_set(enum k380_status_id status);
 void k380_status_indicator_clear(enum k380_status_id status);
 enum k380_status_id k380_status_indicator_current(void);
 void k380_status_indicator_animation_step(void);
+/* Quiet persists until a model transition; repeated stop requests emit no frames. */
+void k380_status_indicator_stop_animation(void);
+bool k380_status_indicator_animation_active(void);
