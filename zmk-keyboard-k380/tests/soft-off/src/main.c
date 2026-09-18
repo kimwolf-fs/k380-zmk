@@ -32,6 +32,17 @@ static int disconnect_rc;
 static size_t save_call_count;
 static size_t delete_call_count;
 static int delete_rc;
+static bool persisted_latch;
+static bool hold_save;
+K_SEM_DEFINE(save_entered, 0, 1);
+K_SEM_DEFINE(release_save, 0, 1);
+K_SEM_DEFINE(clear_done, 0, 1);
+K_THREAD_STACK_DEFINE(save_stack, 2048);
+K_THREAD_STACK_DEFINE(clear_stack, 2048);
+static struct k_thread save_thread;
+static struct k_thread clear_thread;
+static int save_result;
+static int clear_result;
 static int64_t fake_now;
 static int64_t save_duration;
 static int64_t clock_step;
@@ -103,6 +114,11 @@ int k380_soft_off_test_save_reason(const char *name, const char *value, size_t l
     zassert_equal(len, strlen("low_voltage_protection") + 1U);
     k380_soft_off_test_record(CALL_SAVE_REASON);
     save_call_count++;
+    if (hold_save) {
+        k_sem_give(&save_entered);
+        if (k_sem_take(&release_save, K_SECONDS(1)) != 0) { return -ETIMEDOUT; }
+    }
+    if (save_rc == 0) { persisted_latch = true; }
     fake_now += save_duration;
     return save_rc;
 }
@@ -136,6 +152,7 @@ int k380_soft_off_test_system_off(void) {
 
 int k380_soft_off_test_delete_reason(void) {
     delete_call_count++;
+    if (delete_rc == 0) { persisted_latch = false; }
     return delete_rc;
 }
 
@@ -151,11 +168,16 @@ static void reset_fakes(void) {
     save_call_count = 0;
     delete_call_count = 0;
     delete_rc = 0;
+    hold_save = false;
+    k_sem_reset(&save_entered);
+    k_sem_reset(&release_save);
+    k_sem_reset(&clear_done);
     fake_now = 0;
     save_duration = 0;
     clock_step = 0;
     k380_soft_off_clear_last_reason();
     delete_call_count = 0;
+    persisted_latch = false;
     for (int i = 0; i < 8; i++) {
         zassert_ok(k380_battery_policy_submit_mv(4000));
     }
@@ -271,6 +293,38 @@ ZTEST(k380_soft_off, test_failed_delete_retains_latch_and_reports_error) {
     zassert_equal(save_call_count, 0U, "failed deletion must not trigger a duplicate write");
     delete_rc = 0;
     zassert_ok(k380_soft_off_clear_low_voltage_latch_if_safe(true));
+    zassert_false(k380_soft_off_has_low_voltage_latch());
+}
+
+static void save_worker(void *a, void *b, void *c) {
+    ARG_UNUSED(a); ARG_UNUSED(b); ARG_UNUSED(c);
+    save_result = k380_soft_off_flush_required_settings();
+}
+static void clear_worker(void *a, void *b, void *c) {
+    ARG_UNUSED(a); ARG_UNUSED(b); ARG_UNUSED(c);
+    clear_result = k380_soft_off_clear_low_voltage_latch_if_safe(true);
+    k_sem_give(&clear_done);
+}
+
+ZTEST(k380_soft_off, test_safe_clear_wins_over_an_inflight_latch_save) {
+    reset_fakes();
+    hold_save = true;
+    k380_soft_off_set_pending_reason(K380_SHUTDOWN_LOW_VOLTAGE);
+    k_thread_create(&save_thread, save_stack, K_THREAD_STACK_SIZEOF(save_stack),
+                    save_worker, NULL, NULL, NULL, 5, 0, K_NO_WAIT);
+    zassert_ok(k_sem_take(&save_entered, K_MSEC(500)));
+    k_thread_create(&clear_thread, clear_stack, K_THREAD_STACK_SIZEOF(clear_stack),
+                    clear_worker, NULL, NULL, NULL, 5, 0, K_NO_WAIT);
+    /* An unordered clear completes before the admitted Flash write; an
+     * ordered clear waits until that write releases the latch transaction. */
+    (void)k_sem_take(&clear_done, K_MSEC(50));
+    k_sem_give(&release_save);
+    zassert_ok(k_thread_join(&save_thread, K_SECONDS(2)));
+    zassert_ok(k_thread_join(&clear_thread, K_SECONDS(2)));
+    hold_save = false;
+    zassert_ok(save_result);
+    zassert_ok(clear_result);
+    zassert_false(persisted_latch, "safe clear must not be undone by an older admitted write");
     zassert_false(k380_soft_off_has_low_voltage_latch());
 }
 
