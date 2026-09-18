@@ -52,6 +52,13 @@ __weak int k380_low_power_stop_radio(void)
 #endif
 }
 __weak int k380_low_power_stop_led(void) { return 0; }
+__weak int k380_low_power_resume_led(void)
+{
+#ifndef CONFIG_K380_LOW_POWER_TEST
+	k380_status_indicator_resume_animation();
+#endif
+	return 0;
+}
 __weak int k380_low_power_restore_radio_and_led(void)
 {
 #ifdef CONFIG_K380_LOW_POWER_TEST
@@ -226,6 +233,7 @@ void k380_low_power_cancel_pending(void)
 		reason_valid = false;
 		if (may_restore) {
 			(void)k380_low_power_restore_radio_and_led();
+			(void)k380_low_power_resume_led();
 		}
 		radio_and_led_quiet = false;
 	}
@@ -235,11 +243,16 @@ void k380_low_power_cancel_usb_pending(void)
 {
 	if (state == K380_LOW_POWER_WARNING || state == K380_LOW_POWER_RELEASE_WAIT) {
 		const bool may_restore = radio_and_led_quiet && ble_start_allowed;
+		const bool may_resume_led = radio_and_led_quiet &&
+			(ble_start_allowed || battery_is_charging());
 
 		state = K380_LOW_POWER_READY;
 		reason_valid = false;
 		if (may_restore) {
 			(void)k380_low_power_restore_radio_and_led();
+		}
+		if (may_resume_led) {
+			(void)k380_low_power_resume_led();
 		}
 		radio_and_led_quiet = false;
 	}

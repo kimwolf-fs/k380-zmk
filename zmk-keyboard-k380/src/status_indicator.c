@@ -71,6 +71,7 @@ __weak void k380_status_indicator_test_render(enum k380_status_id status,
 }
 
 __weak uint8_t k380_ble_slot_current(void) { return 1U; }
+__weak bool k380_status_indicator_test_use_timer(void) { return true; }
 #endif
 
 static struct led_rgb rgb(uint8_t r, uint8_t g, uint8_t b) {
@@ -278,8 +279,13 @@ K_TIMER_DEFINE(animation_timer, animation_timer_handler, NULL);
 
 static void update_animation_timer(void) {
     k_spinlock_key_t key = k_spin_lock(&status_lock);
-    const uint32_t period =
+    uint32_t period =
         animation_stopped ? 0U : model_animation_period_ms(&status_model);
+#ifdef CONFIG_ZTEST
+    if (!k380_status_indicator_test_use_timer()) {
+        period = 0U;
+    }
+#endif
     if (period != 0U) {
         k_timer_start(&animation_timer, K_MSEC(period), K_MSEC(period));
     } else {
@@ -541,7 +547,6 @@ int k380_status_indicator_set(enum k380_status_id status) {
     }
 
     if (changed) {
-        animation_stopped = false;
         mark_render_needed(reset_animation);
     }
     k_spin_unlock(&status_lock, key);
@@ -587,7 +592,6 @@ void k380_status_indicator_clear(enum k380_status_id status) {
     }
 
     if (changed) {
-        animation_stopped = false;
         mark_render_needed(reset_animation);
     }
     k_spin_unlock(&status_lock, key);
@@ -676,6 +680,23 @@ void k380_status_indicator_stop_animation(void) {
 int k380_soft_off_stop_animation(void) {
     k380_status_indicator_stop_animation();
     return 0;
+}
+
+void k380_status_indicator_resume_animation(void) {
+    k_mutex_lock(&render_mutex, K_FOREVER);
+    k_spinlock_key_t key = k_spin_lock(&status_lock);
+    const bool was_stopped = animation_stopped;
+    if (was_stopped) {
+        animation_stopped = false;
+        mark_render_needed(true);
+    }
+    k_spin_unlock(&status_lock, key);
+    k_mutex_unlock(&render_mutex);
+
+    if (was_stopped) {
+        update_animation_timer();
+        (void)submit_status_render();
+    }
 }
 
 #if !IS_ENABLED(CONFIG_ZTEST)
