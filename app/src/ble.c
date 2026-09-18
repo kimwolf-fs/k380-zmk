@@ -14,6 +14,7 @@
 
 #include <zephyr/settings/settings.h>
 #include <zephyr/sys/ring_buffer.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/hci.h>
@@ -36,6 +37,12 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/split/bluetooth/uuid.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/ble_active_profile_changed.h>
+
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+#include <zmk_keyboard_k380/low_power.h>
+#else
+__weak bool k380_low_power_ble_start_allowed(void) { return true; }
+#endif
 
 #if IS_ENABLED(CONFIG_ZMK_BLE_PASSKEY_ENTRY)
 #include <zmk/events/keycode_state_changed.h>
@@ -61,6 +68,7 @@ enum advertising_type {
 
 static struct zmk_ble_profile profiles[ZMK_BLE_PROFILE_COUNT];
 static uint8_t active_profile;
+static bool active_profile_dirty;
 
 #define DEVICE_NAME CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
@@ -180,6 +188,10 @@ int update_advertising(void) {
     struct bt_conn *conn;
     enum advertising_type desired_adv = ZMK_ADV_NONE;
 
+    if (!k380_low_power_ble_start_allowed()) {
+        return 0;
+    }
+
     if (zmk_ble_active_profile_is_connected()) {
         desired_adv = ZMK_ADV_NONE;
     } else if (zmk_ble_active_profile_is_open()) {
@@ -265,7 +277,8 @@ bt_addr_le_t *zmk_ble_profile_address(uint8_t index) {
 
 #if IS_ENABLED(CONFIG_SETTINGS)
 static void ble_save_profile_work(struct k_work *work) {
-    settings_save_one("ble/active_profile", &active_profile, sizeof(active_profile));
+    ARG_UNUSED(work);
+    (void)zmk_ble_flush_active_profile_if_dirty();
 }
 
 static struct k_work_delayable ble_save_work;
@@ -280,10 +293,24 @@ static int ble_save_profile(void) {
 }
 
 int zmk_ble_save_active_profile(void) {
+    return zmk_ble_flush_active_profile_if_dirty();
+}
+
+bool zmk_ble_active_profile_is_dirty(void) { return active_profile_dirty; }
+
+int zmk_ble_flush_active_profile_if_dirty(void) {
 #if IS_ENABLED(CONFIG_SETTINGS)
     k_work_cancel_delayable(&ble_save_work);
-    return settings_save_one("ble/active_profile", &active_profile, sizeof(active_profile));
+    if (!active_profile_dirty) {
+        return 0;
+    }
+    const int err = settings_save_one("ble/active_profile", &active_profile, sizeof(active_profile));
+    if (!err) {
+        active_profile_dirty = false;
+    }
+    return err;
 #else
+    active_profile_dirty = false;
     return 0;
 #endif
 }
@@ -299,6 +326,7 @@ int zmk_ble_prof_select(uint8_t index) {
     }
 
     active_profile = index;
+    active_profile_dirty = true;
     ble_save_profile();
 
     update_advertising();
@@ -307,6 +335,18 @@ int zmk_ble_prof_select(uint8_t index) {
 
     return 0;
 };
+
+int zmk_ble_stop_advertising(void) {
+    if (advertising_status == ZMK_ADV_NONE) {
+        return 0;
+    }
+
+    const int err = bt_le_adv_stop();
+    advertising_status = ZMK_ADV_NONE;
+    return err;
+}
+
+int zmk_ble_resume_advertising(void) { return update_advertising(); }
 
 int zmk_ble_prof_next(void) {
     LOG_DBG("");
@@ -467,6 +507,7 @@ static int ble_profiles_handle_set(const char *name, size_t len, settings_read_c
             LOG_ERR("Failed to handle active profile from settings (err %d)", err);
             return err;
         }
+        active_profile_dirty = false;
     }
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_BLE) && IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
     else if (settings_name_steq(name, "peripheral_addresses", &next) && next) {
