@@ -180,6 +180,14 @@ int k380_soft_off_flush_required_settings(void) {
 
     /* BLE timeout causes are deliberately RAM-only. */
     if (pending_reason == K380_SHUTDOWN_LOW_VOLTAGE && !k380_soft_off_has_low_voltage_latch()) {
+#ifdef CONFIG_ZTEST
+        if (k380_soft_off_test_uptime() >= deadline) {
+#else
+        if (k_uptime_get() >= deadline) {
+#endif
+            LOG_ERR("Settings deadline expired; skipping low-voltage latch save");
+            return -ETIMEDOUT;
+        }
         strcpy(last_shutdown_reason, K380_SOFT_OFF_REASON_LOW_VOLTAGE);
         err = save_shutdown_reason();
         if (err < 0) {
