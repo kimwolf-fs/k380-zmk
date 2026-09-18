@@ -31,6 +31,7 @@ static int hid_rc;
 static int disconnect_rc;
 static size_t save_call_count;
 static size_t delete_call_count;
+static int delete_rc;
 static int64_t fake_now;
 static int64_t save_duration;
 static int64_t clock_step;
@@ -135,7 +136,7 @@ int k380_soft_off_test_system_off(void) {
 
 int k380_soft_off_test_delete_reason(void) {
     delete_call_count++;
-    return 0;
+    return delete_rc;
 }
 
 static void reset_fakes(void) {
@@ -149,6 +150,7 @@ static void reset_fakes(void) {
     disconnect_rc = 0;
     save_call_count = 0;
     delete_call_count = 0;
+    delete_rc = 0;
     fake_now = 0;
     save_duration = 0;
     clock_step = 0;
@@ -256,6 +258,20 @@ ZTEST(k380_soft_off, test_existing_latch_skips_repeat_reason_write) {
 
     zassert_ok(k380_soft_off_request_low_voltage());
     zassert_equal(save_call_count, 0U);
+}
+
+ZTEST(k380_soft_off, test_failed_delete_retains_latch_and_reports_error) {
+    reset_fakes();
+    k380_soft_off_test_restore_reason("low_voltage_protection");
+    delete_rc = -EIO;
+    zassert_equal(k380_soft_off_clear_low_voltage_latch_if_safe(true), -EIO);
+    zassert_true(k380_soft_off_has_low_voltage_latch());
+    k380_soft_off_set_pending_reason(K380_SHUTDOWN_LOW_VOLTAGE);
+    zassert_ok(k380_soft_off_flush_required_settings());
+    zassert_equal(save_call_count, 0U, "failed deletion must not trigger a duplicate write");
+    delete_rc = 0;
+    zassert_ok(k380_soft_off_clear_low_voltage_latch_if_safe(true));
+    zassert_false(k380_soft_off_has_low_voltage_latch());
 }
 
 ZTEST(k380_soft_off, test_ble_timeout_reasons_are_ram_only) {

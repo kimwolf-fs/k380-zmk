@@ -187,6 +187,34 @@ ZTEST(k380_low_power, test_held_key_enters_release_wait_without_system_off)
 
 ZTEST_SUITE(k380_low_power, NULL, NULL, NULL, NULL, NULL);
 
+ZTEST(k380_low_power, test_low_voltage_warning_defers_cleanup_for_three_seconds)
+{
+	reset();
+	const int64_t started = k_uptime_get();
+	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+	zassert_true(k_uptime_get() - started < 100, "request must not block the work queue");
+	zassert_equal(system_off_calls, 0, "warning must precede system off");
+	zassert_equal(led_stop_calls, 0, "Z4 must stay visible during the warning");
+	k_sleep(K_MSEC(2900));
+	zassert_equal(system_off_calls, 0);
+	k_sleep(K_MSEC(150));
+	zassert_equal(system_off_calls, 1);
+	zassert_equal(latch_calls, 1);
+}
+
+ZTEST(k380_low_power, test_usb_cancels_warning_before_any_latch_write)
+{
+	reset();
+	zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
+	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+	k_sleep(K_MSEC(100));
+	k380_low_power_cancel_usb_pending();
+	zassert_true(k380_low_power_input_events_allowed());
+	k_sleep(K_MSEC(3050));
+	zassert_equal(system_off_calls, 0);
+	zassert_equal(latch_calls, 0);
+}
+
 ZTEST(k380_low_power, test_all_causes_cleanup_before_release_wait_even_on_errors)
 {
 	for (int reason = K380_SHUTDOWN_LOW_VOLTAGE; reason <= K380_SHUTDOWN_PAIRING_TIMEOUT; reason++) {
