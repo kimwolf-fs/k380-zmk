@@ -12,6 +12,7 @@
 
 #include <zmk_keyboard_k380/status_indicator.h>
 #include <zmk_keyboard_k380/ble_slot_policy.h>
+#include <zmk_keyboard_k380/soft_off.h>
 
 struct k380_status_model {
     bool bootloader_active;
@@ -34,20 +35,24 @@ static struct k380_status_model status_model = {
 static struct k_spinlock status_lock;
 static struct led_rgb status_pixels[4];
 static uint8_t animation_step;
-static bool animation_tick_pending;
+static bool animation_stopped;
 static uint32_t render_generation;
+static uint32_t rendered_generation;
+static bool render_initialized;
+K_MUTEX_DEFINE(render_mutex);
 
 #define K380_CHARGING_BREATH_TICKS 80U
 #define K380_CHARGING_BREATH_HALF_TICKS (K380_CHARGING_BREATH_TICKS / 2U)
 #define K380_CHARGING_BREATH_MIN 2U
 #define K380_CHARGING_BREATH_MAX 24U
-#define K380_BLE_WAITING_BLINK_TICKS 40U
-#define K380_BLE_WAITING_BLINK_ON_TICKS 20U
-#define K380_BLE_PAIRING_BLINK_TICKS 10U
-#define K380_BLE_PAIRING_BLINK_ON_TICKS 5U
+#define K380_CHARGING_EDGE_MS 50U
+#define K380_SLOW_EDGE_MS 1000U
+#define K380_FAST_EDGE_MS 250U
 #define K380_BLUE_20_PERCENT 51U
 
 static int render_pending_status(void);
+static int submit_status_render(void);
+static uint32_t model_animation_period_ms(const struct k380_status_model *model);
 
 #if !IS_ENABLED(CONFIG_ZTEST)
 #if !DT_HAS_CHOSEN(zmk_underglow)
@@ -105,8 +110,8 @@ static uint8_t slot_led_index(uint8_t slot) {
     }
 }
 
-static bool blink_is_on(uint8_t animation_step, uint8_t on_ticks, uint8_t period_ticks) {
-    return (animation_step % period_ticks) < on_ticks;
+static bool blink_is_on(uint32_t elapsed_ms, uint32_t edge_ms) {
+    return ((elapsed_ms / edge_ms) % 2U) == 0U;
 }
 
 static int render_bootloader_status(enum k380_status_id status) {
@@ -146,20 +151,25 @@ static int render_bootloader_status(enum k380_status_id status) {
     return 0;
 }
 
-static int render_power_status(enum k380_status_id status, uint8_t step) {
+static int render_power_status(enum k380_status_id status, uint32_t elapsed_ms) {
     switch (status) {
     case K380_STATUS_Z1_NORMAL:
         break;
     case K380_STATUS_Z2_CHARGING: {
-        const uint8_t brightness = charging_breath_brightness(step);
+        const uint8_t brightness =
+            charging_breath_brightness(elapsed_ms / K380_CHARGING_EDGE_MS);
         status_pixels[3] = rgb(0, brightness, brightness);
         break;
     }
     case K380_STATUS_Z3_LOW_BATTERY:
-        status_pixels[3] = rgb(24, 0, 0);
+        if (blink_is_on(elapsed_ms, K380_SLOW_EDGE_MS)) {
+            status_pixels[3] = rgb(24, 0, 0);
+        }
         break;
     case K380_STATUS_Z4_SOFT_OFF_WARNING:
-        status_pixels[3] = rgb(24, 0, 0);
+        if (blink_is_on(elapsed_ms, K380_FAST_EDGE_MS)) {
+            status_pixels[3] = rgb(24, 0, 0);
+        }
         break;
     default:
         return -EINVAL;
@@ -168,14 +178,14 @@ static int render_power_status(enum k380_status_id status, uint8_t step) {
     return 0;
 }
 
-static int render_ble_status(enum k380_status_id status, uint8_t slot, uint8_t step) {
+static int render_ble_status(enum k380_status_id status, uint8_t slot, uint32_t elapsed_ms) {
     const uint8_t index = slot_led_index(slot);
 
     switch (status) {
     case K380_STATUS_Z1_NORMAL:
         return 0;
     case K380_STATUS_Z5_BLE_WAITING:
-        if (blink_is_on(step, K380_BLE_WAITING_BLINK_ON_TICKS, K380_BLE_WAITING_BLINK_TICKS)) {
+        if (blink_is_on(elapsed_ms, K380_SLOW_EDGE_MS)) {
             status_pixels[index] = rgb(0, 0, K380_BLUE_20_PERCENT);
         }
         return 0;
@@ -183,7 +193,7 @@ static int render_ble_status(enum k380_status_id status, uint8_t slot, uint8_t s
         status_pixels[index] = rgb(0, 24, 0);
         return 0;
     case K380_STATUS_Z7_BLE_PAIRING:
-        if (blink_is_on(step, K380_BLE_PAIRING_BLINK_ON_TICKS, K380_BLE_PAIRING_BLINK_TICKS)) {
+        if (blink_is_on(elapsed_ms, K380_FAST_EDGE_MS)) {
             status_pixels[index] = rgb(0, 0, K380_BLUE_20_PERCENT);
         }
         return 0;
@@ -211,13 +221,39 @@ static int render_system_status(enum k380_status_id status) {
     }
 }
 
-static bool model_uses_animation(const struct k380_status_model *model) {
-    return !model->bootloader_active &&
-           (model->power == K380_STATUS_Z2_CHARGING || model->ble == K380_STATUS_Z5_BLE_WAITING ||
-            model->ble == K380_STATUS_Z7_BLE_PAIRING);
+static uint32_t model_animation_period_ms(const struct k380_status_model *model) {
+    if (model->bootloader_active) {
+        return 0U;
+    }
+
+    uint32_t period = 0U;
+    if (model->power == K380_STATUS_Z2_CHARGING) {
+        period = K380_CHARGING_EDGE_MS;
+    } else if (model->power == K380_STATUS_Z3_LOW_BATTERY) {
+        period = K380_SLOW_EDGE_MS;
+    } else if (model->power == K380_STATUS_Z4_SOFT_OFF_WARNING) {
+        period = K380_FAST_EDGE_MS;
+    }
+
+    /* System indications obscure the BLE LEDs, but not the power LED. */
+    if (model->system == K380_STATUS_Z1_NORMAL) {
+        uint32_t ble_period = 0U;
+        if (model->ble == K380_STATUS_Z5_BLE_WAITING) {
+            ble_period = K380_SLOW_EDGE_MS;
+        } else if (model->ble == K380_STATUS_Z7_BLE_PAIRING) {
+            ble_period = K380_FAST_EDGE_MS;
+        }
+        if (ble_period != 0U && (period == 0U || ble_period < period)) {
+            period = ble_period;
+        }
+    }
+    return period;
 }
 
-#if !IS_ENABLED(CONFIG_ZTEST)
+static bool model_uses_animation(const struct k380_status_model *model) {
+    return model_animation_period_ms(model) != 0U;
+}
+
 static void render_work_handler(struct k_work *work) {
     ARG_UNUSED(work);
     (void)render_pending_status();
@@ -229,41 +265,36 @@ static void animation_timer_handler(struct k_timer *timer) {
     ARG_UNUSED(timer);
 
     k_spinlock_key_t key = k_spin_lock(&status_lock);
-    const bool animate = model_uses_animation(&status_model);
+    const bool animate = !animation_stopped && model_uses_animation(&status_model);
     if (animate) {
-        animation_tick_pending = true;
+        animation_step = (animation_step + 1U) % K380_CHARGING_BREATH_TICKS;
         render_generation++;
-    }
-    k_spin_unlock(&status_lock, key);
-
-    if (animate) {
         k_work_submit(&render_work);
     }
+    k_spin_unlock(&status_lock, key);
 }
 
 K_TIMER_DEFINE(animation_timer, animation_timer_handler, NULL);
 
 static void update_animation_timer(void) {
     k_spinlock_key_t key = k_spin_lock(&status_lock);
-    const bool animate = model_uses_animation(&status_model);
-    k_spin_unlock(&status_lock, key);
-
-    if (animate) {
-        k_timer_start(&animation_timer, K_MSEC(50), K_MSEC(50));
+    const uint32_t period =
+        animation_stopped ? 0U : model_animation_period_ms(&status_model);
+    if (period != 0U) {
+        k_timer_start(&animation_timer, K_MSEC(period), K_MSEC(period));
     } else {
         k_timer_stop(&animation_timer);
+        (void)k_work_cancel(&render_work);
     }
+    k_spin_unlock(&status_lock, key);
 }
-#else
-static void update_animation_timer(void) {}
-#endif
 
 void k380_status_indicator_animation_step(void) {
     bool animate;
     k_spinlock_key_t key = k_spin_lock(&status_lock);
-    animate = model_uses_animation(&status_model);
+    animate = !animation_stopped && model_uses_animation(&status_model);
     if (animate) {
-        animation_tick_pending = true;
+        animation_step = (animation_step + 1U) % K380_CHARGING_BREATH_TICKS;
         render_generation++;
     }
     k_spin_unlock(&status_lock, key);
@@ -275,12 +306,13 @@ void k380_status_indicator_animation_step(void) {
 #if IS_ENABLED(CONFIG_ZTEST)
     (void)render_pending_status();
 #else
-    k_work_submit(&render_work);
+    (void)submit_status_render();
 #endif
 }
 
 static int render_model(enum k380_status_id primary, const struct k380_status_model *model,
                         uint8_t step) {
+    const uint32_t elapsed_ms = step * model_animation_period_ms(model);
     clear_pixels();
 
     if (model->bootloader_active) {
@@ -289,12 +321,12 @@ static int render_model(enum k380_status_id primary, const struct k380_status_mo
             return err;
         }
     } else {
-        int err = render_power_status(model->power, step);
+        int err = render_power_status(model->power, elapsed_ms);
         if (err < 0) {
             return err;
         }
 
-        err = render_ble_status(model->ble, model->ble_slot, step);
+        err = render_ble_status(model->ble, model->ble_slot, elapsed_ms);
         if (err < 0) {
             return err;
         }
@@ -453,7 +485,6 @@ static int apply_zmk_status(struct k380_status_model *model, enum k380_status_id
 static void mark_render_needed(bool reset_animation) {
     if (reset_animation) {
         animation_step = 0U;
-        animation_tick_pending = false;
     }
     render_generation++;
 }
@@ -462,7 +493,11 @@ static int submit_status_render(void) {
 #if IS_ENABLED(CONFIG_ZTEST)
     return render_pending_status();
 #else
-    k_work_submit(&render_work);
+    k_spinlock_key_t key = k_spin_lock(&status_lock);
+    if (!animation_stopped) {
+        k_work_submit(&render_work);
+    }
+    k_spin_unlock(&status_lock, key);
     return 0;
 #endif
 }
@@ -501,15 +536,19 @@ int k380_status_indicator_set(enum k380_status_id status) {
         reset_animation = previous.bootloader_active != status_model.bootloader_active ||
                           previous.power != status_model.power ||
                           previous.ble != status_model.ble ||
+                          previous.system != status_model.system ||
                           previous.ble_slot != status_model.ble_slot;
     }
 
     if (changed) {
+        animation_stopped = false;
         mark_render_needed(reset_animation);
     }
     k_spin_unlock(&status_lock, key);
 
-    update_animation_timer();
+    if (changed) {
+        update_animation_timer();
+    }
     return changed ? submit_status_render() : 0;
 }
 
@@ -537,6 +576,7 @@ void k380_status_indicator_clear(enum k380_status_id status) {
     } else if (is_system_status(status) && status_model.system == status) {
         status_model.system = K380_STATUS_Z1_NORMAL;
         changed = true;
+        reset_animation = true;
     } else if (status == K380_STATUS_Z1_NORMAL) {
         reset_zmk_model(&status_model);
         changed = previous.bootloader_active != status_model.bootloader_active ||
@@ -547,12 +587,13 @@ void k380_status_indicator_clear(enum k380_status_id status) {
     }
 
     if (changed) {
+        animation_stopped = false;
         mark_render_needed(reset_animation);
     }
     k_spin_unlock(&status_lock, key);
 
-    update_animation_timer();
     if (changed) {
+        update_animation_timer();
         (void)submit_status_render();
     }
 }
@@ -567,6 +608,7 @@ enum k380_status_id k380_status_indicator_current(void) {
 
 static int render_pending_status(void) {
     int err = 0;
+    k_mutex_lock(&render_mutex, K_FOREVER);
 
     for (;;) {
         struct k380_status_model snapshot;
@@ -575,10 +617,11 @@ static int render_pending_status(void) {
         uint32_t generation;
 
         k_spinlock_key_t key = k_spin_lock(&status_lock);
-        if (animation_tick_pending && model_uses_animation(&status_model)) {
-            animation_step = (animation_step + 1U) % K380_CHARGING_BREATH_TICKS;
+        if (animation_stopped ||
+            (render_initialized && rendered_generation == render_generation)) {
+            k_spin_unlock(&status_lock, key);
+            break;
         }
-        animation_tick_pending = false;
 
         snapshot = status_model;
         step = animation_step;
@@ -589,6 +632,8 @@ static int render_pending_status(void) {
         err = render_model(primary, &snapshot, step);
 
         key = k_spin_lock(&status_lock);
+        rendered_generation = generation;
+        render_initialized = true;
         const bool done = render_generation == generation;
         k_spin_unlock(&status_lock, key);
 
@@ -597,7 +642,40 @@ static int render_pending_status(void) {
         }
     }
 
+    k_mutex_unlock(&render_mutex);
     return err;
+}
+
+bool k380_status_indicator_animation_active(void) {
+    k_spinlock_key_t key = k_spin_lock(&status_lock);
+    const bool active = !animation_stopped && model_uses_animation(&status_model);
+    k_spin_unlock(&status_lock, key);
+    return active;
+}
+
+void k380_status_indicator_stop_animation(void) {
+    /* Serialize with an in-flight LED write; queued renders observe the quiet gate. */
+    k_mutex_lock(&render_mutex, K_FOREVER);
+    k_spinlock_key_t key = k_spin_lock(&status_lock);
+    const bool already_stopped = animation_stopped;
+    animation_stopped = true;
+    animation_step = 0U;
+    render_generation++;
+    k_timer_stop(&animation_timer);
+    (void)k_work_cancel(&render_work);
+    k_spin_unlock(&status_lock, key);
+
+    if (!already_stopped) {
+        struct k380_status_model quiet_model = {0};
+        reset_zmk_model(&quiet_model);
+        (void)render_model(K380_STATUS_Z1_NORMAL, &quiet_model, 0U);
+    }
+    k_mutex_unlock(&render_mutex);
+}
+
+int k380_soft_off_stop_animation(void) {
+    k380_status_indicator_stop_animation();
+    return 0;
 }
 
 #if !IS_ENABLED(CONFIG_ZTEST)
