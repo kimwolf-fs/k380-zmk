@@ -108,9 +108,23 @@ void k380_soft_off_clear_last_reason(void) {
 }
 
 void k380_soft_off_handle_successful_boot(void) {
-    if (k380_soft_off_last_reason() != NULL) {
-        k380_soft_off_clear_last_reason();
+    /* The low-voltage latch is cleared only after startup voltage qualification. */
+}
+
+bool k380_soft_off_has_low_voltage_latch(void) {
+    return strcmp(last_shutdown_reason, K380_SOFT_OFF_REASON_LOW_VOLTAGE) == 0;
+}
+
+int k380_soft_off_clear_low_voltage_latch_if_safe(bool safe_or_charging) {
+    if (!k380_soft_off_has_low_voltage_latch()) {
+        return 0;
     }
+    if (!safe_or_charging) {
+        return -EACCES;
+    }
+
+    k380_soft_off_clear_last_reason();
+    return 0;
 }
 
 #ifdef CONFIG_ZTEST

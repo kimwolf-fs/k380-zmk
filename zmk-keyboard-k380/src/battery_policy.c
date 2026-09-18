@@ -29,6 +29,8 @@
 #define K380_SOFT_OFF_EXIT_MV 3300U
 #define K380_VDDH_MIN_VALID_MV 1000U
 #define K380_VDDH_MAX_VALID_MV 6000U
+#define K380_STARTUP_SAMPLE_LIMIT 3U
+#define K380_STARTUP_WINDOW_MS 1000U
 
 static uint16_t samples[K380_BATTERY_WINDOW_SIZE];
 static uint8_t sample_count;
@@ -39,6 +41,7 @@ static uint8_t soft_off_hits;
 static uint8_t soft_off_recovery_hits;
 static enum k380_power_state power_state = K380_POWER_NORMAL;
 K_MUTEX_DEFINE(battery_policy_lock);
+K_MUTEX_DEFINE(battery_sample_lock);
 
 __weak void k380_ble_slot_power_state_changed(void) {}
 
@@ -204,22 +207,58 @@ enum k380_power_state k380_battery_policy_state(void) {
     return state;
 }
 
+bool k380_battery_policy_is_battery_powered(void) {
+    return k380_battery_policy_state() != K380_POWER_CHARGING;
+}
+
+bool k380_battery_policy_voltage_safe_for_startup(void) {
+    k_mutex_lock(&battery_policy_lock, K_FOREVER);
+    const bool safe = power_state == K380_POWER_CHARGING ||
+                      (sample_count > 0U && average_mv() >= K380_SOFT_OFF_EXIT_MV);
+    k_mutex_unlock(&battery_policy_lock);
+    return safe;
+}
+
+static bool voltage_average_at_least(uint16_t threshold_mv) {
+    k_mutex_lock(&battery_policy_lock, K_FOREVER);
+    const bool safe = sample_count > 0U && average_mv() >= threshold_mv;
+    k_mutex_unlock(&battery_policy_lock);
+    return safe;
+}
+
 #if IS_ENABLED(CONFIG_K380_BATTERY_POLICY_RUNTIME)
 static const struct device *const battery = DEVICE_DT_GET(DT_CHOSEN(zmk_battery));
 
-static void sample_work_handler(struct k_work *work) {
-    ARG_UNUSED(work);
+int k380_battery_policy_sample_now_sync(uint16_t *vddh_mv) {
+    if (vddh_mv == NULL || !device_is_ready(battery)) {
+        return -ENODEV;
+    }
 
+    k_mutex_lock(&battery_sample_lock, K_FOREVER);
     struct sensor_value voltage;
     int rc = sensor_sample_fetch_chan(battery, SENSOR_CHAN_VOLTAGE);
     if (rc == 0) {
         rc = sensor_channel_get(battery, SENSOR_CHAN_VOLTAGE, &voltage);
     }
-    if (rc == 0) {
-        const int32_t mv = voltage.val1 * 1000 + voltage.val2 / 1000;
-        if (mv > 0 && mv <= UINT16_MAX) {
-            (void)k380_battery_policy_submit_mv((uint16_t)mv);
-        }
+    k_mutex_unlock(&battery_sample_lock);
+    if (rc != 0) {
+        return rc;
+    }
+
+    const int64_t mv = (int64_t)voltage.val1 * 1000 + voltage.val2 / 1000;
+    if (mv < K380_VDDH_MIN_VALID_MV || mv > UINT16_MAX) {
+        return -EINVAL;
+    }
+
+    *vddh_mv = (uint16_t)mv;
+    return 0;
+}
+
+static void sample_work_handler(struct k_work *work) {
+    ARG_UNUSED(work);
+    uint16_t mv;
+    if (k380_battery_policy_sample_now_sync(&mv) == 0) {
+        (void)k380_battery_policy_submit_mv(mv);
     }
 }
 
@@ -229,6 +268,39 @@ void k380_battery_policy_sample_now(void) {
     if (device_is_ready(battery)) {
         k_work_submit(&sample_work);
     }
+}
+
+int k380_battery_policy_startup_qualify(void) {
+    const int64_t deadline = k_uptime_get() + K380_STARTUP_WINDOW_MS;
+    const bool latch = k380_soft_off_has_low_voltage_latch();
+    uint8_t valid_samples = 0U;
+    uint8_t recovery_hits = 0U;
+
+    while (valid_samples < K380_STARTUP_SAMPLE_LIMIT && k_uptime_get() <= deadline) {
+        uint16_t mv;
+        if (k380_battery_policy_sample_now_sync(&mv) != 0) {
+            break;
+        }
+
+        valid_samples++;
+        (void)k380_battery_policy_submit_mv(mv);
+        if (mv > K380_USB_POWER_PRESENT_MV) {
+            return 0;
+        }
+
+        if (k380_battery_policy_voltage_safe_for_startup()) {
+            recovery_hits++;
+        } else {
+            recovery_hits = 0U;
+        }
+
+        if ((!latch && voltage_average_at_least(K380_SOFT_OFF_ENTER_MV)) ||
+            recovery_hits >= K380_STARTUP_SAMPLE_LIMIT) {
+            return 0;
+        }
+    }
+
+    return -EACCES;
 }
 
 static int k380_battery_policy_usb_listener(const zmk_event_t *eh) {
@@ -251,11 +323,17 @@ ZMK_LISTENER(k380_battery_policy_activity_listener, k380_battery_policy_activity
 ZMK_SUBSCRIPTION(k380_battery_policy_activity_listener, zmk_activity_state_changed);
 
 static int k380_battery_policy_init(void) {
-    k380_battery_policy_sample_now();
     return 0;
 }
 
 SYS_INIT(k380_battery_policy_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
 #else
 void k380_battery_policy_sample_now(void) {}
+int k380_battery_policy_sample_now_sync(uint16_t *vddh_mv) {
+    ARG_UNUSED(vddh_mv);
+    return -ENOTSUP;
+}
+int k380_battery_policy_startup_qualify(void) { return -ENOTSUP; }
+bool k380_battery_policy_is_battery_powered(void) { return true; }
+bool k380_battery_policy_voltage_safe_for_startup(void) { return false; }
 #endif

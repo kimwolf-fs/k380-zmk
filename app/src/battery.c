@@ -72,6 +72,14 @@ static int zmk_battery_update(const struct device *battery) {
         return rc;
     }
 #elif IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING_FETCH_MODE_LITHIUM_VOLTAGE)
+#if IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
+    uint16_t mv;
+    rc = k380_battery_policy_sample_now_sync(&mv);
+    if (rc != 0) {
+        LOG_DBG("Failed to fetch battery voltage: %d", rc);
+        return rc;
+    }
+#else
     rc = sensor_sample_fetch_chan(battery, SENSOR_CHAN_VOLTAGE);
     if (rc != 0) {
         LOG_DBG("Failed to fetch battery values: %d", rc);
@@ -87,6 +95,7 @@ static int zmk_battery_update(const struct device *battery) {
     }
 
     uint16_t mv = voltage.val1 * 1000 + (voltage.val2 / 1000);
+#endif
     state_of_charge.val1 = lithium_ion_mv_to_pct(mv);
 
     LOG_DBG("State of change %d from %d mv", state_of_charge.val1, mv);
@@ -179,7 +188,7 @@ static int battery_event_listener(const zmk_event_t *eh) {
             return 0;
         case ZMK_ACTIVITY_IDLE:
         case ZMK_ACTIVITY_SLEEP:
-            k_timer_stop(&battery_timer);
+            /* Keep the standard periodic sampler alive for all system-on states. */
             return 0;
         default:
             break;
