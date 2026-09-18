@@ -39,6 +39,17 @@ static uint8_t soft_off_recovery_hits;
 static enum k380_power_state power_state = K380_POWER_NORMAL;
 K_MUTEX_DEFINE(battery_policy_lock);
 K_MUTEX_DEFINE(battery_sample_lock);
+#if IS_ENABLED(CONFIG_K380_BATTERY_POLICY_RUNTIME)
+K_MUTEX_DEFINE(qualification_lock);
+static bool qualification_pending;
+static bool qualification_requires_recovery;
+static uint8_t qualification_recovery_hits;
+static int64_t last_latch_clear_attempt;
+#define K380_LATCH_CLEAR_RETRY_MS 60000
+static void qualify_submitted_sample(uint16_t mv);
+#else
+static void qualify_submitted_sample(uint16_t mv) { ARG_UNUSED(mv); }
+#endif
 
 __weak void k380_ble_slot_power_state_changed(void) {}
 
@@ -121,6 +132,7 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
         if (previous_state != K380_POWER_CHARGING) {
             k380_ble_slot_power_state_changed();
         }
+        qualify_submitted_sample(vddh_mv);
         return 0;
     }
 
@@ -193,6 +205,7 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
         (void)k380_soft_off_request_low_voltage();
     }
 #endif
+    qualify_submitted_sample(vddh_mv);
     return 0;
 }
 
@@ -237,6 +250,26 @@ bool k380_battery_policy_test_startup_recovery_sample(uint16_t mv, uint8_t *reco
 #if IS_ENABLED(CONFIG_K380_BATTERY_POLICY_RUNTIME)
 static const struct device *const battery = DEVICE_DT_GET(DT_CHOSEN(zmk_battery));
 
+static void qualify_submitted_sample(uint16_t mv) {
+    k_mutex_lock(&qualification_lock, K_FOREVER);
+    if (!qualification_pending) {
+        k_mutex_unlock(&qualification_lock);
+        return;
+    }
+    const bool recovered = startup_recovery_sample(mv, &qualification_recovery_hits);
+    const bool safe = mv > K380_USB_POWER_PRESENT_MV ||
+                      (qualification_requires_recovery ? recovered : mv >= K380_SOFT_OFF_ENTER_MV);
+    const int64_t now = k_uptime_get();
+    if (safe && now - last_latch_clear_attempt >= K380_LATCH_CLEAR_RETRY_MS) {
+        last_latch_clear_attempt = now;
+        if (k380_soft_off_clear_low_voltage_latch_if_safe(true) == 0) {
+            qualification_pending = false;
+            (void)k380_low_power_startup_voltage_result(true, false, true);
+        }
+    }
+    k_mutex_unlock(&qualification_lock);
+}
+
 int k380_battery_policy_sample_now_sync(uint16_t *vddh_mv) {
     if (vddh_mv == NULL || !device_is_ready(battery)) {
         return -ENODEV;
@@ -254,7 +287,7 @@ int k380_battery_policy_sample_now_sync(uint16_t *vddh_mv) {
     }
 
     const int64_t mv = (int64_t)voltage.val1 * 1000 + voltage.val2 / 1000;
-    if (mv < K380_VDDH_MIN_VALID_MV || mv > UINT16_MAX) {
+    if (mv < K380_VDDH_MIN_VALID_MV || mv > K380_VDDH_MAX_VALID_MV) {
         return -EINVAL;
     }
 
@@ -280,9 +313,13 @@ void k380_battery_policy_sample_now(void) {
 
 int k380_battery_policy_startup_qualify(void) {
     const int64_t deadline = k_uptime_get() + CONFIG_K380_STARTUP_QUALIFICATION_BUDGET_MS;
-    const bool latch = k380_soft_off_has_low_voltage_latch();
+    k_mutex_lock(&qualification_lock, K_FOREVER);
+    qualification_pending = true;
+    qualification_requires_recovery = k380_soft_off_has_low_voltage_latch();
+    qualification_recovery_hits = 0U;
+    last_latch_clear_attempt = k_uptime_get() - K380_LATCH_CLEAR_RETRY_MS;
+    k_mutex_unlock(&qualification_lock);
     uint8_t valid_samples = 0U;
-    uint8_t recovery_hits = 0U;
 
     while (valid_samples < K380_STARTUP_SAMPLE_LIMIT && k_uptime_get() <= deadline) {
         uint16_t mv;
@@ -291,18 +328,18 @@ int k380_battery_policy_startup_qualify(void) {
         }
 
         valid_samples++;
-        (void)k380_battery_policy_submit_mv(mv);
-        if (mv > K380_USB_POWER_PRESENT_MV) {
-            return 0;
+        if (k380_battery_policy_submit_mv(mv) != 0) {
+            break;
         }
-
-        const bool recovered = startup_recovery_sample(mv, &recovery_hits);
-
-        if ((!latch && mv >= K380_SOFT_OFF_ENTER_MV) || recovered) {
+        k_mutex_lock(&qualification_lock, K_FOREVER);
+        const bool qualified = !qualification_pending;
+        k_mutex_unlock(&qualification_lock);
+        if (qualified) {
             return 0;
         }
     }
 
+    /* Later USB/activity/periodic samples continue the same qualification. */
     return -EACCES;
 }
 

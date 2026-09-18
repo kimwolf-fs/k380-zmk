@@ -44,15 +44,9 @@ int main(void) {
 #endif
 
 #if IS_ENABLED(CONFIG_K380_SOFT_OFF) && IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
-    const int qualify_rc = k380_battery_policy_startup_qualify();
-    if (qualify_rc == 0) {
-        (void)k380_soft_off_clear_low_voltage_latch_if_safe(true);
-        /* The coordinator's charging argument denotes an unsafe transition;
-         * a qualified USB sample is already a safe startup result. */
-        (void)k380_low_power_startup_voltage_result(true, false, true);
-    } else {
-        (void)k380_low_power_startup_voltage_result(false, false, false);
-    }
+    /* Battery policy owns qualification and gate release, including recovery
+     * from an initial sensor/Flash error through later submitted samples. */
+    (void)k380_battery_policy_startup_qualify();
 #elif IS_ENABLED(CONFIG_K380_SOFT_OFF)
     /* Soft-off without the battery policy has no voltage gate to qualify. */
     (void)k380_low_power_startup_voltage_result(true, false, true);
