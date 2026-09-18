@@ -3,8 +3,9 @@ list(APPEND DTS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../app")
 list(APPEND DTS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 get_filename_component(ZMK_APP "${CMAKE_CURRENT_SOURCE_DIR}/../../../app" ABSOLUTE)
 # Zephyr assembles application-defined syscall parser inputs while find_package()
-# runs, before the post-package syscall helper calls below are evaluated.
-set(APPLICATION_SOURCE_DIR "${ZMK_APP}")
+# runs. Seed the parser include path without replacing the test application's
+# source directory (which must remain the test fixture for Kconfig discovery).
+set(SYSCALL_INCLUDE_DIRS "${ZMK_APP}/include")
 set(CONFIG_APPLICATION_DEFINED_SYSCALL true)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(k380_shutdown_behavior)
