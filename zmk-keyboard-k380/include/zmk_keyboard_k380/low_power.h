@@ -17,6 +17,10 @@ bool k380_low_power_is_release_waiting(void);
 bool k380_low_power_input_events_allowed(void);
 bool k380_low_power_all_keys_released(void);
 
+/* Atomic-only power publication, safe while the battery policy mutex is held.
+ * USB confirmation and the final system-off handoff share one lifecycle lock. */
+void k380_low_power_power_state_changed(bool charging);
+
 /* Event sources use this to cancel a pending BLE timeout request. */
 void k380_low_power_cancel_pending(void);
 void k380_low_power_cancel_usb_pending(void);

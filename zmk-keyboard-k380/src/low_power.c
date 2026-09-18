@@ -47,6 +47,8 @@ static atomic_t cancellation;
 static struct k_spinlock lifecycle_lock;
 #define CANCEL_USB BIT(0)
 #define CANCEL_CONNECTION BIT(1)
+#define CANCEL_VOLTAGE_RECOVERY BIT(2)
+static atomic_t charging_confirmed;
 static bool input_aborted;
 static bool request_prepared;
 static enum k380_shutdown_reason last_reason;
@@ -157,12 +159,19 @@ __weak int k380_low_power_system_off(void)
 
 static bool battery_is_charging(void)
 {
-#ifdef CONFIG_K380_LOW_POWER_TEST
-	extern bool k380_low_power_test_battery_charging;
-	return k380_low_power_test_battery_charging;
-#else
-	return k380_battery_policy_state() == K380_POWER_CHARGING;
-#endif
+	return atomic_get(&charging_confirmed);
+}
+
+void k380_low_power_power_state_changed(bool charging)
+{
+	/* Called under the battery policy mutex: publish only, never drain input. */
+	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
+	atomic_set(&charging_confirmed, charging);
+	if (charging && (atomic_get(&state) == K380_LOW_POWER_WARNING ||
+			 atomic_get(&state) == K380_LOW_POWER_RELEASE_WAIT)) {
+		atomic_or(&cancellation, CANCEL_USB);
+	}
+	k_spin_unlock(&lifecycle_lock, key);
 }
 
 static void log_cleanup_error(const char *operation, int err);
@@ -232,7 +241,8 @@ static bool reconcile_cancellation(void)
 	atomic_val_t requested = atomic_set(&cancellation, 0);
 	bool usb = requested & CANCEL_USB;
 	bool connection = requested & CANCEL_CONNECTION;
-	if (!usb && !(connection && (last_reason == K380_SHUTDOWN_BLE_WAIT_TIMEOUT ||
+	bool recovered = (requested & CANCEL_VOLTAGE_RECOVERY) && last_reason == K380_SHUTDOWN_LOW_VOLTAGE;
+	if (!usb && !recovered && !(connection && (last_reason == K380_SHUTDOWN_BLE_WAIT_TIMEOUT ||
 		last_reason == K380_SHUTDOWN_PAIRING_TIMEOUT))) {
 		return false;
 	}
@@ -263,6 +273,9 @@ static bool reconcile_cancellation(void)
 static int complete_request(void)
 {
 	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
+	if (battery_is_charging()) {
+		atomic_or(&cancellation, CANCEL_USB);
+	}
 	if (atomic_get(&cancellation)) {
 		k_spin_unlock(&lifecycle_lock, key);
 		if (reconcile_cancellation()) {
@@ -316,6 +329,8 @@ int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
 	}
 
 	ble_start_allowed = true;
+	/* Qualification can finish after a low-voltage warning was requested. */
+	cancel_pending(CANCEL_VOLTAGE_RECOVERY);
 #if !defined(CONFIG_K380_LOW_POWER_TEST) && IS_ENABLED(CONFIG_ZMK_BLE)
 	(void)zmk_ble_resume_advertising();
 #endif
@@ -361,7 +376,7 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 	    (reason == K380_SHUTDOWN_BLE_WAIT_TIMEOUT || reason == K380_SHUTDOWN_PAIRING_TIMEOUT)) {
 		return -ENOTSUP;
 	}
-	if (reason != K380_SHUTDOWN_LOW_VOLTAGE && battery_is_charging()) {
+	if (battery_is_charging()) {
 		return -ECANCELED;
 	}
 
@@ -373,12 +388,21 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 		return 0;
 	}
 
+	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
 	atomic_clear(&cancellation);
 	input_aborted = false;
 	request_prepared = false;
 	last_reason = reason;
 	reason_valid = true;
 	atomic_set(&state, K380_LOW_POWER_WARNING);
+	if (battery_is_charging()) {
+		atomic_or(&cancellation, CANCEL_USB);
+	}
+	k_spin_unlock(&lifecycle_lock, key);
+	if (reconcile_cancellation()) {
+		release_cleanup_owner();
+		return -ECANCELED;
+	}
 	if (reason == K380_SHUTDOWN_LOW_VOLTAGE && k380_low_power_start_warning(reason) != 0) {
 		atomic_or(&cancellation, CANCEL_USB);
 		if (!reconcile_cancellation()) {
@@ -455,7 +479,6 @@ bool k380_low_power_input_events_allowed(void)
 }
 
 #ifdef CONFIG_K380_LOW_POWER_TEST
-bool k380_low_power_test_battery_charging;
 static bool test_keys_released = true;
 void k380_low_power_test_reset(void)
 {
@@ -469,10 +492,10 @@ void k380_low_power_test_reset(void)
 	reason_valid = false;
 	ble_start_allowed = false;
 	radio_and_led_quiet = false;
-	k380_low_power_test_battery_charging = false;
+	atomic_clear(&charging_confirmed);
 	test_keys_released = true;
 }
 void k380_low_power_test_set_all_keys_released(bool released) { test_keys_released = released; }
-void k380_low_power_test_set_battery_charging(bool charging) { k380_low_power_test_battery_charging = charging; }
+void k380_low_power_test_set_battery_charging(bool charging) { k380_low_power_power_state_changed(charging); }
 bool k380_low_power_all_keys_released(void) { return test_keys_released; }
 #endif

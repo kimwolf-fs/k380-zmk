@@ -52,6 +52,7 @@ static void qualify_submitted_sample(uint16_t mv) { ARG_UNUSED(mv); }
 #endif
 
 __weak void k380_ble_slot_power_state_changed(void) {}
+__weak void k380_low_power_power_state_changed(bool charging) { ARG_UNUSED(charging); }
 
 static uint16_t average_mv(void) {
     uint32_t sum = 0;
@@ -81,6 +82,7 @@ static void set_power_state(enum k380_power_state state) {
     soft_off_hits = 0;
     soft_off_recovery_hits = 0;
     power_state = state;
+    k380_low_power_power_state_changed(state == K380_POWER_CHARGING);
 
     switch (state) {
     case K380_POWER_CHARGING:

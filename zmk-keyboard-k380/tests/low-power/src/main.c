@@ -255,6 +255,32 @@ ZTEST(k380_low_power, test_usb_power_publication_during_warning_cancels_request)
 	zassert_equal(latch_calls, 0);
 }
 
+ZTEST(k380_low_power, test_safe_qualification_cancels_low_voltage_release_wait)
+{
+	reset();
+	k380_low_power_test_set_all_keys_released(false);
+	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+	k_sleep(K_MSEC(3050));
+	zassert_true(k380_low_power_is_release_waiting());
+	zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
+	zassert_true(k380_low_power_input_events_allowed());
+	zassert_equal(restore_calls, 1);
+	k380_low_power_test_set_all_keys_released(true);
+	k380_low_power_notify_all_keys_released();
+	zassert_equal(system_off_calls, 0);
+}
+
+ZTEST(k380_low_power, test_safe_qualification_does_not_cancel_ble_release_wait)
+{
+	reset();
+	k380_low_power_test_set_all_keys_released(false);
+	zassert_ok(k380_low_power_request(K380_SHUTDOWN_PAIRING_TIMEOUT));
+	zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
+	zassert_true(k380_low_power_is_release_waiting());
+	zassert_false(k380_low_power_input_events_allowed());
+	zassert_equal(restore_calls, 0);
+}
+
 ZTEST(k380_low_power, test_all_causes_cleanup_before_release_wait_even_on_errors)
 {
 	for (int reason = K380_SHUTDOWN_LOW_VOLTAGE; reason <= K380_SHUTDOWN_PAIRING_TIMEOUT; reason++) {
