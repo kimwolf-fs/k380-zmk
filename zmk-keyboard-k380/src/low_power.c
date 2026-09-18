@@ -1,15 +1,21 @@
 #include <errno.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #include <zephyr/sys/util.h>
 
+#ifndef CONFIG_K380_LOW_POWER_TEST
 #include <zmk/ble.h>
 #include <zmk/endpoints.h>
 #include <zmk/pm.h>
+#endif
 
-#include <zmk_keyboard_k380/battery_policy.h>
 #include <zmk_keyboard_k380/low_power.h>
+#include <zmk_keyboard_k380/soft_off.h>
+#ifndef CONFIG_K380_LOW_POWER_TEST
+#include <zmk_keyboard_k380/battery_policy.h>
 #include <zmk_keyboard_k380/status_indicator.h>
+#endif
 
 enum k380_low_power_state {
 	K380_LOW_POWER_READY,
@@ -21,31 +27,58 @@ enum k380_low_power_state {
 static enum k380_low_power_state state;
 static enum k380_shutdown_reason last_reason;
 static bool reason_valid;
-static bool ble_start_allowed = true;
+static bool ble_start_allowed;
+static bool radio_and_led_quiet;
 
 /* These weak seams keep the coordinator independent of later BLE/LED/PM work. */
 __weak int k380_low_power_start_warning(enum k380_shutdown_reason reason)
 {
 	ARG_UNUSED(reason);
+#ifdef CONFIG_K380_LOW_POWER_TEST
+	return 0;
+#else
 	return k380_status_indicator_set(K380_STATUS_Z4_SOFT_OFF_WARNING);
+#endif
 }
 __weak int k380_low_power_stop_radio(void) { return 0; }
 __weak int k380_low_power_stop_led(void) { return 0; }
-__weak int k380_low_power_flush_dirty_profile(void) { return 0; }
+__weak int k380_low_power_latch_low_voltage(uint32_t save_budget_ms)
+{
+	ARG_UNUSED(save_budget_ms);
+	return 0;
+}
+__weak int k380_low_power_flush_dirty_profile(uint32_t save_budget_ms)
+{
+	ARG_UNUSED(save_budget_ms);
+	return 0;
+}
 __weak int k380_low_power_clear_hid(void)
 {
+#ifndef CONFIG_K380_LOW_POWER_TEST
 	zmk_endpoint_clear_reports();
+#endif
 	return 0;
 }
 __weak int k380_low_power_disconnect_ble(void)
 {
+#ifdef CONFIG_K380_LOW_POWER_TEST
+	return 0;
+#else
 	const int profile = zmk_ble_active_profile_index();
 	return profile < 0 ? profile : zmk_ble_prof_disconnect(profile);
+#endif
 }
 #ifndef CONFIG_K380_LOW_POWER_TEST
 __weak bool k380_low_power_all_keys_released(void) { return true; }
 #endif
-__weak int k380_low_power_system_off(void) { return zmk_pm_soft_off(); }
+__weak int k380_low_power_system_off(void)
+{
+#ifdef CONFIG_K380_LOW_POWER_TEST
+	return 0;
+#else
+	return zmk_pm_soft_off();
+#endif
+}
 
 static bool battery_is_charging(void)
 {
@@ -57,11 +90,23 @@ static bool battery_is_charging(void)
 #endif
 }
 
+static void quiet_radio_and_led(void)
+{
+	if (!radio_and_led_quiet) {
+		(void)k380_low_power_stop_radio();
+		(void)k380_low_power_stop_led();
+		radio_and_led_quiet = true;
+	}
+}
+
 static int complete_request(void)
 {
-	(void)k380_low_power_stop_radio();
-	(void)k380_low_power_stop_led();
-	(void)k380_low_power_flush_dirty_profile();
+	quiet_radio_and_led();
+	if (last_reason == K380_SHUTDOWN_LOW_VOLTAGE) {
+		(void)k380_low_power_latch_low_voltage(K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS);
+	}
+	/* This is an explicit bounded flush, never a deferred debounce wait. */
+	(void)k380_low_power_flush_dirty_profile(K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS);
 	(void)k380_low_power_clear_hid();
 	(void)k380_low_power_disconnect_ble();
 	state = K380_LOW_POWER_SYSTEM_OFF_REQUESTED;
@@ -107,6 +152,7 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 	}
 
 	if (!k380_low_power_all_keys_released()) {
+		quiet_radio_and_led();
 		state = K380_LOW_POWER_RELEASE_WAIT;
 		return 0;
 	}
@@ -126,6 +172,7 @@ void k380_low_power_cancel_pending(void)
 	if (state == K380_LOW_POWER_WARNING || state == K380_LOW_POWER_RELEASE_WAIT) {
 		state = K380_LOW_POWER_READY;
 		reason_valid = false;
+		radio_and_led_quiet = false;
 	}
 }
 
@@ -146,7 +193,8 @@ void k380_low_power_test_reset(void)
 {
 	state = K380_LOW_POWER_READY;
 	reason_valid = false;
-	ble_start_allowed = true;
+	ble_start_allowed = false;
+	radio_and_led_quiet = false;
 	k380_low_power_test_battery_charging = false;
 	test_keys_released = true;
 }
