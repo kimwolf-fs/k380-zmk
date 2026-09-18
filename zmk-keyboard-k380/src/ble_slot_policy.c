@@ -59,10 +59,6 @@ static void init_timeout_work(void) {
     }
 }
 
-#if !defined(CONFIG_ZTEST) && !IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
-static enum k380_power_state k380_battery_policy_state(void) { return K380_POWER_NORMAL; }
-#endif
-
 #if !defined(CONFIG_ZTEST) && !IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
 static int request_low_power(enum k380_shutdown_reason reason) {
     ARG_UNUSED(reason);

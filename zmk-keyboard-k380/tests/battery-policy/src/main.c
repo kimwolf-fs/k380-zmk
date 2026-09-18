@@ -100,7 +100,7 @@ ZTEST(k380_battery_policy, test_startup_recovery_requires_three_raw_safe_samples
     zassert_false(k380_battery_policy_test_startup_recovery_sample(3200, &hits));
     zassert_false(k380_battery_policy_test_startup_recovery_sample(3300, &hits));
     zassert_false(k380_battery_policy_test_startup_recovery_sample(3300, &hits));
-    zassert_false(k380_battery_policy_test_startup_recovery_sample(3300, &hits));
+    zassert_true(k380_battery_policy_test_startup_recovery_sample(3300, &hits));
     zassert_true(k380_battery_policy_test_startup_recovery_sample(3300, &hits));
 }
 

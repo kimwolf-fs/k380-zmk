@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include <zephyr/sys/util.h>
+#include <zephyr/drivers/led_strip.h>
 #include <zephyr/ztest.h>
 
 #include <zmk_keyboard_k380/battery_policy.h>
@@ -33,6 +34,42 @@ static size_t delete_call_count;
 static int64_t fake_now;
 static int64_t save_duration;
 static int64_t clock_step;
+static struct led_rgb rendered_pixels[4];
+static size_t render_count;
+static bool use_real_timer;
+K_MUTEX_DEFINE(capture_lock);
+
+bool k380_status_indicator_test_use_timer(void) { return use_real_timer; }
+
+void k380_status_indicator_test_render(enum k380_status_id status,
+                                      const struct led_rgb *pixels, size_t pixel_count) {
+    ARG_UNUSED(status);
+    zassert_equal(pixel_count, ARRAY_SIZE(rendered_pixels));
+    k_mutex_lock(&capture_lock, K_FOREVER);
+    memcpy(rendered_pixels, pixels, sizeof(rendered_pixels));
+    render_count++;
+    k_mutex_unlock(&capture_lock);
+}
+
+static size_t captured_render_count(void) {
+    k_mutex_lock(&capture_lock, K_FOREVER);
+    const size_t count = render_count;
+    k_mutex_unlock(&capture_lock);
+    return count;
+}
+
+static void assert_pixels_quiet(void) {
+    struct led_rgb snapshot[4];
+    k_mutex_lock(&capture_lock, K_FOREVER);
+    memcpy(snapshot, rendered_pixels, sizeof(snapshot));
+    k_mutex_unlock(&capture_lock);
+    for (size_t i = 0; i < ARRAY_SIZE(rendered_pixels); i++) {
+        zassert_equal(snapshot[i].r, 0);
+        zassert_equal(snapshot[i].g, 0);
+        zassert_equal(snapshot[i].b, 0);
+    }
+    zassert_false(k380_status_indicator_animation_active());
+}
 int64_t k380_soft_off_test_uptime(void) {
     const int64_t now = fake_now;
     fake_now += clock_step;
@@ -102,6 +139,7 @@ int k380_soft_off_test_delete_reason(void) {
 }
 
 static void reset_fakes(void) {
+    use_real_timer = false;
     call_count = 0;
     charge_during_warning = false;
     warning_rc = 0;
@@ -120,6 +158,7 @@ static void reset_fakes(void) {
         zassert_ok(k380_battery_policy_submit_mv(4000));
     }
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z1_NORMAL));
+    k380_status_indicator_resume_animation();
 }
 
 ZTEST(k380_soft_off, test_low_voltage_soft_off_orders_cleanup_after_warning) {
@@ -250,14 +289,35 @@ ZTEST(k380_soft_off, test_save_deadline_skips_second_write_without_retry) {
     zassert_equal(call_count, 1U);
 }
 
-ZTEST(k380_soft_off, test_quiet_clears_ble_animation_for_both_timeout_states) {
+ZTEST(k380_soft_off, test_quiet_stops_ble_animation_for_both_timeout_states) {
     reset_fakes();
+    use_real_timer = true;
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z5_BLE_WAITING));
     zassert_ok(k380_soft_off_prepare_radio_and_led_quiet());
-    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z1_NORMAL);
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z5_BLE_WAITING);
+    assert_pixels_quiet();
+    const size_t quiet_count = captured_render_count();
+    k380_status_indicator_animation_step();
+    k_sleep(K_MSEC(1100));
+    zassert_equal(captured_render_count(), quiet_count);
+    assert_pixels_quiet();
+    k380_status_indicator_resume_animation();
+    zassert_true(k380_status_indicator_animation_active());
+    zassert_true(captured_render_count() > quiet_count);
     zassert_ok(k380_status_indicator_set(K380_STATUS_Z7_BLE_PAIRING));
     zassert_ok(k380_soft_off_prepare_radio_and_led_quiet());
-    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z1_NORMAL);
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z7_BLE_PAIRING);
+    assert_pixels_quiet();
+    const size_t pairing_quiet_count = captured_render_count();
+    k380_status_indicator_animation_step();
+    k_sleep(K_MSEC(350));
+    zassert_equal(captured_render_count(), pairing_quiet_count);
+    assert_pixels_quiet();
+    k380_status_indicator_resume_animation();
+    zassert_true(k380_status_indicator_animation_active());
+    zassert_true(captured_render_count() > pairing_quiet_count);
+    k380_status_indicator_stop_animation();
+    use_real_timer = false;
 }
 
 ZTEST(k380_soft_off, test_expired_admission_skips_first_latch_write_and_keeps_latch_absent) {

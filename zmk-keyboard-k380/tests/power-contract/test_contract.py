@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from check_contract import check_config, check_wake
+from check_contract import check_config, check_controllers, check_wake
 
 
 class PowerContractTests(unittest.TestCase):
@@ -62,6 +62,20 @@ CONFIG_K380_STARTUP_QUALIFICATION_BUDGET_MS=1000
 
     def test_driver_requires_wake_but_not_board_policy_owners(self):
         check_config("CONFIG_K380_KSCAN_NO_DIODE_MATRIX=y\nCONFIG_ZMK_PM_SOFT_OFF=y\n", "driver")
+
+    def test_formal_controllers_must_be_enabled(self):
+        self.edt.label2node = {
+            label: SimpleNamespace(status="okay") for label in ("gpio0", "gpio1", "gpiote")
+        }
+        check_controllers(self.edt)
+        for label in ("gpio0", "gpio1", "gpiote"):
+            self.edt.label2node[label].status = "disabled"
+            with self.subTest(label=label), self.assertRaises(AssertionError):
+                check_controllers(self.edt)
+            self.edt.label2node[label].status = "okay"
+        del self.edt.label2node["gpiote"]
+        with self.assertRaises(AssertionError):
+            check_controllers(self.edt)
 
 
 if __name__ == "__main__":

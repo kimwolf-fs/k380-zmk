@@ -146,6 +146,10 @@ jobs:
     needs: module-metadata
     if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        owner: [soft-off-only, ble-no-battery]
     container:
       image: docker.io/zmkfirmware/zmk-build-arm:4.1
     steps:
@@ -164,26 +168,32 @@ jobs:
       - run: west init -l app
       - run: west update --fetch-opt=--filter=tree:0
       - run: west zephyr-export
-      - name: Link coordinator without battery or BLE owners
+      - name: Link optional-owner configuration
         run: |
-          west build -s app -d build/k380-soft-off-only -p always -b k380/nrf52840/zmk -- \
+          west build -s app -d build/k380-${{ matrix.owner }} -p always -b k380/nrf52840/zmk -- \
             -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
-            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/soft-off-only/k380-soft-off-only.conf" \
-            -DKEYMAP_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/soft-off-only/k380-soft-off-only.keymap"
-          grep -q '^CONFIG_K380_LOW_POWER_COORDINATOR=y$' build/k380-soft-off-only/zephyr/.config
-          grep -q '^CONFIG_K380_SOFT_OFF=y$' build/k380-soft-off-only/zephyr/.config
-          grep -q '^# CONFIG_K380_BATTERY_POLICY is not set$' build/k380-soft-off-only/zephyr/.config
-          grep -q '^# CONFIG_ZMK_BLE is not set$' build/k380-soft-off-only/zephyr/.config
+            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/soft-off-only/k380-${{ matrix.owner }}.conf" \
+            -DKEYMAP_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/soft-off-only/k380-${{ matrix.owner }}.keymap"
+          config=build/k380-${{ matrix.owner }}/zephyr/.config
+          grep -q '^CONFIG_K380_LOW_POWER_COORDINATOR=y$' "$config"
+          grep -q '^CONFIG_K380_SOFT_OFF=y$' "$config"
+          grep -q '^# CONFIG_K380_BATTERY_POLICY is not set$' "$config"
+          if [ "${{ matrix.owner }}" = ble-no-battery ]; then
+            grep -q '^CONFIG_K380_BLE_SLOT_POLICY=y$' "$config"
+            grep -q '^CONFIG_ZMK_BLE=y$' "$config"
+          else
+            grep -q '^# CONFIG_ZMK_BLE is not set$' "$config"
+          fi
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: k380-soft-off-only-build-output
+          name: k380-${{ matrix.owner }}-build-output
           include-hidden-files: true
           path: |
-            build/k380-soft-off-only/**/*.log
-            build/k380-soft-off-only/**/zephyr/.config
-            build/k380-soft-off-only/**/zephyr/zephyr.dts
-            build/k380-soft-off-only/**/*.map
+            build/k380-${{ matrix.owner }}/**/*.log
+            build/k380-${{ matrix.owner }}/**/zephyr/.config
+            build/k380-${{ matrix.owner }}/**/zephyr/zephyr.dts
+            build/k380-${{ matrix.owner }}/**/*.map
           if-no-files-found: ignore
 
   board-build:
