@@ -64,16 +64,21 @@ static int confirm_ble_settings(int64_t deadline) {
 #ifdef CONFIG_ZTEST
     ARG_UNUSED(deadline);
     return k380_soft_off_test_confirm_ble_settings();
-#else
+#elif IS_ENABLED(CONFIG_ZMK_BLE)
     return zmk_ble_flush_active_profile_if_dirty_before(deadline);
+#else
+    ARG_UNUSED(deadline);
+    return 0;
 #endif
 }
 
 static int selected_ble_slot(void) {
 #ifdef CONFIG_ZTEST
     return k380_soft_off_test_active_ble_slot();
-#else
+#elif IS_ENABLED(CONFIG_ZMK_BLE)
     return zmk_ble_active_profile_index();
+#else
+    return -ENODEV;
 #endif
 }
 
@@ -89,8 +94,11 @@ static int clear_hid_reports(void) {
 static int disconnect_ble(int index) {
 #ifdef CONFIG_ZTEST
     return k380_soft_off_test_disconnect_ble(index);
-#else
+#elif IS_ENABLED(CONFIG_ZMK_BLE)
     return zmk_ble_prof_disconnect(index);
+#else
+    ARG_UNUSED(index);
+    return -ENODEV;
 #endif
 }
 
@@ -175,7 +183,9 @@ int k380_soft_off_flush_required_settings(void) {
     const int64_t deadline = k380_soft_off_test_uptime() + K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS;
 #else
     const int64_t deadline = k_uptime_get() + K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS;
+#if IS_ENABLED(CONFIG_ZMK_BLE)
     zmk_ble_cancel_pending_profile_save();
+#endif
 #endif
 
     /* BLE timeout causes are deliberately RAM-only. */

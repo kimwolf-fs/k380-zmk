@@ -1,0 +1,22 @@
+config K380_AUTO_SYSTEM_OFF
+    bool "K380 automatic BLE timeout system-off (hardware qualified)"
+    default n
+    help
+      Permit BLE wait and pairing timeouts to start coordinated shutdown.
+      Keep disabled until system-off wake is qualified on hardware. Low-voltage
+      protection is independent of this gate.
+
+config K380_BLE_WAIT_TIMEOUT_MS
+    int "K380 bonded BLE wait timeout (ms)"
+    default 10000
+    range 1 2147483647
+
+config K380_BLE_PAIRING_TIMEOUT_MS
+    int "K380 BLE pairing timeout (ms)"
+    default 60000
+    range 1 2147483647
+
+config K380_STARTUP_QUALIFICATION_BUDGET_MS
+    int "K380 startup voltage qualification budget (ms)"
+    default 1000
+    range 1 1000
