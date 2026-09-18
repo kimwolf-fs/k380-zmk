@@ -308,6 +308,29 @@ static void clear_worker(void *a, void *b, void *c) {
     clear_result = k380_soft_off_clear_low_voltage_latch_if_safe(true);
     k_sem_give(&clear_done);
 }
+static void reason_worker(void *a, void *b, void *c) {
+    ARG_UNUSED(a); ARG_UNUSED(b); ARG_UNUSED(c);
+    k380_soft_off_set_pending_reason(K380_SHUTDOWN_PAIRING_TIMEOUT);
+    k_sem_give(&clear_done);
+}
+
+ZTEST(k380_soft_off, test_ram_reason_publication_does_not_wait_for_flash) {
+    reset_fakes();
+    hold_save = true;
+    k380_soft_off_set_pending_reason(K380_SHUTDOWN_LOW_VOLTAGE);
+    k_thread_create(&save_thread, save_stack, K_THREAD_STACK_SIZEOF(save_stack),
+                    save_worker, NULL, NULL, NULL, 5, 0, K_NO_WAIT);
+    zassert_ok(k_sem_take(&save_entered, K_MSEC(500)));
+    k_thread_create(&clear_thread, clear_stack, K_THREAD_STACK_SIZEOF(clear_stack),
+                    reason_worker, NULL, NULL, NULL, 5, 0, K_NO_WAIT);
+    const int publication_result = k_sem_take(&clear_done, K_MSEC(50));
+    k_sem_give(&release_save);
+    zassert_ok(k_thread_join(&save_thread, K_SECONDS(2)));
+    zassert_ok(k_thread_join(&clear_thread, K_SECONDS(2)));
+    hold_save = false;
+    zassert_ok(save_result);
+    zassert_ok(publication_result, "RAM reason publication must not wait for a Flash transaction");
+}
 
 ZTEST(k380_soft_off, test_safe_clear_wins_over_an_inflight_latch_save) {
     reset_fakes();
