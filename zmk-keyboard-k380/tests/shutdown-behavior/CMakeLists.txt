@@ -13,7 +13,7 @@ target_include_directories(app PRIVATE ../../include ${ZMK_APP}/include)
 target_sources(app PRIVATE src/main.c ../../src/low_power.c
   ${ZMK_APP}/src/behavior.c ${ZMK_APP}/src/event_manager.c
   ${ZMK_APP}/src/shutdown_input.c
-  ${ZMK_APP}/src/behaviors/behavior_hold_tap.c
+  src/hold_tap_fixture.c
   ${ZMK_APP}/src/hid.c ${ZMK_APP}/src/hid_listener.c
   ${ZMK_APP}/src/keymap.c ${ZMK_APP}/src/behavior_queue.c
   ${ZMK_APP}/src/behaviors/behavior_key_press.c
