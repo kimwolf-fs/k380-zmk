@@ -3,6 +3,9 @@
 #include <stdint.h>
 
 #include <zephyr/sys/util.h>
+#include <zephyr/logging/log.h>
+
+LOG_MODULE_REGISTER(k380_low_power, LOG_LEVEL_INF);
 
 #ifndef CONFIG_K380_LOW_POWER_TEST
 #include <zmk/ble.h>
@@ -108,40 +111,53 @@ static bool battery_is_charging(void)
 #endif
 }
 
+static void log_cleanup_error(const char *operation, int err);
+
 static void quiet_radio_and_led(void)
 {
 	if (!radio_and_led_quiet) {
-		(void)k380_low_power_stop_radio();
-		(void)k380_low_power_stop_led();
+		log_cleanup_error("radio stop", k380_low_power_stop_radio());
+		log_cleanup_error("LED stop", k380_low_power_stop_led());
 #ifndef CONFIG_K380_LOW_POWER_TEST
-		(void)k380_soft_off_prepare_radio_and_led_quiet();
+		log_cleanup_error("indicator quiet", k380_soft_off_prepare_radio_and_led_quiet());
 #endif
 		radio_and_led_quiet = true;
 	}
 }
 
-static int complete_request(void)
+static void log_cleanup_error(const char *operation, int err)
+{
+	if (err < 0 && err != -ENODEV) {
+		LOG_ERR("Shutdown %s failed (%d); continuing", operation, err);
+	}
+}
+
+static void prepare_request(void)
 {
 	quiet_radio_and_led();
 #ifndef CONFIG_K380_LOW_POWER_TEST
 	k380_soft_off_set_pending_reason(last_reason);
 	/* This is an explicit bounded flush, never a deferred debounce wait. */
-	(void)k380_soft_off_flush_required_settings();
+	log_cleanup_error("settings flush", k380_soft_off_flush_required_settings());
 #else
 	if (last_reason == K380_SHUTDOWN_LOW_VOLTAGE) {
-		(void)k380_low_power_latch_low_voltage(K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS);
+		log_cleanup_error("latch save", k380_low_power_latch_low_voltage(K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS));
 	}
-	(void)k380_low_power_flush_dirty_profile(K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS);
+	log_cleanup_error("profile flush", k380_low_power_flush_dirty_profile(K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS));
 #endif
-	(void)k380_low_power_clear_hid();
-	(void)k380_low_power_disconnect_ble();
+	log_cleanup_error("HID clear", k380_low_power_clear_hid());
+	log_cleanup_error("BLE disconnect", k380_low_power_disconnect_ble());
+}
+
+static int complete_request(void)
+{
 	state = K380_LOW_POWER_SYSTEM_OFF_REQUESTED;
 	return k380_low_power_system_off();
 }
 
 bool k380_low_power_ble_start_allowed(void)
 {
-	return ble_start_allowed;
+	return ble_start_allowed && state == K380_LOW_POWER_READY;
 }
 
 int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
@@ -180,8 +196,8 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 		return -EIO;
 	}
 
+	prepare_request();
 	if (!k380_low_power_all_keys_released()) {
-		quiet_radio_and_led();
 		state = K380_LOW_POWER_RELEASE_WAIT;
 		return 0;
 	}

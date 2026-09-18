@@ -39,6 +39,7 @@ extern int k380_soft_off_test_clear_hid(void);
 extern int k380_soft_off_test_disconnect_ble(int index);
 extern int k380_soft_off_test_system_off(void);
 __weak int k380_soft_off_test_delete_reason(void) { return 0; }
+__weak int64_t k380_soft_off_test_uptime(void) { return k_uptime_get(); }
 #endif
 
 static int save_shutdown_reason(void) {
@@ -59,11 +60,12 @@ static int start_warning(void) {
 #endif
 }
 
-static int confirm_ble_settings(void) {
+static int confirm_ble_settings(int64_t deadline) {
 #ifdef CONFIG_ZTEST
+    ARG_UNUSED(deadline);
     return k380_soft_off_test_confirm_ble_settings();
 #else
-    return zmk_ble_save_active_profile();
+    return zmk_ble_flush_active_profile_if_dirty_before(deadline);
 #endif
 }
 
@@ -150,8 +152,17 @@ int k380_soft_off_clear_low_voltage_latch_if_safe(bool safe_or_charging) {
 char *k380_soft_off_test_last_reason_storage(void) { return last_shutdown_reason; }
 #endif
 
+/* Task 5 can override this with its explicit pending-render cancellation API. */
+__weak int k380_soft_off_stop_animation(void) {
+    return k380_status_indicator_set(K380_STATUS_Z1_NORMAL);
+}
+
 int k380_soft_off_prepare_radio_and_led_quiet(void) {
+    /* Preserve the charging indication when USB cancels the warning. */
     k380_status_indicator_clear(K380_STATUS_Z4_SOFT_OFF_WARNING);
+    if (k380_battery_policy_state() != K380_POWER_CHARGING) {
+        (void)k380_soft_off_stop_animation();
+    }
 #ifdef CONFIG_ZTEST
     k380_soft_off_test_record(2);
 #endif
@@ -160,6 +171,12 @@ int k380_soft_off_prepare_radio_and_led_quiet(void) {
 
 int k380_soft_off_flush_required_settings(void) {
     int err;
+#ifdef CONFIG_ZTEST
+    const int64_t deadline = k380_soft_off_test_uptime() + K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS;
+#else
+    const int64_t deadline = k_uptime_get() + K380_SOFT_OFF_SAVE_WAIT_BUDGET_MS;
+    zmk_ble_cancel_pending_profile_save();
+#endif
 
     /* BLE timeout causes are deliberately RAM-only. */
     if (pending_reason == K380_SHUTDOWN_LOW_VOLTAGE && !k380_soft_off_has_low_voltage_latch()) {
@@ -170,12 +187,28 @@ int k380_soft_off_flush_required_settings(void) {
         }
     }
 
-    err = confirm_ble_settings();
+#ifdef CONFIG_ZTEST
+    if (k380_soft_off_test_uptime() >= deadline) {
+#else
+    if (k_uptime_get() >= deadline) {
+#endif
+        LOG_ERR("Settings deadline expired; skipping active profile save");
+        return -ETIMEDOUT;
+    }
+    err = confirm_ble_settings(deadline);
     if (err < 0) {
         LOG_ERR("Failed to flush active BLE profile (%d)", err);
     }
 
-    return 0;
+#ifdef CONFIG_ZTEST
+    const bool overrun = k380_soft_off_test_uptime() >= deadline;
+#else
+    const bool overrun = k_uptime_get() >= deadline;
+#endif
+    if (overrun) {
+        LOG_ERR("Synchronous settings backend exceeded shutdown budget");
+    }
+    return overrun ? -ETIMEDOUT : err;
 }
 
 static int complete_low_voltage_soft_off(void) {
@@ -215,18 +248,15 @@ int k380_soft_off_request_low_voltage(void) {
 }
 
 int k380_soft_off_request_reason(enum k380_shutdown_reason reason) {
-    int err;
-
     k380_soft_off_set_pending_reason(reason);
 
 #ifdef CONFIG_ZTEST
-    err = start_warning();
+    const int err = start_warning();
     if (err < 0) {
         LOG_ERR("Failed to start soft-off warning (%d)", err);
         return err;
     }
 
-#ifdef CONFIG_ZTEST
     (void)k380_soft_off_test_wait_warning();
     return complete_low_voltage_soft_off();
 #else

@@ -315,6 +315,25 @@ int zmk_ble_flush_active_profile_if_dirty(void) {
 #endif
 }
 
+int zmk_ble_flush_active_profile_if_dirty_before(int64_t deadline_ms) {
+    zmk_ble_cancel_pending_profile_save();
+    if (!active_profile_dirty) {
+        return 0;
+    }
+    if (k_uptime_get() >= deadline_ms) {
+        return -ETIMEDOUT;
+    }
+    const int err = zmk_ble_flush_active_profile_if_dirty();
+    return err < 0 ? err : (k_uptime_get() >= deadline_ms ? -ETIMEDOUT : 0);
+}
+
+void zmk_ble_cancel_pending_profile_save(void) {
+#if IS_ENABLED(CONFIG_SETTINGS)
+    /* Cancel even if the deadline expired: shutdown never waits for debounce. */
+    k_work_cancel_delayable(&ble_save_work);
+#endif
+}
+
 int zmk_ble_prof_select(uint8_t index) {
     if (index >= ZMK_BLE_PROFILE_COUNT) {
         return -ERANGE;
