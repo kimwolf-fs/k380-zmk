@@ -197,6 +197,18 @@ ZTEST(k380_ble_slot_policy, test_advertising_update_stays_gated) {
     zassert_equal(update_advertising(), 1);
 }
 
+ZTEST(k380_ble_slot_policy, test_startup_power_sync_derives_bonded_wait_state) {
+    open_profiles[0] = false;
+    connected_profiles[0] = false;
+    power_state = K380_POWER_NORMAL;
+
+    k380_ble_slot_power_state_changed();
+
+    zassert_equal(k380_status_indicator_current(), K380_STATUS_Z5_BLE_WAITING);
+    k380_ble_slot_wait_timeout_expire_for_test();
+    zassert_equal(low_power_requests, 1);
+}
+
 ZTEST(k380_ble_slot_policy, test_wait_timeout_requests_low_power_on_battery) {
     open_profiles[0] = false;
     power_state = K380_POWER_NORMAL;
