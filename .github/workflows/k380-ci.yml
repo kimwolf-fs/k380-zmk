@@ -1174,6 +1174,7 @@ jobs:
         run: |
           config=build/k380-auto-system-off-test/zephyr/.config
           grep -q '^CONFIG_K380_AUTO_SYSTEM_OFF=y$' "$config"
+          grep -q '^CONFIG_K380_BLE_WAIT_TIMEOUT_MS=30000$' "$config"
           grep -q '^# CONFIG_ZMK_SLEEP is not set$' "$config"
           grep -q '^CONFIG_ZMK_PM_SOFT_OFF=y$' "$config"
           grep -q '^CONFIG_ZMK_BATTERY_REPORT_INTERVAL=60$' "$config"
