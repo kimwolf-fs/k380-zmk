@@ -15,6 +15,7 @@ static int flush_calls;
 static int hid_clear_calls;
 static int disconnect_calls;
 static int system_off_calls;
+static int ble_ready_calls;
 static uint32_t latch_budget;
 static uint32_t flush_budget;
 static int sequence;
@@ -38,6 +39,7 @@ int k380_low_power_start_warning(enum k380_shutdown_reason reason)
 int k380_low_power_stop_radio(void) { calls[call_count++] = RADIO; radio_stop_calls++; return cleanup_rc; }
 int k380_low_power_stop_led(void) { calls[call_count++] = LED; led_stop_calls++; return cleanup_rc; }
 int k380_low_power_restore_radio_and_led(void) { restore_calls++; return 0; }
+void k380_low_power_ble_ready(void) { ble_ready_calls++; }
 int k380_low_power_latch_low_voltage(uint32_t save_budget_ms)
 {
 	latch_calls++;
@@ -68,6 +70,7 @@ static void reset(void)
 	hid_clear_calls = 0;
 	disconnect_calls = 0;
 	system_off_calls = 0;
+	ble_ready_calls = 0;
 	latch_budget = 0;
 	flush_budget = 0;
 	sequence = 0;
@@ -89,6 +92,9 @@ ZTEST(k380_low_power, test_ble_start_is_closed_until_safe_startup_result)
 	zassert_false(k380_low_power_ble_start_allowed());
 	zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
 	zassert_true(k380_low_power_ble_start_allowed());
+	zassert_equal(ble_ready_calls, 1, "safe startup must initialize BLE slot state once");
+	zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
+	zassert_equal(ble_ready_calls, 1, "repeated safe samples must not restart the BLE window");
 }
 
 ZTEST(k380_low_power, test_ble_wait_timeout_is_ram_only_and_requests_system_off)
