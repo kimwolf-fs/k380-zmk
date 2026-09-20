@@ -18,6 +18,9 @@ bool k380_low_power_is_release_waiting(void);
 bool k380_low_power_input_events_allowed(void);
 bool k380_low_power_all_keys_released(void);
 
+/* Published once when startup voltage qualification first opens the BLE gate. */
+void k380_low_power_ble_ready(void);
+
 /* Atomic-only power publication, safe while the battery policy mutex is held.
  * USB confirmation and the final system-off handoff share one lifecycle lock. */
 void k380_low_power_power_state_changed(bool charging);

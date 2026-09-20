@@ -208,10 +208,15 @@ void k380_ble_slot_power_state_changed(void) {
     if (power == K380_POWER_CHARGING) {
         k380_low_power_cancel_usb_pending();
     }
-    if (timeout_work_initialized) {
-        update_active_slot_status();
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    if (!k380_low_power_ble_start_allowed()) {
+        return;
     }
+#endif
+    update_active_slot_status();
 }
+
+void k380_low_power_ble_ready(void) { k380_ble_slot_power_state_changed(); }
 
 static int select_slot(uint8_t slot) {
 #if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)

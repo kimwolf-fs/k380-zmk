@@ -102,6 +102,7 @@ __weak int k380_low_power_restore_radio_and_led(void)
 	return zmk_ble_resume_advertising();
 #endif
 }
+__weak void k380_low_power_ble_ready(void) {}
 __weak int k380_low_power_latch_low_voltage(uint32_t save_budget_ms)
 {
 	ARG_UNUSED(save_budget_ms);
@@ -385,15 +386,20 @@ int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe)
 		return -EACCES;
 	}
 
+	const bool first_safe_result = !ble_start_allowed;
 	ble_start_allowed = true;
 	k_spinlock_key_t key = k_spin_lock(&lifecycle_lock);
 	voltage_generation++;
 	k_spin_unlock(&lifecycle_lock, key);
 	/* Qualification can finish after a low-voltage warning was requested. */
 	cancel_pending(CANCEL_VOLTAGE_RECOVERY);
+	if (!first_safe_result) {
+		return 0;
+	}
 #if !defined(CONFIG_K380_LOW_POWER_TEST) && IS_ENABLED(CONFIG_ZMK_BLE)
 	(void)zmk_ble_resume_advertising();
 #endif
+	k380_low_power_ble_ready();
 	return 0;
 }
 
