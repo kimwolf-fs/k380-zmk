@@ -120,6 +120,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define K380_KSCAN_ROWS K380_GHOST_FILTER_ROWS
 #define K380_KSCAN_COLS K380_GHOST_FILTER_COLS
 #define K380_KSCAN_MATRIX_LEN (K380_KSCAN_ROWS * K380_KSCAN_COLS)
+#define K380_RELEASE_WAIT_SCAN_PERIOD_MS 50
 
 #if CONFIG_ZMK_KSCAN_DEBOUNCE_PRESS_MS >= 0
 #define INST_DEBOUNCE_PRESS_MS(n) CONFIG_ZMK_KSCAN_DEBOUNCE_PRESS_MS
@@ -178,6 +179,7 @@ struct k380_kscan_data {
     struct k380_kscan_irq_callback *irqs;
 #endif
     int64_t scan_time;
+    int32_t scheduled_scan_period_ms;
     struct zmk_debounce_state *matrix_state;
     uint16_t raw_matrix[K380_KSCAN_ROWS];
     atomic_t all_released;
@@ -396,6 +398,25 @@ static int k380_kscan_interrupt_configure(const struct device *dev, const gpio_f
     return 0;
 }
 
+static int32_t k380_kscan_next_scan_period_ms(const struct device *dev) {
+    const struct k380_kscan_config *config = dev->config;
+
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    if (k380_low_power_is_release_waiting()) {
+        return K380_RELEASE_WAIT_SCAN_PERIOD_MS;
+    }
+#endif
+    return config->debounce_scan_period_ms;
+}
+
+static void k380_kscan_reset_scan_timing(const struct device *dev) {
+    const struct k380_kscan_config *config = dev->config;
+    struct k380_kscan_data *data = dev->data;
+
+    data->scan_time = k_uptime_get();
+    data->scheduled_scan_period_ms = config->debounce_scan_period_ms;
+}
+
 #if USE_INTERRUPTS
 static int k380_kscan_interrupt_enable(const struct device *dev) {
     const int err = k380_kscan_interrupt_configure(dev, GPIO_INT_LEVEL_ACTIVE);
@@ -422,16 +443,17 @@ static void k380_kscan_irq_callback_handler(const struct device *port, struct gp
     }
     atomic_clear(&data->all_released);
     k380_kscan_interrupt_disable(data->dev);
-    data->scan_time = k_uptime_get();
+    k380_kscan_reset_scan_timing(data->dev);
     k_work_reschedule(&data->work, K_NO_WAIT);
 }
 #endif
 
 static void k380_kscan_read_continue(const struct device *dev) {
-    const struct k380_kscan_config *config = dev->config;
     struct k380_kscan_data *data = dev->data;
+    const int32_t period_ms = k380_kscan_next_scan_period_ms(dev);
 
-    data->scan_time += config->debounce_scan_period_ms;
+    data->scheduled_scan_period_ms = period_ms;
+    data->scan_time += period_ms;
     k_work_reschedule(&data->work, K_TIMEOUT_ABS_MS(data->scan_time));
 }
 
@@ -557,7 +579,7 @@ static int k380_kscan_read(const struct device *dev) {
     for (int row = 0; row < K380_KSCAN_ROWS; row++) {
         for (int col = 0; col < K380_KSCAN_COLS; col++) {
             zmk_debounce_update(&data->matrix_state[state_index_rc(row, col)],
-                                (filtered[row] & BIT(col)) != 0U, config->debounce_scan_period_ms,
+                                (filtered[row] & BIT(col)) != 0U, data->scheduled_scan_period_ms,
                                 &config->debounce_config);
         }
     }
@@ -638,7 +660,7 @@ static int k380_kscan_enable(const struct device *dev) {
 #endif
 
     k380_kscan_rtt_report("K380_KSCAN_INIT ready\n");
-    data->scan_time = k_uptime_get();
+    k380_kscan_reset_scan_timing(dev);
     const int err = k380_kscan_read(dev);
 
     if (err) {
@@ -805,6 +827,7 @@ static int k380_kscan_init(const struct device *dev) {
     struct k380_kscan_data *data = dev->data;
 
     data->dev = dev;
+    k380_kscan_reset_scan_timing(dev);
     k380_matrix_device = dev;
 #if IS_ENABLED(CONFIG_ZMK_PM_SOFT_OFF)
     uint32_t cause;
