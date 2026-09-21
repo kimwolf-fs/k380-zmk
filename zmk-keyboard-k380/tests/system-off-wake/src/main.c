@@ -4,8 +4,10 @@
 #include <zmk_keyboard_k380/low_power.h>
 
 static bool input_allowed;
+static bool release_waiting;
 static int release_notifications;
 bool k380_low_power_input_events_allowed(void) { return input_allowed; }
+bool k380_low_power_is_release_waiting(void) { return release_waiting; }
 void k380_low_power_notify_all_keys_released(void) { release_notifications++; }
 
 /* Exercise the real driver without manufacturing a registered Kscan instance. */
@@ -54,6 +56,7 @@ static void reset(void) {
     config.poll_period_ms = 10;
     config.debounce_config = (struct zmk_debounce_config){1, 1};
     input_allowed = true;
+    release_waiting = false;
     events = 0;
     release_notifications = 0;
     zassert_ok(k380_kscan_init(&matrix));
@@ -65,14 +68,22 @@ static void reset(void) {
     data.enabled = true;
 }
 
-static void scan(bool pressed) {
-    zassert_ok(gpio_emul_input_set(cols[1].spec.port, cols[1].spec.pin, pressed));
+static int64_t scan_columns(uint16_t active_cols) {
+    for (int i = 0; i < 15; i++) {
+        zassert_ok(gpio_emul_input_set(cols[i].spec.port, cols[i].spec.pin,
+                                       (active_cols & BIT(i)) != 0U));
+    }
     k_sched_lock();
     data.scan_time = k_uptime_get();
+    const int64_t started = data.scan_time;
     zassert_ok(k380_kscan_read(&matrix));
+    const int64_t deadline_delta = data.scan_time - started;
     k_work_cancel_delayable(&data.work);
     k_sched_unlock();
+    return deadline_delta;
 }
+
+static int64_t scan(bool pressed) { return scan_columns(pressed ? BIT(1) : 0U); }
 
 ZTEST(k380_system_off_wake, test_every_raw_or_debouncing_position_blocks_release) {
     reset();
@@ -162,6 +173,59 @@ ZTEST(k380_system_off_wake, test_connected_idle_resume_does_not_consume_first_ke
     scan(true);
     scan(true);
     zassert_equal(events, 8);
+}
+
+ZTEST(k380_system_off_wake, test_release_wait_uses_50_ms_cadence_and_elapsed) {
+    reset();
+    input_allowed = false;
+    release_waiting = true;
+
+    zassert_equal(scan(false), 50, "release-wait must schedule one frame per 50 ms");
+
+    struct zmk_debounce_state *state = &states[state_index_rc(0, 1)];
+    state->pressed = true;
+    state->counter = 0;
+    zassert_equal(scan(false), 50);
+    zassert_equal(state->counter, 50,
+                  "debounce elapsed time must match the interval that scheduled this frame");
+}
+
+ZTEST(k380_system_off_wake, test_release_wait_cancellation_restores_normal_cadence) {
+    reset();
+    input_allowed = false;
+    release_waiting = true;
+    zassert_equal(scan(true), 50);
+    zassert_equal(scan(true), 50);
+    zassert_equal(events, 0);
+    zassert_true(data.suppress_until_release);
+
+    input_allowed = true;
+    release_waiting = false;
+    zassert_equal(scan(true), 1, "cancelled release-wait must restore 1 ms scheduling");
+    zassert_equal(events, 0, "the old held key must remain suppressed");
+    scan(false);
+    scan(false);
+    zassert_false(data.suppress_until_release);
+    zassert_equal(events, 0, "the consumed release must not leak");
+}
+
+ZTEST(k380_system_off_wake, test_release_wait_requires_every_held_column_to_release) {
+    reset();
+    input_allowed = false;
+    release_waiting = true;
+    scan_columns(BIT(1) | BIT(2));
+    scan_columns(BIT(1) | BIT(2));
+    zassert_equal(release_notifications, 0);
+
+    scan_columns(BIT(2));
+    scan_columns(BIT(2));
+    zassert_equal(release_notifications, 0,
+                  "one remaining held column must block system off");
+
+    scan_columns(0);
+    scan_columns(0);
+    zassert_true(release_notifications > 0,
+                 "all positions released must notify the coordinator");
 }
 
 ZTEST_SUITE(k380_system_off_wake, NULL, NULL, NULL, NULL, NULL);
