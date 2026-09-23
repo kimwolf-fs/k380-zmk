@@ -10,6 +10,7 @@
 #include <zephyr/sys/util.h>
 
 #include <zmk_keyboard_k380/battery_policy.h>
+#include <zmk_keyboard_k380/low_power.h>
 #include <zmk_keyboard_k380/soft_off.h>
 #include <zmk_keyboard_k380/status_indicator.h>
 
@@ -41,6 +42,10 @@ K_MUTEX_DEFINE(battery_policy_lock);
 K_MUTEX_DEFINE(battery_sample_lock);
 
 __weak void k380_ble_slot_power_state_changed(void) {}
+__weak void k380_low_power_power_state_changed(bool battery_powered)
+{
+    ARG_UNUSED(battery_powered);
+}
 
 static uint16_t average_mv(void) {
     uint32_t sum = 0;
@@ -120,6 +125,7 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
         k_mutex_unlock(&battery_policy_lock);
         if (previous_state != K380_POWER_CHARGING) {
             k380_ble_slot_power_state_changed();
+            k380_low_power_power_state_changed(false);
         }
         return 0;
     }
@@ -186,6 +192,10 @@ int k380_battery_policy_submit_mv(uint16_t vddh_mv) {
 
     if (previous_state != power_state) {
         k380_ble_slot_power_state_changed();
+        if ((previous_state == K380_POWER_CHARGING) !=
+            (power_state == K380_POWER_CHARGING)) {
+            k380_low_power_power_state_changed(power_state != K380_POWER_CHARGING);
+        }
     }
 
 #if IS_ENABLED(CONFIG_K380_SOFT_OFF)

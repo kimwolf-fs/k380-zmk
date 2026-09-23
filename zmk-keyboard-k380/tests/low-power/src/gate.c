@@ -19,6 +19,7 @@ ZTEST(k380_low_power_gate, test_unqualified_ble_timeouts_leave_input_open)
     off_calls = warning_calls = 0;
     zassert_equal(k380_low_power_request(K380_SHUTDOWN_BLE_WAIT_TIMEOUT), -ENOTSUP);
     zassert_equal(k380_low_power_request(K380_SHUTDOWN_PAIRING_TIMEOUT), -ENOTSUP);
+    zassert_equal(k380_low_power_request(K380_SHUTDOWN_IDLE_TIMEOUT), -ENOTSUP);
     k380_low_power_notify_all_keys_released();
     zassert_equal(off_calls, 0);
     zassert_equal(warning_calls, 0);

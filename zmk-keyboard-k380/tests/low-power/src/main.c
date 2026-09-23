@@ -124,6 +124,46 @@ ZTEST(k380_low_power, test_idle_timeout_is_cancelled_on_usb)
     zassert_equal(system_off_calls, 0);
 }
 
+ZTEST(k380_low_power, test_idle_timer_starts_only_on_battery)
+{
+	reset();
+	k380_low_power_test_set_battery_charging(true);
+	k380_low_power_test_start_idle_timer();
+	zassert_false(k380_low_power_test_idle_timer_running());
+	k380_low_power_test_set_battery_charging(false);
+	zassert_true(k380_low_power_test_idle_timer_running());
+}
+
+ZTEST(k380_low_power, test_idle_timer_uses_full_window_after_usb_transition)
+{
+	reset();
+	k380_low_power_test_set_battery_charging(true);
+	k380_low_power_test_start_idle_timer();
+	k380_low_power_test_advance_idle_ms(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS);
+	zassert_equal(system_off_calls, 0);
+	k380_low_power_test_set_battery_charging(false);
+	zassert_true(k380_low_power_test_idle_timer_running());
+	k380_low_power_test_advance_idle_ms(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS - 1U);
+	zassert_equal(system_off_calls, 0);
+	k380_low_power_test_advance_idle_ms(1U);
+	zassert_equal(system_off_calls, 1);
+}
+
+ZTEST(k380_low_power, test_idle_timer_restarts_on_press_and_release)
+{
+	reset();
+	k380_low_power_test_set_battery_charging(false);
+	k380_low_power_test_advance_idle_ms(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS / 2U);
+	k380_low_power_test_notify_matrix_event(true);
+	k380_low_power_test_advance_idle_ms(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS / 2U);
+	zassert_equal(system_off_calls, 0);
+	k380_low_power_test_notify_matrix_event(false);
+	k380_low_power_test_advance_idle_ms(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS - 1U);
+	zassert_equal(system_off_calls, 0);
+	k380_low_power_test_advance_idle_ms(1U);
+	zassert_equal(system_off_calls, 1);
+}
+
 ZTEST(k380_low_power, test_low_voltage_reason_sets_latch_path)
 {
 	reset();
@@ -206,7 +246,7 @@ ZTEST_SUITE(k380_low_power, NULL, NULL, NULL, NULL, NULL);
 
 ZTEST(k380_low_power, test_all_causes_cleanup_before_release_wait_even_on_errors)
 {
-	for (int reason = K380_SHUTDOWN_LOW_VOLTAGE; reason <= K380_SHUTDOWN_PAIRING_TIMEOUT; reason++) {
+	for (int reason = K380_SHUTDOWN_LOW_VOLTAGE; reason <= K380_SHUTDOWN_IDLE_TIMEOUT; reason++) {
 		reset();
 		cleanup_rc = -EIO;
 		k380_low_power_test_set_all_keys_released(false);
@@ -233,7 +273,7 @@ ZTEST(k380_low_power, test_all_causes_cleanup_before_release_wait_even_on_errors
 
 ZTEST(k380_low_power, test_all_causes_cleanup_order_when_keys_are_released)
 {
-	for (int reason = K380_SHUTDOWN_LOW_VOLTAGE; reason <= K380_SHUTDOWN_PAIRING_TIMEOUT; reason++) {
+	for (int reason = K380_SHUTDOWN_LOW_VOLTAGE; reason <= K380_SHUTDOWN_IDLE_TIMEOUT; reason++) {
 		reset();
 		zassert_ok(k380_low_power_request(reason));
 		const int low[] = { RADIO, LED, LATCH, FLUSH, HID, DISCONNECT, OFF };
