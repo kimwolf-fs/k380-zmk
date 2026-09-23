@@ -22,6 +22,9 @@
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
+__weak bool zmk_behavior_reset_bootloader_allowed(void) { return true; }
+__weak void zmk_behavior_reset_bootloader_denied(void) {}
+
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
 struct behavior_reset_config {
 #if IS_ENABLED(CONFIG_RETENTION_BOOT_MODE)
@@ -35,6 +38,14 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
                                      struct zmk_behavior_binding_event event) {
     const struct device *dev = zmk_behavior_get_binding(binding->behavior_dev);
     const struct behavior_reset_config *cfg = dev->config;
+
+#if IS_ENABLED(CONFIG_RETENTION_BOOT_MODE)
+    if (cfg->boot_mode == BOOT_MODE_TYPE_BOOTLOADER &&
+        !zmk_behavior_reset_bootloader_allowed()) {
+        zmk_behavior_reset_bootloader_denied();
+        return ZMK_BEHAVIOR_OPAQUE;
+    }
+#endif
 
 #if IS_ENABLED(CONFIG_RETENTION_BOOT_MODE)
     int ret = bootmode_set(cfg->boot_mode);

@@ -6,6 +6,7 @@ enum k380_shutdown_reason {
 	K380_SHUTDOWN_LOW_VOLTAGE,
 	K380_SHUTDOWN_BLE_WAIT_TIMEOUT,
 	K380_SHUTDOWN_PAIRING_TIMEOUT,
+	K380_SHUTDOWN_IDLE_TIMEOUT,
 };
 
 bool k380_low_power_ble_start_allowed(void);

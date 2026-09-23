@@ -54,6 +54,8 @@ static int render_pending_status(void);
 static int submit_status_render(void);
 static uint32_t model_animation_period_ms(const struct k380_status_model *model);
 
+__weak void k380_status_indicator_delay_ms(uint32_t ms) { k_msleep(ms); }
+
 #if !IS_ENABLED(CONFIG_ZTEST)
 #if !DT_HAS_CHOSEN(zmk_underglow)
 #error "A zmk,underglow chosen node must be declared"
@@ -700,6 +702,40 @@ void k380_status_indicator_resume_animation(void) {
         update_animation_timer();
         (void)submit_status_render();
     }
+}
+
+void k380_status_indicator_show_bootloader_rejected_blocking(void) {
+    struct led_rgb red[4];
+    struct led_rgb off[4];
+
+    k380_status_indicator_stop_animation();
+    for (size_t i = 0; i < ARRAY_SIZE(red); i++) {
+        red[i] = rgb(i < 3U ? 24U : 0U, 0U, 0U);
+        off[i] = rgb(0U, 0U, 0U);
+    }
+
+    for (uint8_t flash = 0U; flash < 3U; flash++) {
+#if IS_ENABLED(CONFIG_ZTEST)
+        k380_status_indicator_test_render(K380_STATUS_Z9_MATRIX_FAULT, red,
+                                          ARRAY_SIZE(red));
+#else
+        if (status_led_strip != NULL && device_is_ready(status_led_strip)) {
+            (void)led_strip_update_rgb(status_led_strip, red, ARRAY_SIZE(red));
+        }
+#endif
+        k380_status_indicator_delay_ms(K380_FAST_EDGE_MS);
+#if IS_ENABLED(CONFIG_ZTEST)
+        k380_status_indicator_test_render(K380_STATUS_Z9_MATRIX_FAULT, off,
+                                          ARRAY_SIZE(off));
+#else
+        if (status_led_strip != NULL && device_is_ready(status_led_strip)) {
+            (void)led_strip_update_rgb(status_led_strip, off, ARRAY_SIZE(off));
+        }
+#endif
+        k380_status_indicator_delay_ms(K380_FAST_EDGE_MS);
+    }
+
+    k380_status_indicator_resume_animation();
 }
 
 #if !IS_ENABLED(CONFIG_ZTEST)

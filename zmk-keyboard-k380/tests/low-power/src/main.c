@@ -107,6 +107,23 @@ ZTEST(k380_low_power, test_pairing_timeout_is_ram_only_and_requests_system_off)
 	zassert_equal(latch_calls, 0, "pairing timeout must not persist a low-voltage latch");
 }
 
+ZTEST(k380_low_power, test_idle_timeout_enters_system_off_on_battery)
+{
+	reset();
+	k380_low_power_test_set_battery_charging(false);
+	zassert_ok(k380_low_power_request(K380_SHUTDOWN_IDLE_TIMEOUT));
+	zassert_equal(k380_low_power_last_reason(), K380_SHUTDOWN_IDLE_TIMEOUT);
+	zassert_equal(system_off_calls, 1);
+}
+
+ZTEST(k380_low_power, test_idle_timeout_is_cancelled_on_usb)
+{
+	reset();
+	k380_low_power_test_set_battery_charging(true);
+	zassert_equal(k380_low_power_request(K380_SHUTDOWN_IDLE_TIMEOUT), -ECANCELED);
+	zassert_equal(system_off_calls, 0);
+}
+
 ZTEST(k380_low_power, test_low_voltage_reason_sets_latch_path)
 {
 	reset();

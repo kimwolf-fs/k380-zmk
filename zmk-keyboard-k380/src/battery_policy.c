@@ -208,6 +208,18 @@ bool k380_battery_policy_is_battery_powered(void) {
     return k380_battery_policy_state() != K380_POWER_CHARGING;
 }
 
+bool zmk_behavior_reset_bootloader_allowed(void) {
+    uint16_t mv;
+    if (k380_battery_policy_sample_now_sync(&mv) == 0) {
+        (void)k380_battery_policy_submit_mv(mv);
+    }
+    return !k380_battery_policy_is_battery_powered();
+}
+
+void zmk_behavior_reset_bootloader_denied(void) {
+    k380_status_indicator_show_bootloader_rejected_blocking();
+}
+
 bool k380_battery_policy_voltage_safe_for_startup(void) {
     k_mutex_lock(&battery_policy_lock, K_FOREVER);
     const bool safe = power_state == K380_POWER_CHARGING ||

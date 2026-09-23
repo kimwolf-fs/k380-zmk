@@ -28,3 +28,4 @@ void k380_status_indicator_animation_step(void);
 void k380_status_indicator_stop_animation(void);
 void k380_status_indicator_resume_animation(void);
 bool k380_status_indicator_animation_active(void);
+void k380_status_indicator_show_bootloader_rejected_blocking(void);

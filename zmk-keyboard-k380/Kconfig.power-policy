@@ -20,3 +20,8 @@ config K380_STARTUP_QUALIFICATION_BUDGET_MS
     int "K380 startup voltage qualification budget (ms)"
     default 1000
     range 1 1000
+
+config K380_IDLE_SLEEP_TIMEOUT_MS
+    int "K380 battery idle sleep timeout (ms)"
+    default 600000
+    range 1 2147483647
