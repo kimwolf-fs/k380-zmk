@@ -13,6 +13,16 @@
 - Intel HEX：14747 条记录，校验通过，数据范围 `[0x26000,0x5F8B8)`，应用分区 `[0x26000,0xCA000)`
 - `zmk.hex` SHA-256：`370477935BC9C1331C829C1CAF2376D51948572840BB1BE655983554538E936A`
 
+## 实板验收测试镜像
+
+- Actions run：`35828019192`，提交 `18bc995b`
+- artifact：`k380-auto-system-off-test-firmware`
+- 目录：`E:/project/k380-keyboard/.artifacts/k380-zmk/35828019192-auto-system-off-firmware/`
+- 测试配置：`CONFIG_K380_AUTO_SYSTEM_OFF=y`，仅用于 H05-H12 实板验收，不作为正式发布镜像
+- 测试 `zmk.hex` SHA-256：`A57142FFC43AEEE4B04E2747AF1C3DDEEB259888BF22E7F13914254886F4D822`
+- Intel HEX：14764 条记录，校验通过，数据范围 `[0x26000,0x5F9BC)`
+- J-Link：nRF52840_xxAA，SWD 4000 kHz，探针 `851000967`，VTref 1.812 V；烧写 `verified: true`，随后复位/探测成功
+
 ## 自动验证
 
 | 项目 | 结果 | 证据 |
