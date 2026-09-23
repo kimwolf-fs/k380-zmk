@@ -21,8 +21,10 @@ BUILD_ASSERT(!IS_ENABLED(CONFIG_ZMK_RGB_UNDERGLOW), "K380 owns its status pixels
 #ifndef CONFIG_K380_LOW_POWER_TEST
 #include <zmk/ble.h>
 #include <zmk/endpoints.h>
+#if IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
+#endif
 #include <zmk/hid.h>
 #include <zmk/pm.h>
 #include <zmk/shutdown_input.h>
@@ -30,8 +32,10 @@ BUILD_ASSERT(!IS_ENABLED(CONFIG_ZMK_RGB_UNDERGLOW), "K380 owns its status pixels
 
 #include <zmk_keyboard_k380/low_power.h>
 #include <zmk_keyboard_k380/soft_off.h>
-#ifndef CONFIG_K380_LOW_POWER_TEST
+#if !defined(CONFIG_K380_LOW_POWER_TEST) && IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
 #include <zmk_keyboard_k380/battery_policy.h>
+#endif
+#ifndef CONFIG_K380_LOW_POWER_TEST
 #include <zmk_keyboard_k380/kscan.h>
 #include <zmk_keyboard_k380/status_indicator.h>
 #endif
@@ -56,7 +60,7 @@ static bool reason_valid;
 static bool ble_start_allowed;
 static bool radio_and_led_quiet;
 
-#ifndef CONFIG_K380_LOW_POWER_TEST
+#if !defined(CONFIG_K380_LOW_POWER_TEST) && IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
 static void idle_sleep_work_handler(struct k_work *work);
 static void idle_sleep_timer_handler(struct k_timer *timer);
 K_WORK_DEFINE(idle_sleep_work, idle_sleep_work_handler);
@@ -159,8 +163,10 @@ static bool battery_is_charging(void)
 #ifdef CONFIG_K380_LOW_POWER_TEST
 	extern bool k380_low_power_test_battery_charging;
 	return k380_low_power_test_battery_charging;
-#else
+#elif IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
 	return k380_battery_policy_state() == K380_POWER_CHARGING;
+#else
+	return false;
 #endif
 }
 
@@ -427,34 +433,33 @@ bool k380_low_power_input_events_allowed(void)
 	return atomic_get(&state) == K380_LOW_POWER_READY;
 }
 
-#ifndef CONFIG_K380_LOW_POWER_TEST
+#if !defined(CONFIG_K380_LOW_POWER_TEST) && IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
 static void idle_sleep_timer_handler(struct k_timer *timer)
 {
-	ARG_UNUSED(timer);
-	k_work_submit(&idle_sleep_work);
+    ARG_UNUSED(timer);
+    k_work_submit(&idle_sleep_work);
 }
 
 static void idle_sleep_work_handler(struct k_work *work)
 {
-	ARG_UNUSED(work);
-	uint16_t mv;
-	if (k380_battery_policy_sample_now_sync(&mv) == 0) {
-		(void)k380_battery_policy_submit_mv(mv);
-	}
-	if (k380_battery_policy_is_battery_powered() &&
-	    k380_low_power_input_events_allowed()) {
-		(void)k380_low_power_request(K380_SHUTDOWN_IDLE_TIMEOUT);
-	}
+    ARG_UNUSED(work);
+    uint16_t mv;
+    if (k380_battery_policy_sample_now_sync(&mv) == 0) {
+        (void)k380_battery_policy_submit_mv(mv);
+    }
+    if (k380_battery_policy_is_battery_powered() && k380_low_power_input_events_allowed()) {
+        (void)k380_low_power_request(K380_SHUTDOWN_IDLE_TIMEOUT);
+    }
 }
 
 static int idle_sleep_activity_listener(const zmk_event_t *event)
 {
-	ARG_UNUSED(event);
-	if (k380_low_power_input_events_allowed()) {
-		k_timer_start(&idle_sleep_timer, K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS),
-		              K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS));
-	}
-	return ZMK_EV_EVENT_BUBBLE;
+    ARG_UNUSED(event);
+    if (k380_low_power_input_events_allowed()) {
+        k_timer_start(&idle_sleep_timer, K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS),
+                      K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS));
+    }
+    return ZMK_EV_EVENT_BUBBLE;
 }
 
 ZMK_LISTENER(k380_idle_sleep, idle_sleep_activity_listener);
@@ -462,9 +467,9 @@ ZMK_SUBSCRIPTION(k380_idle_sleep, zmk_position_state_changed);
 
 static int k380_idle_sleep_init(void)
 {
-	k_timer_start(&idle_sleep_timer, K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS),
-	              K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS));
-	return 0;
+    k_timer_start(&idle_sleep_timer, K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS),
+                  K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS));
+    return 0;
 }
 
 SYS_INIT(k380_idle_sleep_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
