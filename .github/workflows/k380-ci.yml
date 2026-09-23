@@ -1142,6 +1142,55 @@ jobs:
             build/k380-firmware/**/zephyr/zmk.uf2
           if-no-files-found: ignore
 
+  auto-system-off-test-build:
+    needs: module-metadata
+    if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zmkfirmware/zmk-build-arm:4.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            modules/
+            tools/
+            zephyr/
+            bootloader/
+          key: ${{ runner.os }}-k380-${{ hashFiles('app/west.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-k380-
+      - run: west init -l app
+      - run: west update --fetch-opt=--filter=tree:0
+      - run: west zephyr-export
+      - name: Build AUTO_SYSTEM_OFF hardware test image
+        run: |
+          west build -s app -d build/k380-auto-system-off-test -p always -b k380/nrf52840/zmk \
+            -S k380-config-usb-uart -- \
+            -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}/zmk-keyboard-k380" \
+            -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/zmk-keyboard-k380/tests/auto-system-off-test/k380-auto-system-off-test.conf"
+      - name: Validate test-only power gate
+        run: |
+          config=build/k380-auto-system-off-test/zephyr/.config
+          grep -q '^CONFIG_K380_AUTO_SYSTEM_OFF=y$' "$config"
+          grep -q '^# CONFIG_ZMK_SLEEP is not set$' "$config"
+          grep -q '^CONFIG_ZMK_PM_SOFT_OFF=y$' "$config"
+          grep -q '^CONFIG_ZMK_BATTERY_REPORT_INTERVAL=60$' "$config"
+          grep -q '^# CONFIG_ZMK_RGB_UNDERGLOW is not set$' "$config"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: k380-auto-system-off-test-firmware
+          include-hidden-files: true
+          path: |
+            build/k380-auto-system-off-test/**/zephyr/.config
+            build/k380-auto-system-off-test/**/zephyr/zephyr.dts
+            build/k380-auto-system-off-test/**/zephyr/zmk.elf
+            build/k380-auto-system-off-test/**/zephyr/zmk.map
+            build/k380-auto-system-off-test/**/zephyr/zmk.hex
+            build/k380-auto-system-off-test/**/zephyr/zmk.uf2
+          if-no-files-found: error
+
   matrix-rtt-diagnostics:
     needs: module-metadata
     if: ${{ needs.module-metadata.outputs.module-registered == 'true' }}
