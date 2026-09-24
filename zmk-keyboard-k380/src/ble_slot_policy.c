@@ -267,6 +267,7 @@ void k380_ble_slot_policy_reset_for_test(void) {
     init_timeout_work();
     cancel_timeout_work();
     k_work_cancel_delayable(&connected_prompt_work);
+    timeout_work_initialized = false;
 }
 void k380_ble_slot_active_profile_changed_for_test(void) { update_active_slot_status(); }
 void k380_ble_slot_connected_prompt_expire_for_test(void) { connected_prompt_expired(NULL); }
