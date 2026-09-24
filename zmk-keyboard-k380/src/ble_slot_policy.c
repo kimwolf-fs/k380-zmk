@@ -213,6 +213,8 @@ void k380_ble_slot_power_state_changed(void) {
     }
 }
 
+void k380_low_power_ble_ready(void) { update_active_slot_status(); }
+
 static int select_slot(uint8_t slot) {
 #if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
     if (!k380_low_power_input_events_allowed()) {

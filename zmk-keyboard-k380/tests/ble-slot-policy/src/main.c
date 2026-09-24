@@ -202,7 +202,7 @@ ZTEST(k380_ble_slot_policy, test_startup_refresh_derives_bonded_wait_state) {
     connected_profiles[0] = false;
     power_state = K380_POWER_NORMAL;
 
-    k380_ble_slot_power_state_changed();
+    k380_low_power_ble_ready();
 
     zassert_equal(k380_status_indicator_current(), K380_STATUS_Z5_BLE_WAITING);
     k380_ble_slot_wait_timeout_expire_for_test();

@@ -12,6 +12,8 @@ enum k380_shutdown_reason {
 
 bool k380_low_power_ble_start_allowed(void);
 int k380_low_power_startup_voltage_result(bool valid, bool charging, bool safe);
+/* Publish the active BLE slot once startup power qualification opens the gate. */
+void k380_low_power_ble_ready(void);
 int k380_low_power_request(enum k380_shutdown_reason reason);
 void k380_low_power_notify_all_keys_released(void);
 enum k380_shutdown_reason k380_low_power_last_reason(void);
