@@ -91,7 +91,18 @@ J-Link 连接可能改变低功耗行为，不用于判定 system-off 电流。
 
 - H07：用户报告 USB 静置测试通过；没有提供具体电流/时长读数
 - 当前镜像的生成配置为 `CONFIG_K380_BLE_WAIT_TIMEOUT_MS=10000`；用户观察到唤醒后的等待约 10 秒，原先通过实板验收的设计是 30 秒
-- 此项是 Z5 已绑定未连接时的等待窗口，不等同于蓝牙实际连接耗时；配置恢复及新的实板复测待完成
+- 此项是 Z5 已绑定未连接时的等待窗口，不等同于蓝牙实际连接耗时；当前分支未包含此前 30 秒候选分支的配置提交
+
+### 30 秒 Z5 回归镜像与复测
+
+- 修复提交：`10b59804`；K380 CI run `35962841171` 全部通过，正式与 AUTO 验收镜像分别生成
+- 正式镜像：`E:/project/k380-keyboard/k380-zmk/.artifacts/k380-zmk/35962841171-firmware/zephyr/zmk.hex`，SHA-256 `15CA2D3C8F5286425A3877BF74C6037AE6FA84973402739EEE5286C5E56B64CD`，`AUTO_SYSTEM_OFF=n`
+- AUTO 验收镜像：`E:/project/k380-keyboard/k380-zmk/.artifacts/k380-zmk/35962841171-auto-system-off-firmware/zephyr/zmk.hex`，SHA-256 `58F89359AF01ADC892D4E9E3AC6C4F4F62171FF3ABFB4AF16B4A1032BFDC1F4C`
+- AUTO 镜像生成配置：`AUTO_SYSTEM_OFF=y`、`BLE_WAIT_TIMEOUT_MS=30000`、`BLE_PAIRING_TIMEOUT_MS=60000`、`IDLE_SLEEP_TIMEOUT_MS=600000`、`ZMK_PM_SOFT_OFF=y`、`ZMK_SLEEP=n`；正式镜像相同，仅 `AUTO_SYSTEM_OFF=n`
+- Intel HEX：14764 条记录长度和校验和通过，唯一 EOF，所有数据位于 `[0x26000,0x5F9CC)`，属于 `[0x26000,0xCA000)` 应用分区
+- J-Link：探针 `851000967`，nRF52840_xxAA，SWD 4000 kHz，VTref 1.793 V；AUTO 应用 HEX 烧写 `verified: true`，复位后重新探测成功（VTref 1.823 V）
+- 待人工复测一：仅电池、断开 J-Link/USB，关闭已绑定主机的蓝牙，确认设备处于 system-off 后按一次唤醒键；从对应槽位 Z5 蓝灯开始计时，预期约 30 秒后蓝灯熄灭、电流回到 system-off，不出现约 10 秒提前关机；记录实际秒数、电流和异常
+- 待人工复测二：主机蓝牙稳定、设备已处于 system-off，按一次唤醒键；预期蓝色 Z5 立即出现，在 30 秒窗口内回连后显示绿色，期间不先行 system-off；再按普通键确认输入且无卡键
 
 填写规则：你每次只回复一个编号和实际观察，我根据预期逐项判断通过、失败或受阻，
 再给出下一项。若出现重启、按键卡住、误输出或电流不降，立即停止该项并保留时序。
