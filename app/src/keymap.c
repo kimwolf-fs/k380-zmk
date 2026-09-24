@@ -17,6 +17,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/matrix.h>
 #include <zmk/sensors.h>
 #include <zmk/virtual_key_position.h>
+#include <zmk/shutdown_input.h>
 
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
@@ -66,6 +67,24 @@ static zmk_keymap_layer_id_t _zmk_keymap_layer_default = 0;
 // here so that even if that layer is deactivated before the "up", event, we
 // still send the release event to the behavior in that layer also.
 static uint32_t zmk_keymap_active_behavior_layer[ZMK_KEYMAP_LEN];
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+static struct {
+    bool held;
+    struct zmk_behavior_binding binding;
+    struct zmk_behavior_binding_event event;
+} delivered_bindings[ZMK_KEYMAP_LEN];
+
+void zmk_keymap_abort_held_bindings(void) {
+    for (int i = 0; i < ZMK_KEYMAP_LEN; i++) {
+        if (!delivered_bindings[i].held) {
+            continue;
+        }
+        delivered_bindings[i].held = false;
+        zmk_behavior_invoke_binding(&delivered_bindings[i].binding,
+                                    delivered_bindings[i].event, false);
+    }
+}
+#endif
 
 #if IS_ENABLED(CONFIG_ZMK_KEYMAP_LAYER_REORDERING)
 
@@ -712,14 +731,42 @@ int zmk_keymap_apply_position_state(uint8_t source, zmk_keymap_layer_id_t layer_
 #endif
     };
 
+    if (!binding) {
+        return ZMK_BEHAVIOR_TRANSPARENT;
+    }
     LOG_DBG("layer_id: %d position: %d, binding name: %s", layer_id, position,
             binding->behavior_dev);
-
-    return zmk_behavior_invoke_binding(binding, event, pressed);
+    int ret = zmk_behavior_invoke_binding(binding, event, pressed);
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    if (pressed && ret == ZMK_BEHAVIOR_OPAQUE && position < ZMK_KEYMAP_LEN) {
+        delivered_bindings[position].binding = *binding;
+        delivered_bindings[position].event = event;
+        delivered_bindings[position].held = true;
+    }
+#endif
+    return ret;
 }
 
-int zmk_keymap_position_state_changed(uint8_t source, uint32_t position, bool pressed,
+static int position_state_changed(uint8_t source, uint32_t position, bool pressed,
                                       int64_t timestamp) {
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    if (position >= ZMK_KEYMAP_LEN || !zmk_shutdown_input_dispatch_allowed(pressed)) {
+        return ZMK_BEHAVIOR_OPAQUE;
+    }
+    if (!pressed) {
+        if (!delivered_bindings[position].held) {
+            return ZMK_BEHAVIOR_OPAQUE;
+        }
+        struct zmk_behavior_binding binding = delivered_bindings[position].binding;
+        struct zmk_behavior_binding_event event = delivered_bindings[position].event;
+        event.timestamp = timestamp;
+        delivered_bindings[position].held = false;
+        return zmk_behavior_invoke_binding(&binding, event, false);
+    }
+    if (delivered_bindings[position].held) {
+        return ZMK_BEHAVIOR_OPAQUE;
+    }
+#endif
     if (pressed) {
         zmk_keymap_active_behavior_layer[position] = _zmk_keymap_layer_state;
     }
@@ -749,6 +796,14 @@ int zmk_keymap_position_state_changed(uint8_t source, uint32_t position, bool pr
     }
 
     return -ENOTSUP;
+}
+
+int zmk_keymap_position_state_changed(uint8_t source, uint32_t position, bool pressed,
+                                      int64_t timestamp) {
+    zmk_shutdown_input_lock();
+    int ret = position_state_changed(source, position, pressed, timestamp);
+    zmk_shutdown_input_unlock();
+    return ret;
 }
 
 #if ZMK_KEYMAP_HAS_SENSORS

@@ -1,0 +1,10 @@
+tests:
+  k380.shutdown_behavior:
+    platform_allow:
+      - native_sim
+    tags:
+      - k380
+      - low_power
+      - behavior
+    integration_platforms:
+      - native_sim

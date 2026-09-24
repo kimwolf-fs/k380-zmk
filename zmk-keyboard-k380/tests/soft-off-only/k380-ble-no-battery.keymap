@@ -1,0 +1,16 @@
+#include <behaviors.dtsi>
+
+/ {
+    behaviors {
+        k380_ble: k380_ble_slot {
+            compatible = "k380,behavior-ble-slot";
+            #binding-cells = <2>;
+        };
+    };
+    keymap {
+        compatible = "zmk,keymap";
+        default_layer {
+            bindings = <&k380_ble 0 1>;
+        };
+    };
+};

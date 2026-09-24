@@ -15,20 +15,27 @@
  */
 
 #include <stdlib.h>
+#include <string.h>
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/kscan.h>
+#include <zephyr/drivers/hwinfo.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/sys/__assert.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/sys/atomic.h>
 
 #include <zmk/debounce.h>
 #include <zmk_keyboard_k380/ghost_filter.h>
+#include <zmk_keyboard_k380/kscan.h>
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+#include <zmk_keyboard_k380/low_power.h>
+#endif
 
 #if IS_ENABLED(CONFIG_K380_STATUS_INDICATOR)
 #include <zmk_keyboard_k380/status_indicator.h>
@@ -172,10 +179,14 @@ struct k380_kscan_data {
 #endif
     int64_t scan_time;
     struct zmk_debounce_state *matrix_state;
-#if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
     uint16_t raw_matrix[K380_KSCAN_ROWS];
-#endif
+    atomic_t all_released;
+    atomic_t enabled;
+    bool system_off_requested;
+    bool suppress_until_release;
 };
+
+static const struct device *k380_matrix_device;
 
 struct k380_kscan_config {
     struct k380_kscan_gpio_list outputs;
@@ -289,9 +300,9 @@ static void k380_kscan_diagnostic_raw_report(uint32_t row, uint32_t col, bool pr
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
     char line[84];
 
-    const int len = snprintk(line, sizeof(line), "K380_MATRIX_RAW row=%u col=%u key=%s state=%s\n",
-                             row, col, k380_kscan_diagnostic_key_name(row, col),
-                             pressed ? "down" : "up");
+    const int len =
+        snprintk(line, sizeof(line), "K380_MATRIX_RAW row=%u col=%u key=%s state=%s\n", row, col,
+                 k380_kscan_diagnostic_key_name(row, col), pressed ? "down" : "up");
     k380_kscan_diag_snapshot.raw_matrix_event_count++;
     k380_kscan_diag_snapshot.last_row = row;
     k380_kscan_diag_snapshot.last_col = col;
@@ -368,7 +379,6 @@ static int k380_kscan_set_all_outputs(const struct device *dev, const int value)
     return 0;
 }
 
-#if USE_INTERRUPTS
 static int k380_kscan_interrupt_configure(const struct device *dev, const gpio_flags_t flags) {
     const struct k380_kscan_data *data = dev->data;
 
@@ -386,6 +396,7 @@ static int k380_kscan_interrupt_configure(const struct device *dev, const gpio_f
     return 0;
 }
 
+#if USE_INTERRUPTS
 static int k380_kscan_interrupt_enable(const struct device *dev) {
     const int err = k380_kscan_interrupt_configure(dev, GPIO_INT_LEVEL_ACTIVE);
 
@@ -406,6 +417,10 @@ static void k380_kscan_irq_callback_handler(const struct device *port, struct gp
 
     ARG_UNUSED(port);
     ARG_UNUSED(pin);
+    if (!atomic_get(&data->enabled)) {
+        return;
+    }
+    atomic_clear(&data->all_released);
     k380_kscan_interrupt_disable(data->dev);
     data->scan_time = k_uptime_get();
     k_work_reschedule(&data->work, K_NO_WAIT);
@@ -436,6 +451,23 @@ static void k380_kscan_read_end(const struct device *dev) {
 #endif
 }
 
+static bool k380_kscan_frame_released(const struct k380_kscan_data *data) {
+    for (int row = 0; row < K380_KSCAN_ROWS; row++) {
+        for (int col = 0; col < K380_KSCAN_COLS; col++) {
+            if ((data->raw_matrix[row] & BIT(col)) != 0U ||
+                zmk_debounce_is_active(&data->matrix_state[state_index_rc(row, col)])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool k380_kscan_all_keys_released(void) {
+    return k380_matrix_device &&
+           atomic_get(&((struct k380_kscan_data *)k380_matrix_device->data)->all_released);
+}
+
 static int k380_kscan_read(const struct device *dev) {
     struct k380_kscan_data *data = dev->data;
     const struct k380_kscan_config *config = dev->config;
@@ -443,6 +475,17 @@ static int k380_kscan_read(const struct device *dev) {
     uint16_t accepted[K380_KSCAN_ROWS] = {0};
     uint16_t filtered[K380_KSCAN_ROWS];
     uint16_t ambiguous[K380_KSCAN_ROWS];
+
+    if (!atomic_get(&data->enabled)) {
+        return 0;
+    }
+    atomic_clear(&data->all_released);
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    if (!k380_low_power_input_events_allowed()) {
+        data->suppress_until_release = true;
+    }
+#endif
+    bool suppress_events = data->suppress_until_release;
 
     for (int i = 0; i < config->outputs.len; i++) {
         const struct k380_kscan_gpio *out_gpio = &config->outputs.gpios[i];
@@ -505,10 +548,9 @@ static int k380_kscan_read(const struct device *dev) {
                 k380_kscan_diagnostic_raw_report(row, col, (raw[row] & BIT(col)) != 0U);
             }
         }
-
-        data->raw_matrix[row] = raw[row];
     }
 #endif
+    memcpy(data->raw_matrix, raw, sizeof(raw));
 
     k380_ghost_filter_apply(raw, accepted, filtered, ambiguous);
 
@@ -526,7 +568,13 @@ static int k380_kscan_read(const struct device *dev) {
         for (int col = 0; col < K380_KSCAN_COLS; col++) {
             struct zmk_debounce_state *state = &data->matrix_state[state_index_rc(row, col)];
 
-            if (zmk_debounce_get_changed(state)) {
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+            if (!k380_low_power_input_events_allowed()) {
+                data->suppress_until_release = true;
+                suppress_events = true;
+            }
+#endif
+            if (!suppress_events && zmk_debounce_get_changed(state)) {
                 const bool pressed = zmk_debounce_is_pressed(state);
 
                 LOG_DBG("Sending event at %i,%i state %s", row, col, pressed ? "on" : "off");
@@ -538,7 +586,19 @@ static int k380_kscan_read(const struct device *dev) {
         }
     }
 
-    if (continue_scan) {
+    const bool released = k380_kscan_frame_released(data);
+    atomic_set(&data->all_released, released);
+    if (released) {
+        data->suppress_until_release = false;
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+        k380_low_power_notify_all_keys_released();
+#endif
+    }
+
+    if (!atomic_get(&data->enabled)) {
+        return 0;
+    }
+    if (continue_scan || !released || suppress_events) {
         k380_kscan_read_continue(dev);
     } else {
         k380_kscan_read_end(dev);
@@ -571,6 +631,7 @@ static int k380_kscan_configure(const struct device *dev, const kscan_callback_t
 
 static int k380_kscan_enable(const struct device *dev) {
     struct k380_kscan_data *data = dev->data;
+    atomic_set(&data->enabled, true);
 
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
     k380_kscan_diag_snapshot.kscan_enable_count++;
@@ -590,18 +651,34 @@ static int k380_kscan_enable(const struct device *dev) {
 static int k380_kscan_disable(const struct device *dev) {
     struct k380_kscan_data *data = dev->data;
 
-    k_work_cancel_delayable(&data->work);
-#if USE_INTERRUPTS
-    const int err = k380_kscan_interrupt_disable(dev);
+    atomic_clear(&data->enabled);
+    if (k_current_get() == k_work_queue_thread_get(&k_sys_work_q)) {
+        k_work_cancel_delayable(&data->work);
+    } else {
+        /* A running frame must finish before PM disconnects its GPIOs. */
+        struct k_work_sync sync;
+        k_work_cancel_delayable_sync(&data->work, &sync);
+    }
+    const int err = k380_kscan_interrupt_configure(dev, GPIO_INT_DISABLE);
 
     if (err) {
         k380_kscan_mark_fault("scan disable", err);
     }
 
-    return err;
-#else
-    return 0;
-#endif
+    return err ? err : k380_kscan_set_all_outputs(dev, 0);
+}
+
+int k380_kscan_prepare_system_off_wake(void) {
+    if (!k380_matrix_device) {
+        return -ENODEV;
+    }
+    if (!k380_kscan_all_keys_released()) {
+        return -EBUSY;
+    }
+    struct k380_kscan_data *data = k380_matrix_device->data;
+    data->system_off_requested = true;
+    data->suppress_until_release = true;
+    return k380_kscan_disable(k380_matrix_device);
 }
 
 static int k380_kscan_init_input_inst(const struct device *dev,
@@ -716,10 +793,32 @@ static int k380_kscan_setup_pins(const struct device *dev) {
     return k380_kscan_set_all_outputs(dev, 0);
 }
 
+static int k380_kscan_arm_system_off_wake(const struct device *dev) {
+    int err = k380_kscan_set_all_outputs(dev, 1);
+    if (!err) {
+        err = k380_kscan_interrupt_configure(dev, GPIO_INT_LEVEL_ACTIVE);
+    }
+    return err;
+}
+
 static int k380_kscan_init(const struct device *dev) {
     struct k380_kscan_data *data = dev->data;
 
     data->dev = dev;
+    k380_matrix_device = dev;
+#if IS_ENABLED(CONFIG_ZMK_PM_SOFT_OFF)
+    uint32_t cause;
+    int cause_err = hwinfo_get_reset_cause(&cause);
+    if (cause_err) {
+        return cause_err;
+    }
+    data->suppress_until_release = (cause & RESET_LOW_POWER_WAKE) != 0U;
+    /* Clear stale causes so a later software reset cannot consume an ordinary key. */
+    cause_err = hwinfo_clear_reset_cause();
+    if (cause_err) {
+        return cause_err;
+    }
+#endif
 #if IS_ENABLED(CONFIG_K380_MATRIX_DIAGNOSTICS_RTT)
     k380_kscan_diag_snapshot.kscan_init_count++;
 #endif
@@ -750,18 +849,24 @@ static int k380_kscan_pm_action(const struct device *dev, enum pm_device_action 
 
     switch (action) {
     case PM_DEVICE_ACTION_SUSPEND:
-        err = k380_kscan_disconnect_inputs(dev);
+        err = k380_kscan_disable(dev);
         if (!err) {
-            err = k380_kscan_disconnect_outputs(dev);
+            err = k380_kscan_disconnect_inputs(dev);
         }
         if (!err) {
-            err = k380_kscan_disable(dev);
+            err = k380_kscan_disconnect_outputs(dev);
         }
         break;
     case PM_DEVICE_ACTION_RESUME:
         err = k380_kscan_setup_pins(dev);
         if (!err) {
-            err = k380_kscan_enable(dev);
+            const struct k380_kscan_data *data = dev->data;
+            if (data->system_off_requested && pm_device_wakeup_is_enabled(dev)) {
+                /* ZMK soft-off resumes wake devices solely to arm GPIO SENSE. */
+                err = k380_kscan_arm_system_off_wake(dev);
+            } else {
+                err = k380_kscan_enable(dev);
+            }
         }
         break;
     default:
@@ -783,6 +888,12 @@ static const struct kscan_driver_api k380_kscan_api = {
 };
 
 #define K380_KSCAN_INIT(n)                                                                         \
+    BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) == 1, "K380 requires one matrix");         \
+    BUILD_ASSERT(!IS_ENABLED(CONFIG_ZMK_PM_SOFT_OFF) || DT_INST_PROP_OR(n, wakeup_source, false), \
+                 "K380 soft-off matrix must be a wakeup-source");                              \
+    BUILD_ASSERT(!IS_ENABLED(CONFIG_ZMK_PM_SOFT_OFF) ||                                          \
+                 DT_HAS_COMPAT_STATUS_OKAY(zmk_soft_off_wakeup_sources),                         \
+                 "K380 soft-off requires explicit wakeup sources");                            \
     BUILD_ASSERT(DT_INST_PROP_LEN(n, row_gpios) == K380_KSCAN_ROWS,                                \
                  "K380 kscan requires exactly 8 row-gpios");                                       \
     BUILD_ASSERT(DT_INST_PROP_LEN(n, col_gpios) == K380_KSCAN_COLS,                                \

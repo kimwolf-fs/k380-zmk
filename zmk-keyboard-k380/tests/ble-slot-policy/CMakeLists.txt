@@ -8,3 +8,7 @@ target_sources(app PRIVATE
   ../../src/status_indicator.c
 )
 target_include_directories(app PRIVATE ../../include ../../../app/include)
+
+# The native policy suite supplies a focused BLE core fake seam. The real
+# app/src/ble.c implementation is exercised by the BLE integration build.
+# Timeout values come from the shared real Kconfig policy fragment.

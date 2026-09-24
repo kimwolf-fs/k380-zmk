@@ -25,6 +25,7 @@
 #include <zmk/behavior.h>
 #include <zmk/hid.h>
 #include <zmk/matrix.h>
+#include <zmk/shutdown_input.h>
 
 #include <zmk/events/position_state_changed.h>
 
@@ -64,7 +65,7 @@ static int invoke_locally(struct zmk_behavior_binding *binding,
     }
 }
 
-int zmk_behavior_invoke_binding(const struct zmk_behavior_binding *src_binding,
+static int invoke_binding(const struct zmk_behavior_binding *src_binding,
                                 struct zmk_behavior_binding_event event, bool pressed) {
     // We want to make a copy of this, since it may be converted from
     // relative to absolute before being invoked
@@ -113,6 +114,16 @@ int zmk_behavior_invoke_binding(const struct zmk_behavior_binding *src_binding,
     }
 
     return -ENOTSUP;
+}
+
+int zmk_behavior_invoke_binding(const struct zmk_behavior_binding *binding,
+                                struct zmk_behavior_binding_event event, bool pressed) {
+    zmk_shutdown_input_lock();
+    int ret = zmk_shutdown_input_dispatch_allowed(pressed)
+                  ? invoke_binding(binding, event, pressed)
+                  : -ECANCELED;
+    zmk_shutdown_input_unlock();
+    return ret;
 }
 
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)

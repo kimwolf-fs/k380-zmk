@@ -318,6 +318,18 @@ void zmk_hid_keyboard_clear(void) {
     memset(&keyboard_report.body, 0, sizeof(keyboard_report.body));
 }
 
+void zmk_hid_keyboard_clear_for_shutdown(void) {
+    zmk_hid_keyboard_clear();
+    memset(explicit_modifier_counts, 0, sizeof(explicit_modifier_counts));
+    explicit_modifiers = 0;
+    implicit_modifiers = 0;
+    masked_modifiers = 0;
+#if IS_ENABLED(CONFIG_ZMK_USB_BOOT)
+    keys_held = 0;
+    memset(&boot_report, 0, sizeof(boot_report));
+#endif
+}
+
 int zmk_hid_consumer_press(zmk_key_t code) {
     TOGGLE_CONSUMER(0U, code);
     return 0;
