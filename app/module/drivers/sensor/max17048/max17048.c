@@ -13,6 +13,7 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/drivers/sensor.h>
 
+#include "../battery/battery_common.h"
 #include "max17048.h"
 
 #define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
@@ -112,26 +113,33 @@ static int max17048_sample_fetch(const struct device *dev, enum sensor_channel c
     k_sem_take(&drv_data->lock, K_FOREVER);
 
     int err = 0;
+    const enum sensor_channel resolved_chan = battery_channel_alias(chan);
+    const bool supported = resolved_chan == SENSOR_CHAN_GAUGE_STATE_OF_CHARGE ||
+                           resolved_chan == SENSOR_CHAN_GAUGE_VOLTAGE ||
+                           resolved_chan == SENSOR_CHAN_ALL;
 
-    if (chan == SENSOR_CHAN_GAUGE_STATE_OF_CHARGE || chan == SENSOR_CHAN_ALL) {
+    if (!supported) {
+        LOG_DBG("unsupported channel %d", chan);
+        err = -ENOTSUP;
+        goto done;
+    }
+
+    if (resolved_chan == SENSOR_CHAN_GAUGE_STATE_OF_CHARGE || resolved_chan == SENSOR_CHAN_ALL) {
         err = read_register(dev, REG_STATE_OF_CHARGE, &drv_data->raw_state_of_charge);
         if (err != 0) {
             LOG_WRN("failed to read state-of-charge: %d", err);
             goto done;
         }
         LOG_DBG("read soc: %d", drv_data->raw_state_of_charge);
+    }
 
-    } else if (chan == SENSOR_CHAN_GAUGE_VOLTAGE || chan == SENSOR_CHAN_ALL) {
+    if (resolved_chan == SENSOR_CHAN_GAUGE_VOLTAGE || resolved_chan == SENSOR_CHAN_ALL) {
         err = read_register(dev, REG_VCELL, &drv_data->raw_vcell);
         if (err != 0) {
             LOG_WRN("failed to read vcell: %d", err);
             goto done;
         }
         LOG_DBG("read vcell: %d", drv_data->raw_vcell);
-
-    } else {
-        LOG_DBG("unsupported channel %d", chan);
-        err = -ENOTSUP;
     }
 
 done:
@@ -148,8 +156,9 @@ static int max17048_channel_get(const struct device *dev, enum sensor_channel ch
 
     struct max17048_drv_data *const data = dev->data;
     unsigned int tmp = 0;
+    const enum sensor_channel resolved_chan = battery_channel_alias(chan);
 
-    switch (chan) {
+    switch (resolved_chan) {
     case SENSOR_CHAN_GAUGE_VOLTAGE:
         // 1250 / 16 = 78.125
         tmp = data->raw_vcell * 1250 / 16;

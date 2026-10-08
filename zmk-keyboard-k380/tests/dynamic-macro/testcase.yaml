@@ -1,0 +1,7 @@
+tests:
+  k380.dynamic_macro:
+    platform_allow:
+      - native_sim
+    tags:
+      - k380
+      - unit

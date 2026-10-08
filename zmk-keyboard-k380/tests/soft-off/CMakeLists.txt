@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.20.0)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(k380_soft_off)
+
+target_sources(app PRIVATE
+  src/main.c
+  ../../src/soft_off.c
+  ../../src/battery_policy.c
+  ../../src/status_indicator.c
+)
+target_include_directories(app PRIVATE ../../include ../../../app/include)

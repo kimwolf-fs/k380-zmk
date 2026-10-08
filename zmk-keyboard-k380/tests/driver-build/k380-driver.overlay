@@ -8,6 +8,7 @@
 
     k380_driver_build_kscan: k380_driver_build_kscan {
         compatible = "k380,kscan-no-diode-matrix";
+        wakeup-source;
         row-gpios =
             <&gpio0 0 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
             <&gpio0 1 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
@@ -23,7 +24,6 @@
             <&gpio0 10 GPIO_PULL_DOWN>,
             <&gpio0 11 GPIO_PULL_DOWN>,
             <&gpio0 12 GPIO_PULL_DOWN>,
-            <&gpio0 13 GPIO_PULL_DOWN>,
             <&gpio0 14 GPIO_PULL_DOWN>,
             <&gpio0 15 GPIO_PULL_DOWN>,
             <&gpio0 16 GPIO_PULL_DOWN>,
@@ -32,11 +32,17 @@
             <&gpio0 19 GPIO_PULL_DOWN>,
             <&gpio0 20 GPIO_PULL_DOWN>,
             <&gpio0 21 GPIO_PULL_DOWN>,
-            <&gpio0 22 GPIO_PULL_DOWN>;
+            <&gpio0 22 GPIO_PULL_DOWN>,
+            <&gpio0 23 GPIO_PULL_DOWN>;
         debounce-press-ms = <1>;
         debounce-release-ms = <1>;
         debounce-scan-period-ms = <1>;
         poll-period-ms = <10>;
+    };
+
+    soft_off_wakeup_sources {
+        compatible = "zmk,soft-off-wakeup-sources";
+        wakeup-sources = <&k380_driver_build_kscan>;
     };
 
     keymap {

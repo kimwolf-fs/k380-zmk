@@ -1,0 +1,31 @@
+#pragma once
+
+#include <stdbool.h>
+
+enum k380_status_id {
+    K380_STATUS_B1_BOOTLOADER_WAITING,
+    K380_STATUS_B2_BOOTLOADER_CDC_ONLY,
+    K380_STATUS_B3_BOOTLOADER_WRITING,
+    K380_STATUS_B4_BOOTLOADER_WRITE_SUCCESS,
+    K380_STATUS_B5_BOOTLOADER_WRITE_FAILED,
+    K380_STATUS_B6_BOOTLOADER_LOW_POWER,
+    K380_STATUS_Z1_NORMAL,
+    K380_STATUS_Z2_CHARGING,
+    K380_STATUS_Z3_LOW_BATTERY,
+    K380_STATUS_Z4_SOFT_OFF_WARNING,
+    K380_STATUS_Z5_BLE_WAITING,
+    K380_STATUS_Z6_BLE_CONNECTED,
+    K380_STATUS_Z7_BLE_PAIRING,
+    K380_STATUS_Z8_BOOTLOADER_REQUEST,
+    K380_STATUS_Z9_MATRIX_FAULT,
+};
+
+int k380_status_indicator_set(enum k380_status_id status);
+void k380_status_indicator_clear(enum k380_status_id status);
+enum k380_status_id k380_status_indicator_current(void);
+void k380_status_indicator_animation_step(void);
+/* Ordinary model updates retain quiet; only the coordinator may authorize resume. */
+void k380_status_indicator_stop_animation(void);
+void k380_status_indicator_resume_animation(void);
+bool k380_status_indicator_animation_active(void);
+void k380_status_indicator_show_bootloader_rejected_blocking(void);
