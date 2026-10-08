@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <zmk/keys.h>
 #include <zmk/ble/profile.h>
 
@@ -26,6 +28,13 @@ int zmk_ble_prof_select(uint8_t index);
 void zmk_ble_clear_all_bonds(void);
 int zmk_ble_prof_disconnect(uint8_t index);
 int zmk_ble_save_active_profile(void);
+bool zmk_ble_active_profile_is_dirty(void);
+int zmk_ble_flush_active_profile_if_dirty(void);
+/* One synchronous attempt only; deadline gates admission, not backend execution. */
+int zmk_ble_flush_active_profile_if_dirty_before(int64_t deadline_ms);
+void zmk_ble_cancel_pending_profile_save(void);
+int zmk_ble_stop_advertising(void);
+int zmk_ble_resume_advertising(void);
 
 int zmk_ble_active_profile_index(void);
 int zmk_ble_profile_index(const bt_addr_le_t *addr);

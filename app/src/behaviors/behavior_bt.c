@@ -15,6 +15,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <drivers/behavior.h>
 #include <dt-bindings/zmk/bt.h>
 #include <zmk/behavior.h>
+#include <zmk/shutdown_input.h>
 
 #include <zmk/ble.h>
 
@@ -90,6 +91,9 @@ static const struct behavior_parameter_metadata metadata = {
 
 static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
                                      struct zmk_behavior_binding_event event) {
+    if (!zmk_shutdown_input_dispatch_allowed(true)) {
+        return -ECANCELED;
+    }
     switch (binding->param1) {
     case BT_CLR_CMD:
         zmk_ble_clear_bonds();

@@ -1,0 +1,15 @@
+tests:
+  k380.low_power:
+    platform_allow:
+      - native_sim
+    tags:
+      - k380
+      - unit
+  k380.low_power.formal_gate:
+    platform_allow:
+      - native_sim
+    extra_configs:
+      - CONFIG_K380_AUTO_SYSTEM_OFF=n
+    tags:
+      - k380
+      - unit

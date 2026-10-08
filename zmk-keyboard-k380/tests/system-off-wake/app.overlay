@@ -1,0 +1,10 @@
+#include <zephyr/dt-bindings/gpio/gpio.h>
+/ {
+    test_gpio: test_gpio {
+        compatible = "zephyr,gpio-emul";
+        gpio-controller;
+        #gpio-cells = <2>;
+        ngpios = <32>;
+        high-level;
+    };
+};

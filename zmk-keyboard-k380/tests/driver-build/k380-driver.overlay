@@ -8,6 +8,7 @@
 
     k380_driver_build_kscan: k380_driver_build_kscan {
         compatible = "k380,kscan-no-diode-matrix";
+        wakeup-source;
         row-gpios =
             <&gpio0 0 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
             <&gpio0 1 (GPIO_ACTIVE_HIGH | GPIO_OPEN_SOURCE)>,
@@ -37,6 +38,11 @@
         debounce-release-ms = <1>;
         debounce-scan-period-ms = <1>;
         poll-period-ms = <10>;
+    };
+
+    soft_off_wakeup_sources {
+        compatible = "zmk,soft-off-wakeup-sources";
+        wakeup-sources = <&k380_driver_build_kscan>;
     };
 
     keymap {

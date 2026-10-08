@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <stdbool.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/init.h>
@@ -72,6 +73,14 @@ static int zmk_battery_update(const struct device *battery) {
         return rc;
     }
 #elif IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING_FETCH_MODE_LITHIUM_VOLTAGE)
+#if IS_ENABLED(CONFIG_K380_BATTERY_POLICY)
+    uint16_t mv;
+    rc = k380_battery_policy_sample_now_sync(&mv);
+    if (rc != 0) {
+        LOG_DBG("Failed to fetch battery voltage: %d", rc);
+        return rc;
+    }
+#else
     rc = sensor_sample_fetch_chan(battery, SENSOR_CHAN_VOLTAGE);
     if (rc != 0) {
         LOG_DBG("Failed to fetch battery values: %d", rc);
@@ -87,6 +96,7 @@ static int zmk_battery_update(const struct device *battery) {
     }
 
     uint16_t mv = voltage.val1 * 1000 + (voltage.val2 / 1000);
+#endif
     state_of_charge.val1 = lithium_ion_mv_to_pct(mv);
 
     LOG_DBG("State of change %d from %d mv", state_of_charge.val1, mv);
@@ -144,9 +154,11 @@ static void zmk_battery_timer(struct k_timer *timer) {
 
 K_TIMER_DEFINE(battery_timer, zmk_battery_timer, NULL);
 
-static void zmk_battery_start_reporting() {
+static void zmk_battery_start_reporting(bool immediate) {
     if (device_is_ready(battery)) {
-        k_timer_start(&battery_timer, K_NO_WAIT, K_SECONDS(CONFIG_ZMK_BATTERY_REPORT_INTERVAL));
+        k_timer_start(&battery_timer,
+                      immediate ? K_NO_WAIT : K_SECONDS(CONFIG_ZMK_BATTERY_REPORT_INTERVAL),
+                      K_SECONDS(CONFIG_ZMK_BATTERY_REPORT_INTERVAL));
     }
 }
 
@@ -166,7 +178,7 @@ static int zmk_battery_init(void) {
         return -ENODEV;
     }
 
-    zmk_battery_start_reporting();
+    zmk_battery_start_reporting(IS_ENABLED(CONFIG_K380_BATTERY_POLICY) ? false : true);
     return 0;
 }
 
@@ -175,11 +187,11 @@ static int battery_event_listener(const zmk_event_t *eh) {
     if (as_zmk_activity_state_changed(eh)) {
         switch (zmk_activity_get_state()) {
         case ZMK_ACTIVITY_ACTIVE:
-            zmk_battery_start_reporting();
+            zmk_battery_start_reporting(true);
             return 0;
         case ZMK_ACTIVITY_IDLE:
         case ZMK_ACTIVITY_SLEEP:
-            k_timer_stop(&battery_timer);
+            /* Keep the standard periodic sampler alive for all system-on states. */
             return 0;
         default:
             break;

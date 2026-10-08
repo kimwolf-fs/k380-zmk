@@ -1,0 +1,8 @@
+tests:
+  k380.shutdown_input:
+    platform_allow:
+      - native_sim
+    tags:
+      - k380
+      - hid
+      - pm
