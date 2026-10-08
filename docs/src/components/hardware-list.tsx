@@ -1,6 +1,6 @@
 import Heading from "@theme/Heading";
 
-import { HardwareMetadata } from "../hardware-metadata";
+import { HardwareMetadata } from "../hardware-types";
 import { groupedMetadata, InterconnectDetails } from "./hardware-utils";
 import { JSX } from "react/jsx-runtime";
 

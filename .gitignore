@@ -6,6 +6,7 @@
 /zephyr
 /zmk-config
 /build
+/.superpowers/
 
 # macOS
 *.DS_Store

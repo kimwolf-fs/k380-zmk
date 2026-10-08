@@ -1,0 +1,8 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: MIT
+
+description: K380 BLE slot behavior
+
+compatible: "k380,behavior-ble-slot"
+
+include: two_param.yaml

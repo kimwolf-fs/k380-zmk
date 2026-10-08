@@ -1,0 +1,6 @@
+description: K380 dynamic key behavior
+compatible: "k380,behavior-dynamic-key"
+include: two_param.yaml
+properties:
+  "#binding-cells":
+    const: 2

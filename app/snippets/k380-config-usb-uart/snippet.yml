@@ -1,0 +1,4 @@
+name: k380-config-usb-uart
+append:
+  EXTRA_DTC_OVERLAY_FILE: k380-config-usb-uart.overlay
+  EXTRA_CONF_FILE: k380-config-usb-uart.conf

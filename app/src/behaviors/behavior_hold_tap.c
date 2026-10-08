@@ -7,12 +7,14 @@
 #define DT_DRV_COMPAT zmk_behavior_hold_tap
 
 #include <zephyr/device.h>
+#include <string.h>
 #include <drivers/behavior.h>
 #include <zmk/keys.h>
 #include <dt-bindings/zmk/keys.h>
 #include <zephyr/logging/log.h>
 #include <zmk/behavior.h>
 #include <zmk/matrix.h>
+#include <zmk/shutdown_input.h>
 #include <zmk/endpoints.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
@@ -86,6 +88,10 @@ struct active_hold_tap {
     const struct behavior_hold_tap_config *config;
     struct k_work_delayable work;
     bool work_is_cancelled;
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    bool hold_pressed;
+    bool tap_pressed;
+#endif
 
     // initialized to -1, which is to be interpreted as "no other key has been pressed yet"
     int32_t position_of_first_other_key_pressed;
@@ -256,7 +262,8 @@ static struct active_hold_tap *store_hold_tap(struct zmk_behavior_binding_event 
                                               uint32_t param_hold, uint32_t param_tap,
                                               const struct behavior_hold_tap_config *config) {
     for (int i = 0; i < ZMK_BHV_HOLD_TAP_MAX_HELD; i++) {
-        if (active_hold_taps[i].position != ZMK_BHV_HOLD_TAP_POSITION_NOT_USED) {
+        if (active_hold_taps[i].position != ZMK_BHV_HOLD_TAP_POSITION_NOT_USED ||
+            active_hold_taps[i].work_is_cancelled) {
             continue;
         }
         active_hold_taps[i].position = event->position;
@@ -269,6 +276,10 @@ static struct active_hold_tap *store_hold_tap(struct zmk_behavior_binding_event 
         active_hold_taps[i].param_tap = param_tap;
         active_hold_taps[i].timestamp = event->timestamp;
         active_hold_taps[i].position_of_first_other_key_pressed = -1;
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+        active_hold_taps[i].hold_pressed = false;
+        active_hold_taps[i].tap_pressed = false;
+#endif
         return &active_hold_taps[i];
     }
     return NULL;
@@ -412,7 +423,11 @@ static int press_hold_binding(struct active_hold_tap *hold_tap) {
 
     struct zmk_behavior_binding binding = {.behavior_dev = hold_tap->config->hold_behavior_dev,
                                            .param1 = hold_tap->param_hold};
-    return zmk_behavior_invoke_binding(&binding, event, true);
+    int ret = zmk_behavior_invoke_binding(&binding, event, true);
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    hold_tap->hold_pressed = ret >= 0;
+#endif
+    return ret;
 }
 
 static int press_tap_binding(struct active_hold_tap *hold_tap) {
@@ -427,10 +442,20 @@ static int press_tap_binding(struct active_hold_tap *hold_tap) {
     struct zmk_behavior_binding binding = {.behavior_dev = hold_tap->config->tap_behavior_dev,
                                            .param1 = hold_tap->param_tap};
     store_last_hold_tapped(hold_tap);
-    return zmk_behavior_invoke_binding(&binding, event, true);
+    int ret = zmk_behavior_invoke_binding(&binding, event, true);
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    hold_tap->tap_pressed = ret >= 0;
+#endif
+    return ret;
 }
 
 static int release_hold_binding(struct active_hold_tap *hold_tap) {
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    if (!hold_tap->hold_pressed) {
+        return 0;
+    }
+    hold_tap->hold_pressed = false;
+#endif
     struct zmk_behavior_binding_event event = {
         .position = hold_tap->position,
         .timestamp = hold_tap->timestamp,
@@ -445,6 +470,12 @@ static int release_hold_binding(struct active_hold_tap *hold_tap) {
 }
 
 static int release_tap_binding(struct active_hold_tap *hold_tap) {
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    if (!hold_tap->tap_pressed) {
+        return 0;
+    }
+    hold_tap->tap_pressed = false;
+#endif
     struct zmk_behavior_binding_event event = {
         .position = hold_tap->position,
         .timestamp = hold_tap->timestamp,
@@ -642,6 +673,9 @@ static int on_hold_tap_binding_pressed(struct zmk_behavior_binding *binding,
 
 static int on_hold_tap_binding_released(struct zmk_behavior_binding *binding,
                                         struct zmk_behavior_binding_event event) {
+    if (zmk_shutdown_input_is_aborting()) {
+        return ZMK_BEHAVIOR_OPAQUE;
+    }
     struct active_hold_tap *hold_tap = find_hold_tap(event.position);
     if (hold_tap == NULL) {
         LOG_ERR("ACTIVE_HOLD_TAP_CLEANED_UP_TOO_EARLY");
@@ -663,11 +697,20 @@ static int on_hold_tap_binding_released(struct zmk_behavior_binding *binding,
         release_hold_binding(hold_tap);
     }
 
-    if (work_cancel_result == -EINPROGRESS) {
+    bool timer_running = work_cancel_result == -EINPROGRESS;
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+    timer_running = timer_running ||
+                    (k_work_busy_get(&hold_tap->work.work) & K_WORK_RUNNING);
+#endif
+    if (timer_running) {
         // let the timer handler clean up
         // if we'd clear now, the timer may call back for an uninitialized active_hold_tap.
         LOG_DBG("%d hold-tap timer work in event queue", event.position);
         hold_tap->work_is_cancelled = true;
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+        /* Do not let a fresh press find or reuse a slot still owned by its old timer. */
+        hold_tap->position = ZMK_BHV_HOLD_TAP_POSITION_NOT_USED;
+#endif
     } else {
         LOG_DBG("%d cleaning up hold-tap", event.position);
         clear_hold_tap(hold_tap);
@@ -819,13 +862,22 @@ static int keycode_state_changed_listener(const zmk_event_t *eh) {
     return ZMK_EV_EVENT_CAPTURED;
 }
 
-int behavior_hold_tap_listener(const zmk_event_t *eh) {
+static int hold_tap_listener(const zmk_event_t *eh) {
     if (as_zmk_position_state_changed(eh) != NULL) {
         return position_state_changed_listener(eh);
     } else if (as_zmk_keycode_state_changed(eh) != NULL) {
         return keycode_state_changed_listener(eh);
     }
     return ZMK_EV_EVENT_BUBBLE;
+}
+
+int behavior_hold_tap_listener(const zmk_event_t *eh) {
+    zmk_shutdown_input_lock();
+    int ret = zmk_shutdown_input_dispatch_allowed(true)
+                  ? hold_tap_listener(eh)
+                  : ZMK_EV_EVENT_BUBBLE;
+    zmk_shutdown_input_unlock();
+    return ret;
 }
 
 ZMK_LISTENER(behavior_hold_tap, behavior_hold_tap_listener);
@@ -837,12 +889,39 @@ void behavior_hold_tap_timer_work_handler(struct k_work *item) {
     struct k_work_delayable *d_work = k_work_delayable_from_work(item);
     struct active_hold_tap *hold_tap = CONTAINER_OF(d_work, struct active_hold_tap, work);
 
+    zmk_shutdown_input_lock();
     if (hold_tap->work_is_cancelled) {
         clear_hold_tap(hold_tap);
-    } else {
+    } else if (zmk_shutdown_input_dispatch_allowed(true)) {
         decide_hold_tap(hold_tap, HT_TIMER_EVENT);
     }
+    zmk_shutdown_input_unlock();
 }
+
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+void zmk_hold_tap_abort(void) {
+    undecided_hold_tap = NULL;
+    memset(captured_events, 0, sizeof(captured_events));
+    last_tapped = (struct last_tapped){INT32_MIN, INT32_MIN};
+    for (int i = 0; i < ZMK_BHV_HOLD_TAP_MAX_HELD; i++) {
+        struct active_hold_tap *hold_tap = &active_hold_taps[i];
+        if (hold_tap->position == ZMK_BHV_HOLD_TAP_POSITION_NOT_USED) {
+            continue;
+        }
+        int ret = k_work_cancel_delayable(&hold_tap->work);
+        release_hold_binding(hold_tap);
+        release_tap_binding(hold_tap);
+        /* A callback waiting on dispatch_lock owns this slot until it acknowledges abort. */
+        if (ret == -EINPROGRESS ||
+            (k_work_busy_get(&hold_tap->work.work) & K_WORK_RUNNING)) {
+            hold_tap->work_is_cancelled = true;
+            hold_tap->position = ZMK_BHV_HOLD_TAP_POSITION_NOT_USED;
+        } else {
+            clear_hold_tap(hold_tap);
+        }
+    }
+}
+#endif
 
 static int behavior_hold_tap_init(const struct device *dev) {
     static bool init_first_run = true;
@@ -881,4 +960,8 @@ static int behavior_hold_tap_init(const struct device *dev) {
 
 DT_INST_FOREACH_STATUS_OKAY(KP_INST)
 
+#else
+#if IS_ENABLED(CONFIG_K380_LOW_POWER_COORDINATOR)
+void zmk_hold_tap_abort(void) {}
+#endif
 #endif /* DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT) */

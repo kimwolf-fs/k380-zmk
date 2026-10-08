@@ -1,0 +1,11 @@
+file_format: "1"
+id: k380//zmk
+name: Logitech K380
+type: board
+arch: arm
+features:
+  - keys
+outputs:
+  - usb
+  - ble
+url: https://github.com/kimwolf-fs/zmk

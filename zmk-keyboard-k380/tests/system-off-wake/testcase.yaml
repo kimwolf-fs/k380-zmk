@@ -1,0 +1,8 @@
+tests:
+  k380.system_off_wake:
+    platform_allow:
+      - native_sim
+    tags:
+      - k380
+      - kscan
+      - pm

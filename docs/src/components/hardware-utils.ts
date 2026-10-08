@@ -3,7 +3,7 @@ import {
   HardwareMetadata,
   Interconnect,
   Shield,
-} from "../hardware-metadata";
+} from "../hardware-types";
 
 export interface InterconnectDetails {
   interconnect?: Interconnect;
