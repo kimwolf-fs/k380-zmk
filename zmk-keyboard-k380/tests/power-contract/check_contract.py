@@ -17,6 +17,7 @@ def check_config(text, mode):
     required = {
         "CONFIG_K380_LOW_POWER_COORDINATOR": "y",
         "CONFIG_K380_SOFT_OFF": "y",
+        "CONFIG_K380_AUTO_SYSTEM_OFF": "y",
         "CONFIG_K380_BATTERY_POLICY": "y",
         "CONFIG_K380_BLE_SLOT_POLICY": "y",
         "CONFIG_ZMK_BATTERY_REPORT_INTERVAL": "60",
@@ -26,7 +27,7 @@ def check_config(text, mode):
     }
     for name, value in required.items():
         assert config.get(name) == value, f"{name} must be {value}"
-    for name in ("CONFIG_K380_AUTO_SYSTEM_OFF", "CONFIG_ZMK_SLEEP", "CONFIG_ZMK_RGB_UNDERGLOW"):
+    for name in ("CONFIG_ZMK_SLEEP", "CONFIG_ZMK_RGB_UNDERGLOW"):
         assert config.get(name, "n") == "n", f"{name} must remain disabled"
 
 

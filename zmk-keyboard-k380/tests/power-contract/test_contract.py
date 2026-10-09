@@ -10,6 +10,7 @@ class PowerContractTests(unittest.TestCase):
 CONFIG_ZMK_PM_SOFT_OFF=y
 CONFIG_K380_LOW_POWER_COORDINATOR=y
 CONFIG_K380_SOFT_OFF=y
+CONFIG_K380_AUTO_SYSTEM_OFF=y
 CONFIG_K380_BATTERY_POLICY=y
 CONFIG_K380_BLE_SLOT_POLICY=y
 CONFIG_ZMK_BATTERY_REPORT_INTERVAL=60
@@ -36,7 +37,6 @@ CONFIG_K380_STARTUP_QUALIFICATION_BUDGET_MS=1000
 
     def test_unsafe_or_missing_formal_config_is_rejected(self):
         for name, value in (
-            ("CONFIG_K380_AUTO_SYSTEM_OFF", "y"),
             ("CONFIG_ZMK_SLEEP", "y"),
             ("CONFIG_ZMK_RGB_UNDERGLOW", "y"),
             ("CONFIG_ZMK_KSCAN_MATRIX_POLLING", "y"),
