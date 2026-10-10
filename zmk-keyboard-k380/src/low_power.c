@@ -510,6 +510,7 @@ bool k380_low_power_test_battery_charging;
 static bool test_keys_released = true;
 static bool test_idle_timer_running;
 static uint32_t test_idle_elapsed_ms;
+static uint32_t test_warning_dwell_ms;
 
 static void test_idle_timer_start(void)
 {
@@ -532,6 +533,7 @@ void k380_low_power_test_reset(void)
 	test_keys_released = true;
 	test_idle_timer_running = false;
 	test_idle_elapsed_ms = 0U;
+	test_warning_dwell_ms = 0U;
 }
 void k380_low_power_test_set_all_keys_released(bool released) { test_keys_released = released; }
 void k380_low_power_test_set_battery_charging(bool charging)
@@ -569,5 +571,7 @@ void k380_low_power_test_notify_matrix_event(bool pressed)
 	test_idle_timer_start();
 }
 bool k380_low_power_test_idle_timer_running(void) { return test_idle_timer_running; }
+void k380_low_power_test_set_warning_dwell_ms(uint32_t ms) { test_warning_dwell_ms = ms; }
+int k380_low_power_test_expire_warning_dwell(void) { return 0; }
 bool k380_low_power_all_keys_released(void) { return test_keys_released; }
 #endif

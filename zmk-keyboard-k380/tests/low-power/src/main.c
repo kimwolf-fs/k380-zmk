@@ -285,3 +285,47 @@ ZTEST(k380_low_power, test_all_causes_cleanup_order_when_keys_are_released)
 		zassert_false(k380_low_power_is_release_waiting());
 	}
 }
+
+ZTEST(k380_low_power, test_soft_off_warning_delay_defaults_to_three_seconds)
+{
+	zassert_equal(CONFIG_K380_SOFT_OFF_WARNING_MS, 3000);
+}
+
+ZTEST(k380_low_power, test_soft_off_warning_holds_cleanup_until_it_expires)
+{
+	reset();
+	k380_low_power_test_set_warning_dwell_ms(CONFIG_K380_SOFT_OFF_WARNING_MS);
+	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+	zassert_equal(warning_calls, 1);
+	zassert_false(k380_low_power_input_events_allowed(),
+		      "input must close as soon as the warning starts");
+	zassert_equal(radio_stop_calls, 0, "radio must survive the warning window");
+	zassert_equal(led_stop_calls, 0, "LED must survive the warning window");
+	zassert_equal(latch_calls, 0, "no persistence before the warning window ends");
+	zassert_equal(system_off_calls, 0, "system off must wait for the warning window");
+	zassert_ok(k380_low_power_test_expire_warning_dwell());
+	zassert_equal(latch_calls, 1);
+	zassert_equal(system_off_calls, 1);
+}
+
+ZTEST(k380_low_power, test_soft_off_warning_cancelled_before_cleanup_never_shuts_down)
+{
+	reset();
+	zassert_ok(k380_low_power_startup_voltage_result(true, false, true));
+	k380_low_power_test_set_warning_dwell_ms(CONFIG_K380_SOFT_OFF_WARNING_MS);
+	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+	k380_low_power_cancel_usb_pending();
+	zassert_true(k380_low_power_input_events_allowed(),
+		     "USB must release the pending shutdown request");
+	zassert_equal(radio_stop_calls, 0, "cancel must happen before any cleanup");
+	zassert_ok(k380_low_power_test_expire_warning_dwell());
+	zassert_equal(system_off_calls, 0, "a cancelled warning must never shut down later");
+}
+
+ZTEST(k380_low_power, test_zero_warning_window_keeps_synchronous_shutdown)
+{
+	reset();
+	k380_low_power_test_set_warning_dwell_ms(0U);
+	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
+	zassert_equal(system_off_calls, 1);
+}

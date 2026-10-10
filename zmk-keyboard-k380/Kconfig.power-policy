@@ -25,3 +25,13 @@ config K380_IDLE_SLEEP_TIMEOUT_MS
     int "K380 battery idle sleep timeout (ms)"
     default 600000
     range 1 2147483647
+
+config K380_SOFT_OFF_WARNING_MS
+    int "K380 soft-off warning duration (ms)"
+    default 3000
+    range 0 60000
+    help
+      Duration the shared soft-off warning indication is shown before the
+      shutdown cleanup starts. Input stays suppressed for the whole window so
+      USB insertion or a safe voltage recovery can still cancel the request.
+      Zero disables the warning window.
