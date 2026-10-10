@@ -17,6 +17,7 @@ CONFIG_ZMK_BATTERY_REPORT_INTERVAL=60
 CONFIG_K380_BLE_WAIT_TIMEOUT_MS=30000
 CONFIG_K380_BLE_PAIRING_TIMEOUT_MS=60000
 CONFIG_K380_STARTUP_QUALIFICATION_BUDGET_MS=1000
+CONFIG_K380_SOFT_OFF_WARNING_MS=3000
 """
         self.matrix = SimpleNamespace(props={
             "wakeup-source": SimpleNamespace(val=True),
@@ -44,6 +45,7 @@ CONFIG_K380_STARTUP_QUALIFICATION_BUDGET_MS=1000
             ("CONFIG_K380_LOW_POWER_COORDINATOR", "n"),
             ("CONFIG_K380_BLE_WAIT_TIMEOUT_MS", "10000"),
             ("CONFIG_K380_STARTUP_QUALIFICATION_BUDGET_MS", "1001"),
+            ("CONFIG_K380_SOFT_OFF_WARNING_MS", "1000"),
         ):
             config = "\n".join(line for line in self.config.splitlines()
                                if not line.startswith(name + "="))

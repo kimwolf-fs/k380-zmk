@@ -60,6 +60,22 @@ static bool reason_valid;
 static bool ble_start_allowed;
 static bool radio_and_led_quiet;
 
+#ifdef CONFIG_K380_LOW_POWER_TEST
+static uint32_t test_warning_dwell_ms;
+#endif
+
+#if !defined(CONFIG_K380_LOW_POWER_TEST)
+static void warning_dwell_work_handler(struct k_work *work);
+K_WORK_DELAYABLE_DEFINE(warning_dwell_work, warning_dwell_work_handler);
+
+static void cancel_warning_dwell(void)
+{
+	(void)k_work_cancel_delayable(&warning_dwell_work);
+}
+#else
+static void cancel_warning_dwell(void) {}
+#endif
+
 #if !defined(CONFIG_K380_LOW_POWER_TEST) && IS_ENABLED(CONFIG_K380_BATTERY_POLICY) && \
 	IS_ENABLED(CONFIG_K380_AUTO_SYSTEM_OFF)
 static void idle_sleep_work_handler(struct k_work *work);
@@ -76,6 +92,12 @@ __weak int k380_low_power_start_warning(enum k380_shutdown_reason reason)
 	return 0;
 #else
 	return k380_status_indicator_set(K380_STATUS_Z4_SOFT_OFF_WARNING);
+#endif
+}
+__weak void k380_low_power_cancel_warning(void)
+{
+#ifndef CONFIG_K380_LOW_POWER_TEST
+	k380_status_indicator_clear(K380_STATUS_Z4_SOFT_OFF_WARNING);
 #endif
 }
 __weak int k380_low_power_stop_radio(void)
@@ -255,6 +277,8 @@ static bool reconcile_cancellation(void)
 	}
 	atomic_set(&state, K380_LOW_POWER_READY);
 	reason_valid = false;
+	cancel_warning_dwell();
+	k380_low_power_cancel_warning();
 	if (may_restore) {
 		(void)k380_low_power_restore_radio_and_led();
 	}
@@ -300,6 +324,59 @@ static void release_cleanup_owner(void)
 		cancel_pending(0);
 	}
 }
+
+static uint32_t warning_dwell_ms(void)
+{
+#ifdef CONFIG_K380_LOW_POWER_TEST
+	return test_warning_dwell_ms;
+#else
+	return CONFIG_K380_SOFT_OFF_WARNING_MS;
+#endif
+}
+
+/* Caller owns the cleanup slot. */
+static int complete_shutdown_after_warning(void)
+{
+	if (atomic_get(&state) != K380_LOW_POWER_WARNING) {
+		/* Cancelled while the warning window was open. */
+		return 0;
+	}
+
+	int err = prepare_request();
+	if (reconcile_cancellation()) {
+		return -ECANCELED;
+	}
+	if (err) {
+		atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
+		return err;
+	}
+	if (!k380_low_power_all_keys_released()) {
+		atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
+		return 0;
+	}
+
+	return complete_request();
+}
+
+static void schedule_warning_dwell(void)
+{
+#if !defined(CONFIG_K380_LOW_POWER_TEST)
+	(void)k_work_reschedule(&warning_dwell_work, K_MSEC(warning_dwell_ms()));
+#endif
+}
+
+#if !defined(CONFIG_K380_LOW_POWER_TEST)
+static void warning_dwell_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	if (!atomic_cas(&cleanup_busy, 0, 1)) {
+		return;
+	}
+	(void)complete_shutdown_after_warning();
+	release_cleanup_owner();
+}
+#endif
 
 bool k380_low_power_ble_start_allowed(void)
 {
@@ -368,23 +445,15 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 		return -EIO;
 	}
 
-	int err = prepare_request();
-	if (reconcile_cancellation()) {
+	/* Show the shared warning before touching radio, LED or persisted state so
+	 * USB insertion or a safe voltage recovery can still cancel the request. */
+	if (warning_dwell_ms() > 0U) {
 		release_cleanup_owner();
-		return -ECANCELED;
-	}
-	if (err) {
-		atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
-		release_cleanup_owner();
-		return err;
-	}
-	if (!k380_low_power_all_keys_released()) {
-		atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
-		release_cleanup_owner();
+		schedule_warning_dwell();
 		return 0;
 	}
 
-	err = complete_request();
+	const int err = complete_shutdown_after_warning();
 	release_cleanup_owner();
 	return err;
 }
@@ -532,6 +601,7 @@ void k380_low_power_test_reset(void)
 	test_keys_released = true;
 	test_idle_timer_running = false;
 	test_idle_elapsed_ms = 0U;
+	test_warning_dwell_ms = 0U;
 }
 void k380_low_power_test_set_all_keys_released(bool released) { test_keys_released = released; }
 void k380_low_power_test_set_battery_charging(bool charging)
@@ -569,5 +639,15 @@ void k380_low_power_test_notify_matrix_event(bool pressed)
 	test_idle_timer_start();
 }
 bool k380_low_power_test_idle_timer_running(void) { return test_idle_timer_running; }
+void k380_low_power_test_set_warning_dwell_ms(uint32_t ms) { test_warning_dwell_ms = ms; }
+int k380_low_power_test_expire_warning_dwell(void)
+{
+	if (!atomic_cas(&cleanup_busy, 0, 1)) {
+		return 0;
+	}
+	const int err = complete_shutdown_after_warning();
+	release_cleanup_owner();
+	return err;
+}
 bool k380_low_power_all_keys_released(void) { return test_keys_released; }
 #endif

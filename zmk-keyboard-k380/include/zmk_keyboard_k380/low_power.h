@@ -35,4 +35,6 @@ void k380_low_power_test_start_idle_timer(void);
 void k380_low_power_test_advance_idle_ms(uint32_t elapsed_ms);
 void k380_low_power_test_notify_matrix_event(bool pressed);
 bool k380_low_power_test_idle_timer_running(void);
+void k380_low_power_test_set_warning_dwell_ms(uint32_t ms);
+int k380_low_power_test_expire_warning_dwell(void);
 #endif

@@ -24,6 +24,7 @@ def check_config(text, mode):
         "CONFIG_K380_BLE_WAIT_TIMEOUT_MS": "30000",
         "CONFIG_K380_BLE_PAIRING_TIMEOUT_MS": "60000",
         "CONFIG_K380_STARTUP_QUALIFICATION_BUDGET_MS": "1000",
+        "CONFIG_K380_SOFT_OFF_WARNING_MS": "3000",
     }
     for name, value in required.items():
         assert config.get(name) == value, f"{name} must be {value}"
