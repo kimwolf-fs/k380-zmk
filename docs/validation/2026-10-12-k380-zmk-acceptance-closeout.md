@@ -139,7 +139,7 @@ Z6 绿灯会在电源状态变化时重复亮起，属于既有行为，不在�
 | --- | --- | --- |
 | `UICR.REGOUT0 = 1.8 V` | 根 PRD 板级事实，正式构建契约断言 | 通过 |
 | Bootloader `VDDH > 4.5 V` USB DFU/UF2 写入门禁 | `k380-bootloader/docs/validation/2026-09-23-k380-power-entry-gate.md` H01–H04 | 通过 |
-| ZMK 3.4 V 低电量提醒与 3.2 V 保护性软关机 | `docs/validation/2026-10-09-k380-low-voltage-validation.md` L1–L5 | 通过 |
+| ZMK 3.4 V 低电量提醒与 3.2 V 保护性软关机 | `2026-10-09-k380-low-voltage-validation.md` L1–L5 | 通过 |
 | 低电压软关机前状态保存与恢复 | 同上 L3/L5 与 Z1/Z2 | 通过 |
 | 空闲、Z5 回连超时和 Z7 配对超时自动关机不亮红灯 | 同上「超时关机红灯抑制与低压回归」T1–T4 | 通过 |
 
@@ -148,9 +148,21 @@ Z6 绿灯会在电源状态变化时重复亮起，属于既有行为，不在�
 `VDDH > 4.5 V` 立即取消低压软关机的实板确认（3 秒警告窗口内插 USB，以及灯灭后再插 USB）
 仍需单独测试，见 `docs/k380-实板验证清单.md` 待验证区。
 
+## 7. 已知既有行为（不作为缺陷跟踪）
+
+以下现象经确认属于既有设计或当前测量条件限制，不作为缺陷跟踪，也不再安排修复：
+
+| 现象 | 说明 | 结论 |
+| --- | --- | --- |
+| Z6 绿灯在电源状态变化时重复亮起 | `k380_ble_slot_power_state_changed()` 会在电源状态变化时刷新当前槽位状态，已连接时重新触发 Z6 短提示 | 既有实现行为，不证明发生过断连 |
+| Z3/Z4 期间的 USB 取消时机 | 在红灯慢闪、红灯快闪的 3 秒窗口或灯灭之后的任一时刻插入 USB，都进入充电态并唤醒，体感等价 | 不要求区分窗口内外的具体时刻 |
+| USB 供电功耗 | 现有功耗分析仪只能走电池供电通路，USB 供电路径无法测量 | 当前测量条件下的限制，不出功耗结论 |
+| release-wait 期间约 800 µA | 长按按键跨越关机边界时的释放等待电流 | 已决定暂不优化，仅记录实测值 |
+
 ## 关联记录
 
-- `k380-zmk/docs/validation/2026-09-18-k380-low-power-wake.md`
-- `k380-zmk/docs/validation/2026-09-23-k380-idle-system-off.md`
-- `docs/validation/2026-10-09-k380-low-voltage-validation.md`
+- `2026-09-18-k380-low-power-wake.md`
+- `2026-09-23-k380-idle-system-off.md`
+- `2026-10-09-k380-low-voltage-validation.md`
+- `2026-10-09-k380-macro-release-status.md`
 - `k380-bootloader/docs/validation/2026-09-23-k380-power-entry-gate.md`
