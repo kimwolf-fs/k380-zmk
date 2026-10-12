@@ -344,3 +344,56 @@ ZTEST(k380_low_power, test_warning_indication_is_low_voltage_only)
 		zassert_equal(radio_stop_calls, 1);
 	}
 }
+
+ZTEST(k380_low_power, test_macro_execution_suspends_idle_window)
+{
+	reset();
+	k380_low_power_test_set_battery_charging(false);
+	k380_low_power_test_advance_idle_ms(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS / 2U);
+	k380_low_power_test_notify_macro_running(true);
+	zassert_false(k380_low_power_test_idle_timer_running(),
+		      "a running macro must suspend the idle window");
+	k380_low_power_test_advance_idle_ms(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS * 2U);
+	zassert_equal(system_off_calls, 0, "a running macro must not allow idle system off");
+}
+
+ZTEST(k380_low_power, test_macro_stop_restarts_a_full_idle_window)
+{
+	reset();
+	k380_low_power_test_set_battery_charging(false);
+	k380_low_power_test_notify_macro_running(true);
+	k380_low_power_test_advance_idle_ms(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS * 3U);
+	zassert_equal(system_off_calls, 0);
+	k380_low_power_test_notify_macro_running(false);
+	zassert_true(k380_low_power_test_idle_timer_running(),
+		     "the window must be rearmed when the macro stops");
+	k380_low_power_test_advance_idle_ms(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS - 1U);
+	zassert_equal(system_off_calls, 0,
+		      "a macro that outlived the window must still get a full window after it stops");
+	k380_low_power_test_advance_idle_ms(1U);
+	zassert_equal(system_off_calls, 1);
+}
+
+ZTEST(k380_low_power, test_matrix_events_do_not_rearm_the_window_during_a_macro)
+{
+	reset();
+	k380_low_power_test_set_battery_charging(false);
+	k380_low_power_test_notify_macro_running(true);
+	k380_low_power_test_notify_matrix_event(true);
+	zassert_false(k380_low_power_test_idle_timer_running(),
+		      "matrix activity during a macro must not arm the idle window");
+	k380_low_power_test_advance_idle_ms(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS * 2U);
+	zassert_equal(system_off_calls, 0);
+}
+
+ZTEST(k380_low_power, test_macro_activity_never_arms_the_window_on_usb)
+{
+	reset();
+	k380_low_power_test_set_battery_charging(true);
+	k380_low_power_test_notify_macro_running(true);
+	k380_low_power_test_notify_macro_running(false);
+	zassert_false(k380_low_power_test_idle_timer_running(),
+		      "USB power must never arm the idle window");
+	k380_low_power_test_advance_idle_ms(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS * 2U);
+	zassert_equal(system_off_calls, 0);
+}

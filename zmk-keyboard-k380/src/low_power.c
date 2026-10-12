@@ -558,6 +558,15 @@ static int k380_idle_sleep_init(void)
 SYS_INIT(k380_idle_sleep_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
 #endif
 
+void k380_low_power_macro_activity_changed(bool running)
+{
+#ifdef CONFIG_K380_LOW_POWER_TEST
+	k380_low_power_test_notify_macro_running(running);
+#else
+	ARG_UNUSED(running);
+#endif
+}
+
 void k380_low_power_power_state_changed(bool battery_powered)
 {
 #if defined(CONFIG_K380_LOW_POWER_TEST)
@@ -641,6 +650,7 @@ void k380_low_power_test_notify_matrix_event(bool pressed)
 	ARG_UNUSED(pressed);
 	test_idle_timer_start();
 }
+void k380_low_power_test_notify_macro_running(bool running) { ARG_UNUSED(running); }
 bool k380_low_power_test_idle_timer_running(void) { return test_idle_timer_running; }
 void k380_low_power_test_set_warning_dwell_ms(uint32_t ms) { test_warning_dwell_ms = ms; }
 int k380_low_power_test_expire_warning_dwell(void)
