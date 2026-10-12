@@ -329,3 +329,18 @@ ZTEST(k380_low_power, test_zero_warning_window_keeps_synchronous_shutdown)
 	zassert_ok(k380_low_power_request(K380_SHUTDOWN_LOW_VOLTAGE));
 	zassert_equal(system_off_calls, 1);
 }
+
+ZTEST(k380_low_power, test_warning_indication_is_low_voltage_only)
+{
+	for (int reason = K380_SHUTDOWN_BLE_WAIT_TIMEOUT; reason <= K380_SHUTDOWN_IDLE_TIMEOUT;
+	     reason++) {
+		reset();
+		k380_low_power_test_set_warning_dwell_ms(CONFIG_K380_SOFT_OFF_WARNING_MS);
+		zassert_ok(k380_low_power_request(reason));
+		zassert_equal(warning_calls, 0,
+			      "only low-voltage protection may show the WS4 soft-off warning");
+		zassert_equal(system_off_calls, 1,
+			      "timeout shutdowns must not wait for a warning window");
+		zassert_equal(radio_stop_calls, 1);
+	}
+}
