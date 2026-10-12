@@ -435,8 +435,11 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 	request_prepared = false;
 	last_reason = reason;
 	reason_valid = true;
+	/* Only the protective low-voltage path shows the WS4 soft-off warning;
+	 * idle and timeout shutdowns must not flash the power LED. */
+	const bool shows_warning = reason == K380_SHUTDOWN_LOW_VOLTAGE;
 	atomic_set(&state, K380_LOW_POWER_WARNING);
-	if (k380_low_power_start_warning(reason) != 0) {
+	if (shows_warning && k380_low_power_start_warning(reason) != 0) {
 		atomic_or(&cancellation, CANCEL_USB);
 		if (!reconcile_cancellation()) {
 			atomic_set(&state, K380_LOW_POWER_RELEASE_WAIT);
@@ -447,7 +450,7 @@ int k380_low_power_request(enum k380_shutdown_reason reason)
 
 	/* Show the shared warning before touching radio, LED or persisted state so
 	 * USB insertion or a safe voltage recovery can still cancel the request. */
-	if (warning_dwell_ms() > 0U) {
+	if (shows_warning && warning_dwell_ms() > 0U) {
 		release_cleanup_owner();
 		schedule_warning_dwell();
 		return 0;
