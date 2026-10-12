@@ -470,6 +470,16 @@ static enum k380_macro_vm_error run_record(void)
     return error;
 }
 
+/* The low-power coordinator is not part of every K380 build, so the seam is weak. */
+extern void k380_low_power_macro_activity_changed(bool running) __attribute__((weak));
+
+static void notify_macro_activity(bool running)
+{
+    if (k380_low_power_macro_activity_changed != NULL) {
+        k380_low_power_macro_activity_changed(running);
+    }
+}
+
 static void dynamic_macro_thread(void *arg1, void *arg2, void *arg3)
 {
     ARG_UNUSED(arg1);
@@ -478,6 +488,7 @@ static void dynamic_macro_thread(void *arg1, void *arg2, void *arg3)
 
     while (true) {
         k_sem_take(&macro_start_signal, K_FOREVER);
+        notify_macro_activity(true);
         enum k380_macro_vm_error result = run_record();
 
         lock_runner();
@@ -499,6 +510,7 @@ static void dynamic_macro_thread(void *arg1, void *arg2, void *arg3)
                                : K380_DYNAMIC_MACRO_RUN_ERROR;
         }
         unlock_runner();
+        notify_macro_activity(false);
     }
 }
 
