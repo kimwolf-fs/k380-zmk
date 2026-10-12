@@ -18,3 +18,11 @@ __pycache__
 
 # clangd
 app/.cache/
+
+# Local CI diagnostics, downloaded artifacts and skill state.
+# `.artifacts/` only holds temporary download and validation output and must
+# never be committed (see root docs/k380-产品需求文档.md).
+/.artifacts/
+/.ci-worktree/
+/.ci-debug-*/
+/.embeddedskills/
