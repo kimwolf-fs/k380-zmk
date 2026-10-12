@@ -50,6 +50,9 @@ enum k380_low_power_state {
 static atomic_t state;
 static atomic_t cleanup_busy;
 static atomic_t cancellation;
+/* Set while the macro runner is executing. Macro execution is activity, so the
+ * battery idle window is suspended for its whole duration. */
+static atomic_t macro_running;
 static struct k_spinlock lifecycle_lock;
 #define CANCEL_USB BIT(0)
 #define CANCEL_CONNECTION BIT(1)
@@ -522,9 +525,33 @@ static void idle_sleep_timer_handler(struct k_timer *timer)
     k_work_submit(&idle_sleep_work);
 }
 
+static bool idle_window_allowed(void)
+{
+	return k380_battery_policy_is_battery_powered() &&
+	       k380_low_power_input_events_allowed() && atomic_get(&macro_running) == 0;
+}
+
+/* Rearm the window whenever activity or power state moves. Every transition
+ * starts a full window; only a running macro leaves the timer stopped. */
+static void refresh_idle_timer(void)
+{
+	if (idle_window_allowed()) {
+		k_timer_start(&idle_sleep_timer, K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS),
+			      K_NO_WAIT);
+	} else {
+		k_timer_stop(&idle_sleep_timer);
+	}
+}
+
 static void idle_sleep_work_handler(struct k_work *work)
 {
     ARG_UNUSED(work);
+    if (atomic_get(&macro_running) != 0) {
+        /* A macro that started while this callback was queued keeps the device awake
+         * and gets a full window once it stops. */
+        refresh_idle_timer();
+        return;
+    }
     uint16_t mv;
     if (k380_battery_policy_sample_now_sync(&mv) == 0) {
         (void)k380_battery_policy_submit_mv(mv);
@@ -537,10 +564,7 @@ static void idle_sleep_work_handler(struct k_work *work)
 static int idle_sleep_activity_listener(const zmk_event_t *event)
 {
 	ARG_UNUSED(event);
-	if (k380_low_power_input_events_allowed() &&
-	    k380_battery_policy_is_battery_powered()) {
-		k_timer_start(&idle_sleep_timer, K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS), K_NO_WAIT);
-	}
+	refresh_idle_timer();
     return ZMK_EV_EVENT_BUBBLE;
 }
 
@@ -549,9 +573,7 @@ ZMK_SUBSCRIPTION(k380_idle_sleep, zmk_position_state_changed);
 
 static int k380_idle_sleep_init(void)
 {
-	if (k380_battery_policy_is_battery_powered()) {
-		k_timer_start(&idle_sleep_timer, K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS), K_NO_WAIT);
-	}
+	refresh_idle_timer();
 	return 0;
 }
 
@@ -560,10 +582,11 @@ SYS_INIT(k380_idle_sleep_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
 
 void k380_low_power_macro_activity_changed(bool running)
 {
+	atomic_set(&macro_running, running ? 1 : 0);
 #ifdef CONFIG_K380_LOW_POWER_TEST
 	k380_low_power_test_notify_macro_running(running);
-#else
-	ARG_UNUSED(running);
+#elif IS_ENABLED(CONFIG_K380_BATTERY_POLICY) && IS_ENABLED(CONFIG_K380_AUTO_SYSTEM_OFF)
+	refresh_idle_timer();
 #endif
 }
 
@@ -578,8 +601,8 @@ void k380_low_power_power_state_changed(bool battery_powered)
 #elif IS_ENABLED(CONFIG_K380_BATTERY_POLICY) && IS_ENABLED(CONFIG_K380_AUTO_SYSTEM_OFF)
 	if (!battery_powered) {
 		k_timer_stop(&idle_sleep_timer);
-	} else if (k380_low_power_input_events_allowed()) {
-		k_timer_start(&idle_sleep_timer, K_MSEC(CONFIG_K380_IDLE_SLEEP_TIMEOUT_MS), K_NO_WAIT);
+	} else {
+		refresh_idle_timer();
 	}
 #else
 	ARG_UNUSED(battery_powered);
@@ -591,10 +614,12 @@ bool k380_low_power_test_battery_charging;
 static bool test_keys_released = true;
 static bool test_idle_timer_running;
 static uint32_t test_idle_elapsed_ms;
+static bool test_macro_running;
 
 static void test_idle_timer_start(void)
 {
-	if (!k380_low_power_test_battery_charging && k380_low_power_input_events_allowed()) {
+	if (!k380_low_power_test_battery_charging && !test_macro_running &&
+	    k380_low_power_input_events_allowed()) {
 		test_idle_timer_running = true;
 		test_idle_elapsed_ms = 0U;
 	}
@@ -614,6 +639,7 @@ void k380_low_power_test_reset(void)
 	test_idle_timer_running = false;
 	test_idle_elapsed_ms = 0U;
 	test_warning_dwell_ms = 0U;
+	test_macro_running = false;
 }
 void k380_low_power_test_set_all_keys_released(bool released) { test_keys_released = released; }
 void k380_low_power_test_set_battery_charging(bool charging)
@@ -650,7 +676,16 @@ void k380_low_power_test_notify_matrix_event(bool pressed)
 	ARG_UNUSED(pressed);
 	test_idle_timer_start();
 }
-void k380_low_power_test_notify_macro_running(bool running) { ARG_UNUSED(running); }
+void k380_low_power_test_notify_macro_running(bool running)
+{
+	test_macro_running = running;
+	if (running) {
+		test_idle_timer_running = false;
+		test_idle_elapsed_ms = 0U;
+	} else {
+		test_idle_timer_start();
+	}
+}
 bool k380_low_power_test_idle_timer_running(void) { return test_idle_timer_running; }
 void k380_low_power_test_set_warning_dwell_ms(uint32_t ms) { test_warning_dwell_ms = ms; }
 int k380_low_power_test_expire_warning_dwell(void)
